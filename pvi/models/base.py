@@ -79,3 +79,12 @@ class Model(ABC, nn.Module):
         :return: A sample from the predictive posterior, ∫ p(y | θ, x) q(θ) dθ.
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def get_distribution(self, parameters=None):
+        """
+        Returns the distribution defined by the parameters.
+        :param parameters: Parameters of the distribution.
+        :return: Distribution defined by the parameters.
+        """
+        raise NotImplementedError

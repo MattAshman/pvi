@@ -27,13 +27,13 @@ class LinearRegressionModel(Model):
         :param x: The input locations to make predictions at.
         :return: ∫ p(y | θ, x) p(θ | D) dθ.
         """
-        w_prec = -2 * self.parameters["np2"]
-        w_mu = torch.solve(self.parameters["np1"], w_prec)
+        prec = -2 * self.parameters["np2"]
+        mu = torch.solve(self.parameters["np1"], prec)
 
-        mu = x.T.matmul(w_mu)
-        cov = x.T.matmul(torch.solve(x, w_prec))
+        pp_mu = x.T.matmul(mu)
+        pp_cov = x.T.matmul(torch.solve(x, prec))
 
-        return distributions.MultivariateNormal(mu, cov)
+        return distributions.MultivariateNormal(pp_mu, pp_cov)
 
     def fit(self, data, t_i):
         """
@@ -46,6 +46,7 @@ class LinearRegressionModel(Model):
         np1_i_new = (self.likelihood.output_sigma ** (-2)
                      * data["x"].T.matmul(data["y"]))
 
+        # Update model parameters.
         self.parameters["np1"] = (self.parameters["np1"] - t_i["np1"]
                                   + np1_i_new)
         self.parameters["np2"] = (self.parameters["np2"] - t_i["np2"]
@@ -67,6 +68,21 @@ class LinearRegressionModel(Model):
         :return: A sample from the predictive posterior, ∫ p(y | θ,
         x) p(θ | D) dθ.
         """
-        py_xD = self.forward(x)
+        pp = self.forward(x)
 
-        return py_xD.sample((num_samples,))
+        return pp.sample((num_samples,))
+
+    def get_distribution(self, parameters=None):
+        """
+        Return a multivariate Gaussian distribution defined by parameters.
+        :param parameters: Natural parameters of a multivariate Gaussian
+        distribution.
+        :return: Multivariate Gaussian distribution defined by the parameters.
+        """
+        if parameters is None:
+            parameters = self.parameters
+
+        prec = -2 * parameters["np2"]
+        mu = torch.solve(parameters["np1"], prec)
+
+        return distributions.MultivariateNormal(mu, precision_matrix=prec)
