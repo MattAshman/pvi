@@ -1,24 +1,31 @@
 import torch
 
-from torch import distributions
+from torch import distributions, nn
 from .base import Model
 from pvi.likelihoods.linear_regression import LinearRegressionLikelihood
 
 
 class LinearRegressionModel(Model):
-    def __init__(self, dim, output_sigma=1.):
-        super().__init__(LinearRegressionLikelihood(output_sigma))
-
-        self.dim = dim
+    """
+    Linear regression model with a Gaussian prior distribution.
+    """
+    def __init__(self, output_sigma=1., **kwargs):
+        super().__init__(LinearRegressionLikelihood(output_sigma), **kwargs)
 
     def get_default_parameters(self):
         return {
-            "np1": torch.tensor([0.]*self.dim),
-            "np2": torch.tensor([1.]*self.dim)
+            "np1": nn.Parameter(
+                torch.tensor([0.]*self.hyperparameters["D"]),
+                requires_grad=False),
+            "np2": nn.Parameter(
+                torch.tensor([1.]*self.hyperparameters["D"]).diag_embed(),
+                requires_grad=False)
         }
 
     def get_default_hyperparameters(self):
-        return {}
+        return {
+            "D": None
+        }
 
     def forward(self, x):
         """
