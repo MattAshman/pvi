@@ -32,8 +32,8 @@ class Model(ABC, nn.Module):
     def get_parameters(self):
         return self.parameters
 
-    @classmethod
-    def get_default_parameters(cls):
+    @abstractmethod
+    def get_default_parameters(self):
         """
         :return: A default set of parameters for the (approximate) posterior.
         """
@@ -45,8 +45,8 @@ class Model(ABC, nn.Module):
     def get_hyperparameters(self):
         return self.hyperparameters
 
-    @classmethod
-    def get_default_hyperparameters(cls):
+    @abstractmethod
+    def get_default_hyperparameters(self):
         """
         :return: A default set of hyperparameters for the model.
         """
@@ -66,8 +66,7 @@ class Model(ABC, nn.Module):
         """
         :param data: The local data to refine the model with.
         :param t_i: The local contribution of the client.
-        :return: θ_i_new, t_i_new, the new model parameters and new local
-        contribution.
+        :return: t_i_new, the new local contribution.
         """
         raise NotImplementedError
 
