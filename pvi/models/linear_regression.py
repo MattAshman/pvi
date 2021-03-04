@@ -12,13 +12,13 @@ class LinearRegressionModel(Model):
     def __init__(self, output_sigma=1., **kwargs):
         super().__init__(LinearRegressionLikelihood(output_sigma), **kwargs)
 
-    def get_default_parameters(self):
+    def get_default_nat_params(self):
         return {
             "np1": nn.Parameter(
-                torch.tensor([0.]*self.hyperparameters["D"]),
+                torch.tensor([0.]*(self.hyperparameters["D"]+1)),
                 requires_grad=False),
             "np2": nn.Parameter(
-                torch.tensor([1.]*self.hyperparameters["D"]).diag_embed(),
+                torch.tensor([1.]*(self.hyperparameters["D"]+1)).diag_embed(),
                 requires_grad=False)
         }
 
@@ -34,8 +34,8 @@ class LinearRegressionModel(Model):
         :param x: The input locations to make predictions at.
         :return: ∫ p(y | θ, x) p(θ | D) dθ.
         """
-        prec = -2 * self.parameters["np2"]
-        mu = torch.solve(self.parameters["np1"], prec)
+        prec = -2 * self.nat_params["np2"]
+        mu = torch.solve(self.nat_params["np1"], prec)
 
         pp_mu = x.T.matmul(mu)
         pp_cov = x.T.matmul(torch.solve(x, prec))
@@ -54,9 +54,9 @@ class LinearRegressionModel(Model):
                      * data["x"].T.matmul(data["y"]))
 
         # Update model parameters.
-        self.parameters["np1"] = (self.parameters["np1"] - t_i["np1"]
+        self.nat_params["np1"] = (self.nat_params["np1"] - t_i["np1"]
                                   + np1_i_new)
-        self.parameters["np2"] = (self.parameters["np2"] - t_i["np2"]
+        self.nat_params["np2"] = (self.nat_params["np2"] - t_i["np2"]
                                   + np2_i_new)
 
         t_i_new = {
@@ -79,17 +79,17 @@ class LinearRegressionModel(Model):
 
         return pp.sample((num_samples,))
 
-    def get_distribution(self, parameters=None):
+    def get_distribution(self, nat_params=None):
         """
         Return a multivariate Gaussian distribution defined by parameters.
-        :param parameters: Natural parameters of a multivariate Gaussian
+        :param nat_params: Natural parameters of a multivariate Gaussian
         distribution.
         :return: Multivariate Gaussian distribution defined by the parameters.
         """
-        if parameters is None:
-            parameters = self.parameters
+        if nat_params is None:
+            nat_params = self.nat_params
 
-        prec = -2 * parameters["np2"]
-        mu = torch.solve(parameters["np1"], prec)
+        prec = -2 * nat_params["np2"]
+        mu = torch.solve(nat_params["np1"], prec)
 
         return distributions.MultivariateNormal(mu, precision_matrix=prec)

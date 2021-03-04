@@ -13,5 +13,6 @@ class LinearRegressionLikelihood(Likelihood):
         self.register_buffer("output_sigma", torch.tensor(output_sigma))
 
     def forward(self, x, theta):
-        return distributions.Normal(
-            F.linear(x, theta[:-1], theta[-1]), self.output_sigma)
+        mu = (x.unsqueeze(-2).matmul(theta[:-1].unsqueeze(-1)).reshape(-1)
+              + theta[-1])
+        return distributions.Normal(mu, self.output_sigma)
