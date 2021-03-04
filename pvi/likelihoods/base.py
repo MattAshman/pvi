@@ -1,5 +1,4 @@
-import torch.nn as nn
-
+from torch import nn
 from abc import ABC, abstractmethod
 
 
