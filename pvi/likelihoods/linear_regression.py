@@ -1,3 +1,5 @@
+import torch
+
 from torch import distributions
 from torch.nn import functional as F
 from .base import Likelihood
@@ -8,29 +10,8 @@ class LinearRegressionLikelihood(Likelihood):
         super().__init__()
 
         # Keep fixed, for now.
-        self.register_buffer("output_sigma", output_sigma)
+        self.register_buffer("output_sigma", torch.tensor(output_sigma))
 
     def forward(self, x, theta):
-        w = theta["w"]
-        b = theta["b"]
-
-        mu = F.linear(x, w, b)
-        return distributions.Normal(mu, self.output_sigma)
-
-    def log_prob(self, data, theta):
-        w = theta["w"]
-        b = theta["b"]
-
-        mu = F.linear(data["x"], w, b)
-        py_x = distributions.Normal(mu, self.output_sigma)
-
-        return py_x.log_prob(data["y"])
-
-    def sample(self, x, theta, num_samples=1):
-        w = theta["w"]
-        b = theta["b"]
-
-        mu = F.linear(x, w, b)
-        py_x = distributions.Normal(mu, self.output_sigma)
-
-        return py_x.sample((num_samples,))
+        return distributions.Normal(
+            F.linear(x, theta[:-1], theta[-1]), self.output_sigma)
