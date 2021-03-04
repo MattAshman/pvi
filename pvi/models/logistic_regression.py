@@ -1,6 +1,6 @@
 import torch
 
-from torch import distributions, nn
+from torch import distributions, nn, optim
 from torch.utils.data import TensorDataset, DataLoader
 from .base import Model
 from pvi.likelihoods.logistic_regression import LogisticRegressionLikelihood
@@ -28,8 +28,8 @@ class LogisticRegressionModel(Model):
 
     def get_default_hyperparameters(self):
         return {
-            "optimiser_class": None,
-            "optimiser_params": {},
+            "optimiser_class": optim.Adam,
+            "optimiser_params": {"lr": 1e-3},
             "reset_optimiser": True,
             "epochs": 100,
             "batch_size": 100,
