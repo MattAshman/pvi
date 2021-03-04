@@ -7,10 +7,12 @@ from pvi.likelihoods.logistic_regression import LogisticRegressionLikelihood
 
 
 class LogisticRegressionModel(Model):
-    def __init__(self, dim, output_sigma=1., **kwargs):
+    """
+    Logistic regression model with a multivariate Gaussian approximate
+    posterior.
+    """
+    def __init__(self, output_sigma=1., **kwargs):
         super().__init__(LogisticRegressionLikelihood(output_sigma), **kwargs)
-
-        self.dim = dim
 
         # Set up optimiser.
         if self.hyperparameters["optimiser_class"] is not None:
@@ -20,14 +22,17 @@ class LogisticRegressionModel(Model):
 
     def get_default_parameters(self):
         return {
-            "np1": nn.Parameter(torch.tensor([0.]*self.dim),
-                                requires_grad=True),
-            "np2": nn.Parameter(torch.tensor([1.]*self.dim),
-                                requires_grad=True)
+            "np1": nn.Parameter(
+                torch.tensor([0.]*self.hyperparameters["D"]),
+                requires_grad=True),
+            "np2": nn.Parameter(
+                torch.tensor([1.]*self.hyperparameters["D"]).diag_embed(),
+                requires_grad=True)
         }
 
     def get_default_hyperparameters(self):
         return {
+            "D": None,
             "optimiser_class": optim.Adam,
             "optimiser_params": {"lr": 1e-3},
             "reset_optimiser": True,
