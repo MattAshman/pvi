@@ -11,22 +11,22 @@ class LogisticRegressionModel(Model):
     Logistic regression model with a multivariate Gaussian approximate
     posterior.
     """
-    def __init__(self, output_sigma=1., **kwargs):
-        super().__init__(LogisticRegressionLikelihood(output_sigma), **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(LogisticRegressionLikelihood(), **kwargs)
 
         # Set up optimiser.
         if self.hyperparameters["optimiser_class"] is not None:
             self.optimiser = self.hyperparameters["optimiser_class"](
-                self.parameters(), **self.hyperparameters["optimiser_params"]
+                self.nat_params.values(), **self.hyperparameters["optimiser_params"]
             )
 
-    def get_default_parameters(self):
+    def get_default_nat_params(self):
         return {
             "np1": nn.Parameter(
-                torch.tensor([0.]*self.hyperparameters["D"]),
+                torch.tensor([0.]*(self.hyperparameters["D"]+1)),
                 requires_grad=True),
             "np2": nn.Parameter(
-                torch.tensor([1.]*self.hyperparameters["D"]).diag_embed(),
+                torch.tensor([-.5]*(self.hyperparameters["D"]+1)).diag_embed(),
                 requires_grad=True)
         }
 
@@ -51,6 +51,8 @@ class LogisticRegressionModel(Model):
         """
         q = self.get_distribution()
         thetas = q.sample((self.hyperparameters["num_predictive_samples"],))
+        import pdb
+        pdb.set_trace()
         comp = self.likelihood.forward(x, thetas)
         mix = distributions.Categorical(torch.ones(len(thetas),))
 
@@ -67,13 +69,13 @@ class LogisticRegressionModel(Model):
         if self.hyperparameters["optimiser_class"] is not None and \
                 self.hyperparameters["reset_optimiser"]:
             self.optimiser = self.hyperparameters["optimiser_class"](
-                self.parameters(), **self.hyperparameters["optimiser_params"]
+                self.nat_params.values(), **self.hyperparameters["optimiser_params"]
             )
 
         # Cavity, or effective prior, parameters.
         cav_np = {}
-        for key in self.parameters.keys():
-            cav_np[key] = (self.parameters[key] - t_i[key]).detach()
+        for key in self.nat_params.keys():
+            cav_np[key] = (self.nat_params[key] - t_i[key]).detach()
 
         # Set up data etc.
         x_full = data["x"]
@@ -84,17 +86,18 @@ class LogisticRegressionModel(Model):
             shuffle=True)
 
         # Local optimisation to find new parameters.
-        for _ in self.hyperparameters["epochs"]:
-            for batch_idx, (x_batch, y_batch) in iter(loader):
+        for _ in range(self.hyperparameters["epochs"]):
+            for (x_batch, y_batch) in iter(loader):
                 batch = {
                     "x": x_batch,
                     "y": y_batch,
                 }
-
                 # TODO: perform some MCMC inference.
                 q = self.get_distribution()
                 thetas = q.rsample((self.hyperparameters["num_elbo_samples"],))
-                ll = self.likelihood.log_prob(batch, thetas).mean()
+                ll = 0
+                for theta in thetas:
+                    ll += self.likelihood.log_prob(batch, theta).sum()
 
                 # Compute the KL divergence between current approximate
                 # posterior and prior.
@@ -107,8 +110,8 @@ class LogisticRegressionModel(Model):
 
         # New local contribution.
         t_i_new = {}
-        for key in self.parameters.keys():
-            t_i_new[key] = (self.parameters[key] - cav_np[key]).detach()
+        for key in self.nat_params.keys():
+            t_i_new[key] = (self.nat_params[key] - cav_np[key]).detach()
 
         return t_i_new
 
@@ -125,17 +128,17 @@ class LogisticRegressionModel(Model):
 
         return pp.sample((num_samples,))
 
-    def get_distribution(self, parameters=None):
+    def get_distribution(self, nat_params=None):
         """
         Return a multivariate Gaussian distribution defined by parameters.
-        :param parameters: Natural parameters of a multivariate Gaussian
+        :param nat_params: Natural parameters of a multivariate Gaussian
         distribution.
         :return: Multivariate Gaussian distribution defined by the parameters.
         """
-        if parameters is None:
-            parameters = self.parameters
+        if nat_params is None:
+            nat_params = self.nat_params
 
-        prec = -2 * parameters["np2"]
-        mu = torch.solve(parameters["np1"], prec)
+        prec = -2 * nat_params["np2"]
+        mu = torch.solve(nat_params["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
 
         return distributions.MultivariateNormal(mu, precision_matrix=prec)

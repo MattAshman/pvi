@@ -8,5 +8,6 @@ class LogisticRegressionLikelihood(Likelihood):
         super().__init__()
 
     def forward(self, x, theta):
-        return distributions.Bernoulli(
-            logits=F.linear(x, theta[:-1], theta[-1]))
+        logits = (x.unsqueeze(-2).matmul(theta[:-1].unsqueeze(-1)).reshape(-1)
+                  + theta[-1])
+        return distributions.Bernoulli(logits=logits)

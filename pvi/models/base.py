@@ -7,35 +7,35 @@ class Model(ABC, nn.Module):
     An abstract class for probabilistic models defined by a likelihood
     p(y | θ, x) and (approximate) posterior q(θ).
     """
-    def __init__(self, likelihood, parameters=None, hyperparameters=None):
+    def __init__(self, likelihood, nat_params=None, hyperparameters=None):
         super().__init__()
 
         self.likelihood = likelihood
-
-        # Parameters of the (approximate) posterior.
-        if parameters is None:
-            parameters = {}
 
         # Hyperparameters of the model.
         if hyperparameters is None:
             hyperparameters = {}
 
-        self.parameters = self.get_default_parameters()
+        # Parameters of the (approximate) posterior.
+        if nat_params is None:
+            nat_params = {}
+
         self.hyperparameters = self.get_default_hyperparameters()
-
-        self.set_parameters(parameters)
         self.set_hyperparameters(hyperparameters)
+        self.nat_params = self.get_default_nat_params()
+        self.set_nat_params(nat_params)
 
-    def set_parameters(self, parameters):
-        self.parameters = {**self.parameters, **parameters}
+    def set_nat_params(self, nat_params):
+        self.nat_params = {**self.nat_params, **nat_params}
 
-    def get_parameters(self):
-        return self.parameters
+    def get_nat_params(self):
+        return self.nat_params
 
     @abstractmethod
-    def get_default_parameters(self):
+    def get_default_nat_params(self):
         """
-        :return: A default set of parameters for the (approximate) posterior.
+        :return: A default set of natural parameters for the (approximate)
+        posterior.
         """
         raise NotImplementedError
 

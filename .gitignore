@@ -1,6 +1,7 @@
 # Personal dev tools-related exclusions
 .DS_Store
 .idea
+rough
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
