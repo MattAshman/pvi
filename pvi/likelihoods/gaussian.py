@@ -1,4 +1,6 @@
-from torch import distributions
+import torch
+
+from torch import distributions, nn
 from .base import Likelihood
 
 
@@ -7,7 +9,9 @@ class HomoGaussian(Likelihood):
         super().__init__()
 
         # Keep fixed, for now.
-        self.register_buffer("output_sigma", output_sigma)
+        self.register_buffer(
+            "output_sigma",
+            nn.Parameter(torch.tensor(output_sigma), requires_grad=False))
 
-    def forward(self, x, theta):
-        return distributions.Normal(theta, self.output_sigma)
+    def forward(self, x):
+        return distributions.Normal(x, self.output_sigma)
