@@ -70,10 +70,11 @@ class LinearRegressionModel(Model):
                      * x_.T.matmul(data["y"])).squeeze(-1)
 
         # Update model parameters.
-        self.np1 = nn.Parameter(self.np1 - t_i["np1"] + np1_i_new,
-                                requires_grad=False)
-        self.np2 = nn.Parameter(self.np2 - t_i["np2"] + np2_i_new,
-                                requires_grad=False)
+        np1 = nn.Parameter(self.np1 - t_i["np1"] + np1_i_new,
+                           requires_grad=False)
+        np2 = nn.Parameter(self.np2 - t_i["np2"] + np2_i_new,
+                           requires_grad=False)
+        self.set_parameters({"np1": np1, "np2": np2})
 
         t_i_new = {
             "np1": np1_i_new,
