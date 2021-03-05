@@ -49,11 +49,11 @@ class LinearRegressionModel(Model):
 
         # Append 1 to end of x.
         x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
-        pp_mu = x_.matmul(mu)
-        pp_var = x_.unsqueeze(-2).matmul(
+        ppmu = x_.matmul(mu)
+        ppvar = x_.unsqueeze(-2).matmul(
             torch.solve(x_.unsqueeze(-1), prec)[0]).reshape(-1)
 
-        return distributions.Normal(pp_mu, pp_var)
+        return distributions.Normal(ppmu, ppvar)
 
     def fit(self, data, t_i):
         """
