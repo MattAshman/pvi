@@ -22,7 +22,6 @@ class Model(ABC, nn.Module):
 
         self.hyperparameters = self.get_default_hyperparameters()
         self.set_hyperparameters(hyperparameters)
-        nat_params = self.get_default_nat_params()
         self.set_parameters(nat_params)
 
     def get_nat_params(self):

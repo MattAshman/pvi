@@ -14,18 +14,28 @@ class LinearRegressionModel(Model):
 
     def get_default_nat_params(self):
         return {
-            "np1": nn.Parameter(
-                torch.tensor([0.]*(self.hyperparameters["D"]+1)),
-                requires_grad=False),
-            "np2": nn.Parameter(
-                torch.tensor([1.]*(self.hyperparameters["D"]+1)).diag_embed(),
-                requires_grad=False)
+            "np1": torch.tensor([0.]*(self.hyperparameters["D"]+1)),
+            "np2": torch.tensor(
+                [1.]*(self.hyperparameters["D"]+1)).diag_embed(),
         }
 
-    def get_default_hyperparameters(self):
+    @staticmethod
+    def get_default_hyperparameters():
         return {
             "D": None
         }
+
+    def set_parameters(self, nat_params):
+        """
+        Sets the optimisable parameters. These are just the natural parameters,
+        since we perform natural parameter updates in the optimisation.
+        :param nat_params: Natural parameters of a multivariate Gaussian
+        distribution.
+        """
+        self.register_parameter(
+            "np1", nn.Parameter(nat_params["np1"], requires_grad=False))
+        self.register_parameter(
+            "np2", nn.Parameter(nat_params["np2"], requires_grad=False))
 
     def forward(self, x):
         """
@@ -34,13 +44,16 @@ class LinearRegressionModel(Model):
         :param x: The input locations to make predictions at.
         :return: ∫ p(y | θ, x) p(θ | D) dθ.
         """
-        prec = -2 * self.nat_params["np2"]
-        mu = torch.solve(self.nat_params["np1"], prec)
+        prec = -2 * self.np2
+        mu = torch.solve(self.np1.unsqueeze(-1), prec)[0].squeeze(-1)
 
-        pp_mu = x.T.matmul(mu)
-        pp_cov = x.T.matmul(torch.solve(x, prec))
+        # Append 1 to end of x.
+        x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
+        pp_mu = x_.matmul(mu)
+        pp_var = x_.unsqueeze(-2).matmul(
+            torch.solve(x_.unsqueeze(-1), prec)[0]).reshape(-1)
 
-        return distributions.MultivariateNormal(pp_mu, pp_cov)
+        return distributions.Normal(pp_mu, pp_var)
 
     def fit(self, data, t_i):
         """
@@ -48,16 +61,19 @@ class LinearRegressionModel(Model):
         :param t_i: The local contribution of the client.
         :return: t_i_new, the new local contribution.
         """
+        # Append 1 to end of x.
+        x_ = torch.cat((data["x"], torch.ones(len(data["x"])).unsqueeze(-1)),
+                       dim=1)
         np2_i_new = (-0.5 * self.likelihood.output_sigma ** (-2)
-                     * data["x"].T.matmul(data["x"]))
+                     * x_.T.matmul(x_))
         np1_i_new = (self.likelihood.output_sigma ** (-2)
-                     * data["x"].T.matmul(data["y"]))
+                     * x_.T.matmul(data["y"])).squeeze(-1)
 
         # Update model parameters.
-        self.nat_params["np1"] = (self.nat_params["np1"] - t_i["np1"]
-                                  + np1_i_new)
-        self.nat_params["np2"] = (self.nat_params["np2"] - t_i["np2"]
-                                  + np2_i_new)
+        self.np1 = nn.Parameter(self.np1 - t_i["np1"] + np1_i_new,
+                                requires_grad=False)
+        self.np2 = nn.Parameter(self.np2 - t_i["np2"] + np2_i_new,
+                                requires_grad=False)
 
         t_i_new = {
             "np1": np1_i_new,
@@ -90,6 +106,18 @@ class LinearRegressionModel(Model):
             nat_params = self.nat_params
 
         prec = -2 * nat_params["np2"]
-        mu = torch.solve(nat_params["np1"], prec)
+        mu = torch.solve(nat_params["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
 
         return distributions.MultivariateNormal(mu, precision_matrix=prec)
+
+    @property
+    def nat_params(self):
+        """
+        Returns the natural parameters, based on parameters included in self.
+        :return: Natural parameters.
+        """
+        nat_params = {
+            "np1": self.np1,
+            "np2": self.np2,
+        }
+        return nat_params
