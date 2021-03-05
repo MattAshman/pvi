@@ -69,12 +69,11 @@ class LogisticRegressionModel(Model):
         Returns the (approximate) predictive posterior distribution of a
         Bayesian logistic regression model.
         :param x: The input locations to make predictions at.
-        :return: ∫ p(y | θ, x) q(θ) dθ.
+        :return: ∫ p(y | θ, x) q(θ) dθ ≅ (1/M) Σ_m p(y | θ_m, x) θ_m ~ q(θ).
         """
         q = self.get_distribution()
         thetas = q.sample((self.hyperparameters["num_predictive_samples"],))
-        import pdb
-        pdb.set_trace()
+
         comp = self.likelihood.forward(x, thetas)
         mix = distributions.Categorical(torch.ones(len(thetas),))
 
