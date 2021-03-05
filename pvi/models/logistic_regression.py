@@ -5,7 +5,6 @@ from torch import distributions, nn, optim
 from torch.utils.data import TensorDataset, DataLoader
 from .base import Model
 from pvi.likelihoods.logistic_regression import LogisticRegressionLikelihood
-from pvi.utils.psd_utils import psd_inverse
 
 logger = logging.getLogger(__name__)
 
@@ -23,6 +22,8 @@ class LogisticRegressionModel(Model):
             self.optimiser = self.hyperparameters["optimiser_class"](
                 self.parameters(), **self.hyperparameters["optimiser_params"]
             )
+        else:
+            raise ValueError("Optimiser class not specified.")
 
         # For logging training performance.
         self._training_curves = []
@@ -81,7 +82,7 @@ class LogisticRegressionModel(Model):
 
     def fit(self, data, t_i):
         """
-        Perform local VI
+        Perform local VI.
         :param data: The local data to refine the model with.
         :param t_i: The local contribution of the client.
         :return: t_i_new, the new local contribution.
