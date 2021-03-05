@@ -133,7 +133,7 @@ class LogisticRegressionModel(Model):
                 # Compute the KL divergence between current approximate
                 # posterior and prior.
                 q_cav = self.get_distribution(cav_np)
-                kl = distributions.kl_divergence(q_cav, q)
+                kl = distributions.kl_divergence(q, q_cav)
 
                 loss = kl - ll
                 loss.backward()
