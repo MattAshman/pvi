@@ -269,6 +269,9 @@ class StochasticSparseGaussianProcessModel(Model):
             "inducing_locations",
             nn.Parameter(inducing_locations, requires_grad=True))
 
+        # For logging training performance.
+        self._training_curves = []
+
     def get_default_nat_params(self):
         return {
             "np1": torch.tensor([0.] * self.hyperparameters["num_inducing"]),
@@ -320,15 +323,17 @@ class StochasticSparseGaussianProcessModel(Model):
         su = q.covariance_matrix
 
         # Parameters of prior.
-        kzx = self.kernel(x, self.inducing_locations)
-        kxz = kzx.T
-        kzz = self.kernel(self.inducing_locations, self.inducing_locations)
-        kxx = self.kernel(x, x)
+        kxz = self.kernel(x, self.inducing_locations).evaluate()
+        kzx = kxz.T
+        kzz = add_diagonal(self.kernel(
+            self.inducing_locations, self.inducing_locations).evaluate(),
+                           1e-4)
+        kxx = add_diagonal(self.kernel(x, x).evaluate(), 1e-4)
 
         # Predictive posterior.
         kzz_inv = psd_inverse(kzz)
-        ppmu = kzx.matmul(kzz_inv).matmul(mu)
-        ppcov = kxx - kxz.matmul(
+        ppmu = kxz.matmul(kzz_inv).matmul(mu)
+        ppcov = kxx + kxz.matmul(
             kzz_inv).matmul(su - kzz).matmul(kzz_inv).matmul(kzx)
 
         return distributions.MultivariateNormal(ppmu, covariance_matrix=ppcov)
@@ -340,6 +345,19 @@ class StochasticSparseGaussianProcessModel(Model):
         :param t_i: The local contribution of the client.
         :return: t_i_new, the new local contribution.
         """
+        # Cavity, or effective prior, parameters.
+        cav_np = {}
+        for key in self.nat_params.keys():
+            cav_np[key] = (self.nat_params[key] - t_i[key]).detach()
+
+        # Set up data etc.
+        x = data["x"]
+        y = data["y"]
+        dataset = TensorDataset(x, y)
+        loader = DataLoader(
+            dataset, batch_size=self.hyperparameters["batch_size"],
+            shuffle=True)
+
         # Set up optimiser.
         if self.hyperparameters["optimiser_class"] is not None and \
                 self.hyperparameters["reset_optimiser"]:
@@ -347,19 +365,6 @@ class StochasticSparseGaussianProcessModel(Model):
             self.optimiser = self.hyperparameters["optimiser_class"](
                 self.parameters(), **self.hyperparameters["optimiser_params"]
             )
-
-        # Cavity, or effective prior, parameters.
-        cav_np = {}
-        for key in self.nat_params.keys():
-            cav_np[key] = (self.nat_params[key] - t_i[key]).detach()
-
-        # Set up data etc.
-        x_full = data["x"]
-        y_full = data["y"]
-        dataset = TensorDataset(x_full, y_full)
-        loader = DataLoader(
-            dataset, batch_size=self.hyperparameters["batch_size"],
-            shuffle=True)
 
         # Local optimisation to find new parameters.
         training_curve = {
@@ -374,38 +379,39 @@ class StochasticSparseGaussianProcessModel(Model):
                 "ll": 0,
             }
             for (x_batch, y_batch) in iter(loader):
-                batch = {
-                    "x": x_batch,
-                    "y": y_batch,
-                }
                 # Compute log-likelihood under q(u).
                 q = self.get_distribution()
                 mu = q.mean
                 su = q.covariance_matrix
 
                 # Parameters of prior.
-                kzx = self.kernel(
-                    x_batch, self.inducing_locations).unsqueeze(-1)
-                kxz = kzx.T
-                kzz = self.kernel(
-                    self.inducing_locations, self.inducing_locations)
-                kxx = self.kernel(x_batch.unsqueeze(-1), x_batch.unsqueeze(-1))
+                kxz = self.kernel(
+                    x_batch, self.inducing_locations).evaluate().unsqueeze(-2)
+                kzx = kxz.transpose(-1, -2)
+                kzz = add_diagonal(self.kernel(
+                    self.inducing_locations,
+                    self.inducing_locations).evaluate(), 1e-4)
+                kxx = add_diagonal(self.kernel(
+                    x_batch.unsqueeze(-1), x_batch.unsqueeze(-1)).evaluate(),
+                                   1e-4)
 
+                # Derivation follows that in Hensman et al. (2013).
                 kzz_inv = psd_inverse(kzz)
-                a = kxz.matmul(kzz_inv) # (N, D)
-                b = kxx - kxz.matmul(kzz_inv).matmul(kxz)   # (N, 1, 1)
+                a = kxz.matmul(kzz_inv)
+                b = kxx - kxz.matmul(kzz_inv).matmul(kzx)
 
-                output_sigma = self.likelihood.output_sigma
+                sigma = self.likelihood.output_sigma
                 dist = self.likelihood.forward(a.matmul(mu))
                 ll1 = dist.log_prob(y_batch)
-                ll2 = -output_sigma.pow(-2) * (a.matmul(su).matmul(a.T) + b)
-                ll = (ll1 + ll2).sum()
+                ll2 = -0.5 * sigma.pow(-2) * (
+                        a.matmul(su).matmul(a.transpose(-1, -2)) + b)
+                ll = ll1.sum() + ll2.sum()
 
                 # Compute the KL divergence between current approximate
                 # posterior and prior.
                 q = self.get_distribution()
                 q_cav = self.get_distribution(cav_np)
-                kl = distributions.kl_divergence(q_cav, q)
+                kl = distributions.kl_divergence(q, q_cav)
 
                 loss = kl - ll
                 loss.backward()
