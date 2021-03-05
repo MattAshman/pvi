@@ -1,9 +1,13 @@
+import logging
 import torch
 
 from torch import distributions, nn, optim
 from torch.utils.data import TensorDataset, DataLoader
 from .base import Model
 from pvi.likelihoods.logistic_regression import LogisticRegressionLikelihood
+from pvi.utils.psd_utils import psd_inverse
+
+logger = logging.getLogger(__name__)
 
 
 class LogisticRegressionModel(Model):
@@ -17,20 +21,21 @@ class LogisticRegressionModel(Model):
         # Set up optimiser.
         if self.hyperparameters["optimiser_class"] is not None:
             self.optimiser = self.hyperparameters["optimiser_class"](
-                self.nat_params.values(), **self.hyperparameters["optimiser_params"]
+                self.parameters(), **self.hyperparameters["optimiser_params"]
             )
+
+        # For logging training performance.
+        self._training_curves = []
 
     def get_default_nat_params(self):
         return {
-            "np1": nn.Parameter(
-                torch.tensor([0.]*(self.hyperparameters["D"]+1)),
-                requires_grad=True),
-            "np2": nn.Parameter(
-                torch.tensor([-.5]*(self.hyperparameters["D"]+1)).diag_embed(),
-                requires_grad=True)
+            "np1": torch.tensor([0.]*(self.hyperparameters["D"]+1)),
+            "np2": torch.tensor([-.5]*(
+                    self.hyperparameters["D"]+1)).diag_embed()
         }
 
-    def get_default_hyperparameters(self):
+    @staticmethod
+    def get_default_hyperparameters():
         return {
             "D": None,
             "optimiser_class": optim.Adam,
@@ -40,7 +45,24 @@ class LogisticRegressionModel(Model):
             "batch_size": 100,
             "num_elbo_samples": 1,
             "num_predictive_samples": 1,
+            "print_epochs": 10,
         }
+
+    def set_parameters(self, nat_params):
+        """
+        Sets the optimisable parameters. These are different to the natural
+        parameters to ensure that the positive definite constraint of the
+        covariance matrix is not violated during training.
+        :param nat_params: Natural parameters of a multivariate Gaussian
+        distribution.
+        """
+        # Work with Cholesky factor of precision matrix and np1.
+        prec = -2. * nat_params["np2"]
+        prec_chol = torch.cholesky(prec)
+        self.register_parameter(
+            "prec_chol", nn.Parameter(prec_chol, requires_grad=True))
+        self.register_parameter(
+            "np1", nn.Parameter(nat_params["np1"], requires_grad=True))
 
     def forward(self, x):
         """
@@ -68,8 +90,9 @@ class LogisticRegressionModel(Model):
         # Set up optimiser.
         if self.hyperparameters["optimiser_class"] is not None and \
                 self.hyperparameters["reset_optimiser"]:
+            logging.info("Resetting optimiser")
             self.optimiser = self.hyperparameters["optimiser_class"](
-                self.nat_params.values(), **self.hyperparameters["optimiser_params"]
+                self.parameters(), **self.hyperparameters["optimiser_params"]
             )
 
         # Cavity, or effective prior, parameters.
@@ -86,7 +109,17 @@ class LogisticRegressionModel(Model):
             shuffle=True)
 
         # Local optimisation to find new parameters.
-        for _ in range(self.hyperparameters["epochs"]):
+        training_curve = {
+            "elbo": [],
+            "kl": [],
+            "ll": [],
+        }
+        for i in range(self.hyperparameters["epochs"]):
+            epoch = {
+                "elbo": 0,
+                "kl": 0,
+                "ll": 0,
+            }
             for (x_batch, y_batch) in iter(loader):
                 batch = {
                     "x": x_batch,
@@ -95,9 +128,7 @@ class LogisticRegressionModel(Model):
                 # TODO: perform some MCMC inference.
                 q = self.get_distribution()
                 thetas = q.rsample((self.hyperparameters["num_elbo_samples"],))
-                ll = 0
-                for theta in thetas:
-                    ll += self.likelihood.log_prob(batch, theta).sum()
+                ll = self.likelihood.log_prob(batch, thetas).mean(0).sum()
 
                 # Compute the KL divergence between current approximate
                 # posterior and prior.
@@ -107,6 +138,23 @@ class LogisticRegressionModel(Model):
                 loss = kl - ll
                 loss.backward()
                 self.optimiser.step()
+
+                # Will be very slow if training on GPUs.
+                epoch["elbo"] += -loss.item()
+                epoch["kl"] += kl.item()
+                epoch["ll"] += ll.item()
+
+            # Log progress.
+            training_curve["elbo"].append(epoch["elbo"])
+            training_curve["kl"].append(epoch["kl"])
+            training_curve["ll"].append(epoch["ll"])
+
+            if i % self.hyperparameters["print_epochs"] == 0:
+                logger.debug(
+                    "ELBO: {:.3f}, LL: {:.3f}, KL: {:.3f}, Epochs: {}.".format(
+                        epoch["elbo"], epoch["ll"], epoch["kl"], i))
+
+        self._training_curves.append(training_curve)
 
         # New local contribution.
         t_i_new = {}
@@ -142,3 +190,17 @@ class LogisticRegressionModel(Model):
         mu = torch.solve(nat_params["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
 
         return distributions.MultivariateNormal(mu, precision_matrix=prec)
+
+    @property
+    def nat_params(self):
+        """
+        Returns the natural parameters, based on parameters included in self.
+        :return: Natural parameters.
+        """
+        np1 = self.np1
+        np2 = -0.5 * self.prec_chol.matmul(self.prec_chol.T)
+        nat_params = {
+            "np1": np1,
+            "np2": np2,
+        }
+        return nat_params
