@@ -16,12 +16,13 @@ class Model(ABC, nn.Module):
         if hyperparameters is None:
             hyperparameters = {}
 
+        self.hyperparameters = self.get_default_hyperparameters()
+        self.set_hyperparameters(hyperparameters)
+
         # Parameters of the (approximate) posterior.
         if nat_params is None:
             nat_params = self.get_default_nat_params()
 
-        self.hyperparameters = self.get_default_hyperparameters()
-        self.set_hyperparameters(hyperparameters)
         self.set_parameters(nat_params)
 
     def get_nat_params(self):
