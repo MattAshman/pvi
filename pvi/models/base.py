@@ -18,15 +18,12 @@ class Model(ABC, nn.Module):
 
         # Parameters of the (approximate) posterior.
         if nat_params is None:
-            nat_params = {}
+            nat_params = self.get_default_nat_params()
 
         self.hyperparameters = self.get_default_hyperparameters()
         self.set_hyperparameters(hyperparameters)
-        self.nat_params = self.get_default_nat_params()
-        self.set_nat_params(nat_params)
-
-    def set_nat_params(self, nat_params):
-        self.nat_params = {**self.nat_params, **nat_params}
+        nat_params = self.get_default_nat_params()
+        self.set_parameters(nat_params)
 
     def get_nat_params(self):
         return self.nat_params
@@ -45,10 +42,19 @@ class Model(ABC, nn.Module):
     def get_hyperparameters(self):
         return self.hyperparameters
 
+    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters(self):
+    def get_default_hyperparameters():
         """
         :return: A default set of hyperparameters for the model.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def set_parameters(self, nat_params):
+        """
+        Registers parameters for optimisation.
+        :param nat_params: Natural parameters of the model.
         """
         raise NotImplementedError
 
@@ -81,10 +87,26 @@ class Model(ABC, nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def get_distribution(self, parameters=None):
+    def get_distribution(self, nat_params=None):
         """
         Returns the distribution defined by the parameters.
-        :param parameters: Parameters of the distribution.
+        :param nat_params: Natural parameters of the distribution.
         :return: Distribution defined by the parameters.
         """
         raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def nat_params(self):
+        """
+        Returns the natural parameters, based on parameters included in self.
+        :return: Natural parameters.
+        """
+        raise NotImplementedError
+
+    @nat_params.setter
+    def nat_params(self, nat_params):
+        """
+        Sets the natural parameters by changing parameters in self.
+        """
+        self.set_parameters(nat_params)
