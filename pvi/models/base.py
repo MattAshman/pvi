@@ -1,16 +1,13 @@
-from torch import nn
 from abc import ABC, abstractmethod
 
 
-class Model(ABC, nn.Module):
+class Model(ABC):
     """
     An abstract class for probabilistic models defined by a likelihood
     p(y | θ, x) and (approximate) posterior q(θ).
     """
-    def __init__(self, likelihood, nat_params=None, hyperparameters=None):
+    def __init__(self, hyperparameters=None):
         super().__init__()
-
-        self.likelihood = likelihood
 
         # Hyperparameters of the model.
         if hyperparameters is None:
@@ -19,20 +16,10 @@ class Model(ABC, nn.Module):
         self.hyperparameters = self.get_default_hyperparameters()
         self.set_hyperparameters(hyperparameters)
 
-        # Parameters of the (approximate) posterior.
-        if nat_params is None:
-            nat_params = self.get_default_nat_params()
-
-        self.set_parameters(nat_params)
-
-    def get_nat_params(self):
-        return self.nat_params
-
     @abstractmethod
     def get_default_nat_params(self):
         """
-        :return: A default set of natural parameters for the (approximate)
-        posterior.
+        :return: A default set of natural parameters for the prior.
         """
         raise NotImplementedError
 
@@ -51,62 +38,42 @@ class Model(ABC, nn.Module):
         raise NotImplementedError
 
     @abstractmethod
-    def set_parameters(self, nat_params):
-        """
-        Registers parameters for optimisation.
-        :param nat_params: Natural parameters of the model.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def forward(self, x):
+    def forward(self, x, q):
         """
         Returns the (approximate) predictive posterior.
         :param x: The input locations to make predictions at.
+        :param q: The natural parameters of q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def fit(self, data, t_i):
+    def likelihood_forward(self, x, theta):
         """
-        :param data: The local data to refine the model with.
-        :param t_i: The local contribution of the client.
-        :return: t_i_new, the new local contribution.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def sample(self, x, num_samples=1):
-        """
-        Samples the (approximate) predictive posterior.
+        Returns the model's likelihood p(y | θ, x).
         :param x: The input locations to make predictions at.
-        :param num_samples: The number of samples to take.
-        :return: A sample from the predictive posterior, ∫ p(y | θ, x) q(θ) dθ.
+        :param theta: The latent variables of the model.
+        :return: p(y | θ, x)
         """
         raise NotImplementedError
+
+    def likelihood_log_prob(self, data, theta):
+        """
+        Compute the log probability of the data under the model's likelihood.
+        :param data: The data to compute the log likelihood of.
+        :param theta: The latent variables of the model.
+        :return: The log likelihood of the data.
+        """
+        dist = self.likelihood_forward(data["x"], theta)
+        return dist.log_prob(data["y"])
 
     @abstractmethod
-    def get_distribution(self, nat_params=None):
+    def conjugate_update(self, data, q, t_i):
         """
-        Returns the distribution defined by the parameters.
-        :param nat_params: Natural parameters of the distribution.
-        :return: Distribution defined by the parameters.
-        """
-        raise NotImplementedError
-
-    @property
-    @abstractmethod
-    def nat_params(self):
-        """
-        Returns the natural parameters, based on parameters included in self.
-        :return: Natural parameters.
+        If the likelihood is conjugate with p(θ), performs a conjugate update.
+        :param data: The data to compute the conjugate update with.
+        :param q: The parameters of the current global posterior q(θ).
+        :param t_i: The parameters of the local factor t(θ).
+        :return: The posterior, p(θ | data).
         """
         raise NotImplementedError
-
-    @nat_params.setter
-    def nat_params(self, nat_params):
-        """
-        Sets the natural parameters by changing parameters in self.
-        """
-        self.set_parameters(nat_params)
