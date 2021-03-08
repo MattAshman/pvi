@@ -12,8 +12,8 @@ class LinearRegressionModel(Model, nn.Module):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
-        # Keep fixed, for now.
-        self.register_buffer("output_sigma", torch.tensor(output_sigma))
+        self.register_parameter("output_sigma", nn.Parameter(
+            torch.tensor(output_sigma), requires_grad=True))
 
     def get_default_nat_params(self):
         return {
@@ -87,9 +87,13 @@ class LinearRegressionModel(Model, nn.Module):
         # Append 1 to end of x.
         x_ = torch.cat((data["x"], torch.ones(len(data["x"])).unsqueeze(-1)),
                        dim=1)
-        np2_i_new = (-0.5 * self.output_sigma ** (-2) * x_.T.matmul(x_))
-        np1_i_new = (self.output_sigma ** (-2)
-                     * x_.T.matmul(data["y"])).squeeze(-1)
+
+        with torch.no_grad():
+            sigma = self.output_sigma
+
+            # Closed-form solution.
+            np2_i_new = (-0.5 * sigma ** (-2) * x_.T.matmul(x_))
+            np1_i_new = (sigma ** (-2) * x_.T.matmul(data["y"])).squeeze(-1)
 
         # New model parameters.
         np1 = q["nat_params"]["np1"] - t_i["nat_params"]["np1"] + np1_i_new
@@ -110,3 +114,27 @@ class LinearRegressionModel(Model, nn.Module):
         }
 
         return q_new, t_i_new
+
+    def mll(self, data, q):
+        """
+        Returns the marginal log-likelihood of the linear regression model
+        under the posterior q(θ).
+        :param data: The local data to refine the model with.
+        :param q: The current global posterior q(θ).
+        :return: p(y | x) = ∫ p(y | x, θ) q(θ) dθ = N(y; X * mw, X * Sw * X^T).
+        """
+        n = data["x"].shape[0]
+        sigma = self.output_sigma
+        qmu = q["distribution"].mean
+        qcov = q["distribution"].covariance_matrix
+
+        # Append 1 to end of x.
+        x_ = torch.cat((data["x"], torch.ones(len(data["x"])).unsqueeze(-1)),
+                       dim=1)
+
+        # Compute mean and covariance.
+        ymu = x_.matmul(qmu)
+        ycov = x_.matmul(qcov).matmul(x_.T) + sigma ** 2 * torch.eye(n)
+        ydist = distributions.MultivariateNormal(ymu, covariance_matrix=ycov)
+
+        return ydist.log_prob(data["y"]).sum()
