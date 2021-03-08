@@ -29,9 +29,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
         self.register_parameter(
             "inducing_locations",
             nn.Parameter(inducing_locations, requires_grad=True))
-        
-        # Keep fixed, for now.
-        self.register_buffer("output_sigma", torch.tensor(output_sigma))
+
+        self.register_parameter("output_sigma", nn.Parameter(
+            torch.tensor(output_sigma), requires_grad=True))
 
     def get_default_nat_params(self):
         return {
@@ -101,22 +101,23 @@ class SparseGaussianProcessModel(Model, nn.Module):
         x = data["x"]
         y = data["y"]
 
-        # Parameters of prior.
-        kxz = self.kernel(x, self.inducing_locations).evaluate()
-        kzz = add_diagonal(self.kernel(
-            self.inducing_locations, self.inducing_locations).evaluate(),
-                           1e-4)
+        with torch.no_grad():
+            # Parameters of prior.
+            kxz = self.kernel(x, self.inducing_locations).evaluate()
+            kzz = add_diagonal(self.kernel(
+                self.inducing_locations, self.inducing_locations).evaluate(),
+                               1e-4)
 
-        lzz = kzz.cholesky()
-        ikzz = psd_inverse(chol=lzz)
+            lzz = kzz.cholesky()
+            ikzz = psd_inverse(chol=lzz)
 
-        # Closed form solution for optimum q(u).
-        sigma = self.output_sigma
-        a = kxz.matmul(ikzz)
+            sigma = self.output_sigma
+            a = kxz.matmul(ikzz)
 
-        # New local parameters.
-        np2_i_new = -0.5 * sigma.pow(-2) * a.transpose(-1, -2).matmul(a)
-        np1_i_new = sigma.pow(-2) * a.transpose(-1, -2).matmul(y).squeeze(-1)
+            # Closed form solution for optimum q(u).
+            # New local parameters.
+            np2_i_new = -0.5 * sigma.pow(-2) * a.transpose(-1, -2).matmul(a)
+            np1_i_new = sigma.pow(-2) * a.transpose(-1, -2).matmul(y).squeeze(-1)
 
         # New model parameters.
         np1 = q["nat_params"]["np1"] - t_i["nat_params"]["np1"] + np1_i_new
@@ -135,7 +136,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
                 "np2": np2_i_new,
             }
         }
-        
+
         return q_new, t_i_new
 
     def elbo(self, data, q, p):
@@ -145,6 +146,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         :param data: The local data to refine the model with.
         :param q: The parameters of the current global posterior q(θ).
         :param p: The parameters of the prior p(θ) (could be cavity).
+        :return: The evidence lower bound.
         """
         # Set up data etc.
         x = data["x"]
@@ -167,7 +169,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
         sigma = self.output_sigma
         dist = self.likelihood_forward(a.matmul(qmu))
-        ll1 = dist.log_prob(y)
+        ll1 = dist.log_prob(y.squeeze())
         ll2 = -0.5 * sigma.pow(-2) * (
                 a.matmul(qcov).matmul(a.transpose(-1, -2)) + b)
         ll = ll1.sum() + ll2.sum()
