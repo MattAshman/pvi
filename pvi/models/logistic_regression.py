@@ -42,17 +42,19 @@ class LogisticRegressionModel(Model, nn.Module):
         Returns the (approximate) predictive posterior distribution of a
         Bayesian logistic regression model.
         :param x: The input locations to make predictions at.
-        :param q: The distribution q(θ).
+        :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ ≅ (1/M) Σ_m p(y | θ_m, x) θ_m ~ q(θ).
         """
-        thetas = q.sample((self.hyperparameters["num_predictive_samples"],))
+        thetas = q["distribution"].sample(
+            (self.hyperparameters["num_predictive_samples"],))
 
         comp = self.likelihood_forward(x, thetas)
         mix = distributions.Categorical(torch.ones(len(thetas),))
 
         return distributions.MixtureSameFamily(mix, comp)
 
-    def likelihood_forward(self, x, theta):
+    @staticmethod
+    def likelihood_forward(x, theta):
         """
         Returns the model's likelihood p(y | θ, x).
         :param x: Input of shape (*, D).
@@ -82,8 +84,8 @@ class LogisticRegressionModel(Model, nn.Module):
     def conjugate_update(self, data, q, t_i):
         """
         :param data: The local data to refine the model with.
-        :param q: The parameters of the current global posterior q(θ).
-        :param t_i: The parameters of the local factor t(θ).
+        :param q: The current global posterior q(θ).
+        :param t_i: The the local factor t(θ).
         :return: q_new, t_i_new, the new global posterior and the new local
         contribution.
         """

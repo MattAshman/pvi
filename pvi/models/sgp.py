@@ -57,11 +57,11 @@ class SparseGaussianProcessModel(Model, nn.Module):
         Returns the (approximate) predictive posterior distribution of a
         sparse Gaussian process.
         :param x: The input locations to make predictions at.
-        :param q: The distribution q(u).
+        :param q: The approximate posterior distribution q(u).
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
-        mu = q.mean
-        su = q.covariance_matrix
+        mu = q["distribution"].mean
+        su = q["distribution"].covariance_matrix
 
         # Parameters of prior.
         kxz = self.kernel(x, self.inducing_locations).evaluate()
@@ -92,10 +92,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
     def conjugate_update(self, data, q, t_i):
         """
         :param data: The local data to refine the model with.
-        :param q: The parameters of the current global posterior q(θ).
-        :param t_i: The parameters of the local factor t(θ).
-        :return: q_new, t_i_new, the new global posterior and the 
-        new local
+        :param q: The current global posterior q(θ).
+        :param t_i: The local factor t(θ).
+        :return: q_new, t_i_new, the new global posterior and the new local
         contribution.
         """
         # Set up data etc.
@@ -120,17 +119,21 @@ class SparseGaussianProcessModel(Model, nn.Module):
         np1_i_new = sigma.pow(-2) * a.transpose(-1, -2).matmul(y).squeeze(-1)
 
         # New model parameters.
-        np1 = q["np1"] - t_i["np1"] + np1_i_new
-        np2 = q["np2"] - t_i["np2"] + np2_i_new
+        np1 = q["nat_params"]["np1"] - t_i["nat_params"]["np1"] + np1_i_new
+        np2 = q["nat_params"]["np2"] - t_i["nat_params"]["np2"] + np2_i_new
 
         q_new = {
-            "np1": np1,
-            "np2": np2,
+            "nat_params": {
+                "np1": np1,
+                "np2": np2,
+            }
         }
 
         t_i_new = {
-            "np1": np1_i_new,
-            "np2": np2_i_new,
+            "nat_params": {
+                "np1": np1_i_new,
+                "np2": np2_i_new,
+            }
         }
         
         return q_new, t_i_new
@@ -159,17 +162,19 @@ class SparseGaussianProcessModel(Model, nn.Module):
         ikzz = psd_inverse(kzz)
         a = kxz.matmul(ikzz)
         b = kxx - kxz.matmul(ikzz).matmul(kzx)
+        qmu = q["distribution"].mean
+        qcov = q["distribution"].covariance_matrix
 
         sigma = self.output_sigma
-        dist = self.likelihood_forward(a.matmul(q.mean))
+        dist = self.likelihood_forward(a.matmul(qmu))
         ll1 = dist.log_prob(y)
         ll2 = -0.5 * sigma.pow(-2) * (
-                a.matmul(q.covariance_matrix).matmul(a.transpose(-1, -2)) + b)
+                a.matmul(qcov).matmul(a.transpose(-1, -2)) + b)
         ll = ll1.sum() + ll2.sum()
 
         # Compute the KL divergence between current approximate
         # posterior and prior.
-        kl = distributions.kl_divergence(q, p)
+        kl = distributions.kl_divergence(q["distribution"], p["distribution"])
 
         elbo = ll - kl
 

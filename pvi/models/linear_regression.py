@@ -28,16 +28,18 @@ class LinearRegressionModel(Model, nn.Module):
             "D": None
         }
 
-    def forward(self, x, q):
+    @staticmethod
+    def forward(x, q):
         """
         Returns the predictive posterior distribution of a Bayesian linear
         regression model.
         :param x: The input locations to make predictions at.
-        :param q: The natural parameters of q(θ).
+        :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ.
         """
-        prec = -2 * q["np2"]
-        mu = torch.solve(q["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
+        prec = -2 * q["nat_params"]["np2"]
+        mu = torch.solve(
+            q["nat_params"]["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
 
         # Append 1 to end of x.
         x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
@@ -77,8 +79,8 @@ class LinearRegressionModel(Model, nn.Module):
     def conjugate_update(self, data, q, t_i):
         """
         :param data: The local data to refine the model with.
-        :param q: The parameters of the current global posterior q(θ).
-        :param t_i: The parameters of the local factor t(θ).
+        :param q: The current global posterior q(θ).
+        :param t_i: The local factor t(θ).
         :return: q_new, t_i_new, the new global posterior and the new local
         contribution.
         """
@@ -90,17 +92,21 @@ class LinearRegressionModel(Model, nn.Module):
                      * x_.T.matmul(data["y"])).squeeze(-1)
 
         # New model parameters.
-        np1 = q["np1"] - t_i["np1"] + np1_i_new
-        np2 = q["np2"] - t_i["np2"] + np2_i_new
+        np1 = q["nat_params"]["np1"] - t_i["nat_params"]["np1"] + np1_i_new
+        np2 = q["nat_params"]["np2"] - t_i["nat_params"]["np2"] + np2_i_new
 
         q_new = {
-            "np1": np1,
-            "np2": np2,
+            "nat_params": {
+                "np1": np1,
+                "np2": np2,
+            }
         }
 
         t_i_new = {
-            "np1": np1_i_new,
-            "np2": np2_i_new
+            "nat_params": {
+                "np1": np1_i_new,
+                "np2": np2_i_new,
+            }
         }
 
         return q_new, t_i_new
