@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from torch import nn
 
 
 # =============================================================================
@@ -38,5 +39,50 @@ class ApproximatingLikelihoodFactor(ABC):
         to **self**.
         """
         pass
+    
+
+
+# # =============================================================================
+# # Base exponential family distribution
+# # =============================================================================
+
+
+# class ExponentialFamilyDistribution(ABC, nn.Module):
+    
+#     def __init__(self,
+#                  parameters=None,
+#                  natural_parameters=None
+#                  is_trainable=False):
+        
+#         # Initialise using either standard parameters or natural parameters
+#         if not (parameters is None):
+#             self.a
+    
+#     @property
+#     @abstractmethod
+#     def torch_dist_class(self):
+#         raise NotImplementedError
+    
+    
+#     def log_prob(self, thetas):
+#         """
+#         Computes the log-probability of the distribution log q(θ).
+#         """
+#         return self.q.log_prob(thetas)
+    
+    
+#     def kl_divergence(self, q_):
+#         return self.q.kl_divergence(q_)
+    
+    
+#     def get_natural_parameters(self):
+#         return self.natural_parameters
+    
+    
+#     def sample(self):
+#         return self.q.sample()
+    
+    
+#     def
         
             
