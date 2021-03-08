@@ -229,23 +229,15 @@ class MultivariateGaussian(ExponentialFamilyFactor):
         return torch.zeros(size=thetas.shape[:1])
     
     
-    def f(self, thetas):
-        """
-        """
+    def npf(self, thetas):
         
-        N = thetas.shape[0]
+        np1 = self.natural_parameters["np1"]
+        np2 = self.natural_parameters["np2"]
         
-        thetas_outer = torch.einsum('ni, nj -> nij', thetas, thetas)
-        thetas_outer = thetas_outer.view(N, -1)
+        npf = torch.mv(thetas, np1)
+        npf = npf + torch.sum(thetas * torch.mm(thetas, np2), dim=1)
         
-        return torch.cat([thetas, thetas_outer], axis=1)
-    
-    
-    def natural_parameter_vector(self):
-        
-        np = self.natural_parameters
-        
-        return torch.cat([np["np1"], np["np2"].view(-1)], axis=0)
+        return npf
     
     
     def log_coeff_and_np_from_distribution(self, q):
@@ -253,7 +245,6 @@ class MultivariateGaussian(ExponentialFamilyFactor):
         Takes a torch.distribution **q**, assumed to be in the EF
         and extracts its leading coefficient and natural parameters.
         """
-        
         
         # Exctract loc and scale from torch.distribution
         loc = q.loc.detach()
@@ -271,12 +262,12 @@ class MultivariateGaussian(ExponentialFamilyFactor):
         log_coeff = log_coeff - 0.5 * D * math.log(2 * math.pi)
         
         np1 = torch.cholesky_solve(mean[:, None], scale_tril).solution[:, 0]
-        np2 = torch
+        np2 = torch.cholesky_inverse(scale_tril, upper=False)
         
         # Compute natural parameters for multivariate normal
         np = {
-            "np1" : 0.,
-            "np2" : - 0.5 * scale ** -2
+            "np1" : np1,
+            "np2" : np2
         }
         
         return log_coeff, np
@@ -287,4 +278,16 @@ class MultivariateGaussian(ExponentialFamilyFactor):
         Takes a dictionary of natural parameters **np** and returns a
         torch.distribution defined by these natural parameters.
         """
-        pass
+        
+        np1 = np["np1"]
+        np2 = np["np2"]
+        
+        loc = - 0.5 * torch.solve(np1[:, None], np2).solution[:, 0]
+        scale_tril = torch.linalg.cholesky(- 2 * np2)
+        
+        dist = torch.distributions.MultivariateNormal(loc=loc,
+                                                      scale_tril=scale_tril)
+        
+        return dist
+        
+        
