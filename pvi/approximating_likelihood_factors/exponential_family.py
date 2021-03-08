@@ -1,5 +1,7 @@
-from abc import ABC, abstract_method
-from base import ApproximatingLikelihoodFactor
+from abc import ABC, abstractmethod
+from .base import ApproximatingLikelihoodFactor
+
+import torch
 
 
 # =============================================================================
@@ -7,7 +9,7 @@ from base import ApproximatingLikelihoodFactor
 # =============================================================================
 
 
-def ExponentialFamilyFactor(ApproximatingLikelihoodFactor):
+class ExponentialFamilyFactor(ApproximatingLikelihoodFactor):
     """
     Base class for exponential family (EF) approximating likelihood factors.
     The exponential family is made up of distributions which can be written
@@ -67,14 +69,32 @@ def ExponentialFamilyFactor(ApproximatingLikelihoodFactor):
         return t
     
 
-    @abstractmethod
     def __call__(self, thetas):
         """
-        Returns the value of log t(θ). Input **thetas** is assumed to be
-        a torch.tensor of shape (N, D) where N is the batch dimension and
-        D is the number of natural parameters of the distribution.
+        Returns the value of log t(θ) where
+        
+            log t(θ) = log c + log h(x) + ν.T f(x)
+            
+        Input **thetas** is assumed to be a torch.tensor of shape (N, D)
+        where N is the batch dimension and D is the dimension of the
+        distribution.
         """
-        pass
+        
+        # Extract NP tensors, compute f(θ) tensors, list [shape (N, D)]
+        np = self.natural_parameters.values()
+        f = self.f(thetas)
+        
+        # Compute log h(θ), shape (N,)
+        log_h = self.log_h(thetas)
+        
+        # Compute ν.T f(x), shape (N,)
+        npf = [torch.einsum('i, ni -> n', np_, f_) for np_, f_ in zip(np, f)]
+        npf = torch.sum(torch.stack(npf, dim=1), dim=1)
+        
+        # Compute log t(θ), shape (N,)
+        log_t = self.log_coefficient + log_h + npf
+        
+        return log_t
     
     
     @abstractmethod
@@ -113,37 +133,10 @@ def ExponentialFamilyFactor(ApproximatingLikelihoodFactor):
 class MeanFieldGaussian(ExponentialFamilyFactor):
     
     
-    def __init__(self, log_coeff, natural_parameters):
+    def __init__(self, log_coefficient, natural_parameters):
         
-        super().__init__(log_coefficient, natural_parameters)
-    
-    
-    def __call__(self, thetas):
-        """
-        Returns the value of log t(θ) where
-        
-            log t(θ) = log c + log h(x) + ν.T f(x)
-            
-        Input **thetas** is assumed to be a torch.tensor of shape (N, D)
-        where N is the batch dimension and D is the dimension of the
-        distribution.
-        """
-        
-        # Extract NP tensors, compute f(θ) tensors, list [shape (N, D)]
-        np = self.natural_parameters.values()
-        f = self.f(thetas)
-        
-        # Compute log h(θ), shape (N,)
-        log_h = self.log(h)
-        
-        # Compute ν.T f(x), shape (N,)
-        npf = [torch.einsum('ni, ni -> n', np_, f_) for np_, f_ in zip(np, f)]
-        npf = torch.sum(torch.stack(npf, dim=1), dim=1)
-        
-        # Compute log t(θ), shape (N,)
-        log_t = self.log_coefficient + log_h + npf
-        
-        return log_t
+        super().__init__(log_coefficient=log_coefficient,
+                         natural_parameters=natural_parameters)
     
     
     def log_h(self, thetas):
@@ -156,9 +149,7 @@ class MeanFieldGaussian(ExponentialFamilyFactor):
         distribution.
         """
         
-        log_h = torch.zeros(size=thetas.shape[0])
-        
-        return log_h
+        return torch.zeros(size=(thetas.shape[0],))
     
     
     def f(self, thetas):
@@ -173,21 +164,90 @@ class MeanFieldGaussian(ExponentialFamilyFactor):
     
     def log_coeff_and_np_from_distribution(self, q):
         """
-        Extracts the coefficient and natural parameters of **q**, where
-        **q** is assumed to be a torch.distribution.
         """
         
+        # Exctract loc and scale from torch.distribution
         loc = q.loc.item().detach()
         scale = q.scale.item().detach()
         
+        assert loc.shape == scale.shape
+        assert len(loc.shape) == 1
+        
+        # Dimension of distribution
         D = mean.shape[0]
         
+        # Compute log coefficient of q
         log_coeff = torch.log(scale).sum()
         log_coeff = log_coeff - 0.5 * D * np.log(2 * np.pi)
         
+        # Compute natural parameters for multivariate normal
         np = {
             "np1" : loc / scale ** 2,
             "np2" : - 0.5 * scale ** -2
         }
         
         return log_coeff, np
+
+    
+    
+# # =============================================================================
+# # Multivariate Gaussian factor
+# # =============================================================================
+
+
+# class MultivariateGaussian(ExponentialFamilyFactor):
+    
+    
+#     def __init__(self, log_coeff, natural_parameters):
+        
+#         super().__init__(log_coefficient, natural_parameters)
+    
+    
+#     def log_h(self, thetas):
+#         """
+#         Returns the value of log h(θ) for the MeanFieldFactor class. For
+#         a multivariate Gaussian, log h(θ) = 0.
+            
+#         Input **thetas** is assumed to be a torch.tensor of shape (N, D)
+#         where N is the batch dimension and D is the dimension of the
+#         distribution.
+#         """
+        
+#         return torch.zeros(size=thetas.shape[0])
+    
+    
+#     def f(self, thetas):
+#         """
+#         Computes f(θ) for the multivariate Gaussian where
+        
+#             f(θ) = [θΤ, θΤ ** 2]Τ
+#         """
+        
+#         return [thetas, thetas ** 2]
+    
+    
+#     def log_coeff_and_np_from_distribution(self, q):
+#         """
+#         """
+        
+#         # Exctract loc and scale from torch.distribution
+#         loc = q.loc.item().detach()
+#         scale = q.scale.item().detach()
+        
+#         assert loc.shape[0] == scale.shape[1] ==
+#         assert (len(loc.shape)) == 1 and (len(scale.shape) == 2)
+        
+#         # Dimension of distribution
+#         D = mean.shape[0]
+        
+#         # Compute log coefficient of q
+#         log_coeff = torch.log(scale).sum()
+#         log_coeff = log_coeff - 0.5 * D * np.log(2 * np.pi)
+        
+#         # Compute natural parameters for multivariate normal
+#         np = {
+#             "np1" : loc / scale ** 2,
+#             "np2" : - 0.5 * scale ** -2
+#         }
+        
+#         return log_coeff, np

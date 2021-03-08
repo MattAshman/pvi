@@ -1,4 +1,4 @@
-from abc import ABC, abstract_method
+from abc import ABC, abstractmethod
 
 
 # =============================================================================
@@ -9,7 +9,6 @@ from abc import ABC, abstract_method
 class ApproximatingLikelihoodFactor(ABC):
     
     # TODO:
-    # - compute_refined_factor: computes refined factor t
     # - deal with the initialisation t(θ) = 1
     
     def __init__(self, log_coefficient, natural_parameters):
