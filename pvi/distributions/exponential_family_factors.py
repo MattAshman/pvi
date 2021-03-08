@@ -83,15 +83,9 @@ class ExponentialFamilyFactor(ApproximatingLikelihoodFactor):
         distribution.
         """
         
-        # Compute f matrix (shape (N, K)) and ν vector (shape (K,))
-        f = self.f(thetas)
-        np = self.natural_parameter_vector()
-        
-        # Compute log h(θ), (shape (N,))
+        # Compute inner product ν.T f(x), log h(θ), log t(θ) (all shape (N,))
+        npf = self.npf(thetas)
         log_h = self.log_h(thetas)
-        
-        # Compute inner product ν.T f(x) and log t(θ) (both shape (N,))
-        npf = torch.mv(f, np)
         log_t = self.log_coefficient + log_h + npf
         
         return log_t
@@ -108,15 +102,7 @@ class ExponentialFamilyFactor(ApproximatingLikelihoodFactor):
     
     
     @abstractmethod
-    def f(self, thetas):
-        """
-        Computes f(θ) vector for this member of the exponential family.
-        """
-        pass
-    
-    
-    @abstractmethod
-    def natural_parameter_vector(self):
+    def npf(self, thetas):
         """
         Rearranges NPs to ν vector for this member of the exponential family.
         """
@@ -168,23 +154,15 @@ class MeanFieldGaussian(ExponentialFamilyFactor):
         return torch.zeros(size=thetas.shape[:1])
     
     
-    def f(self, thetas):
-        """
-        Computes f(θ) for the mean-field Gaussian where
+    def npf(self, thetas):
         
-            f(θ) = [θΤ, θΤ ** 2]Τ
-        """
+        np1 = self.natural_parameters["np1"]
+        np2 = self.natural_parameters["np2"]
         
-        f = torch.cat([thetas, thetas ** 2], dim=1)
+        npf = torch.mv(thetas, np1)
+        npf = npf + torch.mv(thetas ** 2, np2)
         
-        return f
-    
-    
-    def natural_parameter_vector(self):
-        
-        np = self.natural_parameters
-        
-        return torch.cat([np["np1"], np["np2"]], axis=0)
+        return npf
     
     
     def log_coeff_and_np_from_distribution(self, q):
@@ -292,9 +270,12 @@ class MultivariateGaussian(ExponentialFamilyFactor):
         log_coeff = torch.log(torch.diag(scale_tril)).sum()
         log_coeff = log_coeff - 0.5 * D * math.log(2 * math.pi)
         
+        np1 = torch.cholesky_solve(mean[:, None], scale_tril).solution[:, 0]
+        np2 = torch
+        
         # Compute natural parameters for multivariate normal
         np = {
-            "np1" : torch.cholesky_solve(mean[:, None], scale_tril)[:, 0],
+            "np1" : 0.,
             "np2" : - 0.5 * scale ** -2
         }
         
