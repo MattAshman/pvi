@@ -13,8 +13,8 @@ class LogisticRegressionModel(Model, nn.Module):
     posterior.
     """
     def __init__(self, **kwargs):
-        super(Model, self).__init__(**kwargs)
-        super(nn.Module, self).__init__()
+        Model.__init__(self, **kwargs)
+        nn.Module.__init__(self)
 
     def get_default_nat_params(self):
         return {

@@ -9,8 +9,8 @@ class LinearRegressionModel(Model, nn.Module):
     Linear regression model with a Gaussian prior distribution.
     """
     def __init__(self, output_sigma=1., **kwargs):
-        super(Model, self).__init__(**kwargs)
-        super(nn.Module, self).__init__()
+        Model.__init__(self, **kwargs)
+        nn.Module.__init__(self)
 
         # Keep fixed, for now.
         self.register_buffer("output_sigma", torch.tensor(output_sigma))
