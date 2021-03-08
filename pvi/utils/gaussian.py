@@ -34,7 +34,7 @@ def mvnatural2standard(np1, np2):
 
     prec = -2 * np2
     cov = psd_inverse(prec)
-    mu = cov.matmul(np1.unsqueeze(-1)).squeeze(-2)
+    mu = cov.matmul(np1.unsqueeze(-1)).squeeze(-1)
 
     return mu, cov
 
