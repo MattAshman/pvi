@@ -104,7 +104,6 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
         # Parameters of prior.
         kxz = self.kernel(x, self.inducing_locations).evaluate()
-        kzx = kxz.T
         kzz = add_diagonal(self.kernel(
             self.inducing_locations, self.inducing_locations).evaluate(),
                            1e-4)
@@ -113,12 +112,16 @@ class SparseGaussianProcessModel(Model, nn.Module):
         ikzz = psd_inverse(chol=lzz)
 
         # Closed form solution for optimum q(u).
-        # TODO: this is incorrect. Assume cavity prior rather than p(u).
         sigma = self.output_sigma
-        prec = (ikzz + sigma.pow(-2)
-                * ikzz.matmul(kzx.matmul(kxz)).matmul(ikzz))
-        np2 = -0.5 * prec
-        np1 = sigma.pow(-2) * ikzz.matmul(kzx).matmul(y).squeeze(-1)
+        a = kxz.matmul(ikzz)
+
+        # New local parameters.
+        np2_i_new = -0.5 * sigma.pow(-2) * a.transpose(-1, -2).matmul(a)
+        np1_i_new = sigma.pow(-2) * a.transpose(-1, -2).matmul(y).squeeze(-1)
+
+        # New model parameters.
+        np1 = q["np1"] - t_i["np1"] + np1_i_new
+        np2 = q["np2"] - t_i["np2"] + np2_i_new
 
         q_new = {
             "np1": np1,
@@ -126,8 +129,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
         }
 
         t_i_new = {
-            "np1": np1 - q["np1"] + t_i["np1"],
-            "np2": np2 - q["np2"] + t_i["np2"],
+            "np1": np1_i_new,
+            "np2": np2_i_new,
         }
         
         return q_new, t_i_new
@@ -167,7 +170,11 @@ class SparseGaussianProcessModel(Model, nn.Module):
         # Compute the KL divergence between current approximate
         # posterior and prior.
         kl = distributions.kl_divergence(q, p)
-        
+
         elbo = ll - kl
-        
+
+        # Alternative derivation.
+        # F = log N(y; A * p.mean, sigma^2 I + A * p.cov * A^T)
+        # - 0.5 * sigma^{-2} * Tr(Kxx - Kxz * Kzz^{-1} * Kzx)
+
         return elbo
