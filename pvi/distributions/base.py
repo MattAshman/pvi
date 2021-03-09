@@ -28,8 +28,6 @@ class ExponentialFamilyFactor(ABC):
     applications.
     """
     
-    ### TODO: write __mul__ and __rmul__ for extra cleanliness
-    
     def __init__(self, natural_parameters):
         
         self.natural_parameters = natural_parameters
@@ -121,60 +119,103 @@ class ExponentialFamilyFactor(ABC):
     
 
 
-# # =============================================================================
-# # Base exponential family distribution
-# # =============================================================================
+# =============================================================================
+# Base exponential family distribution
+# =============================================================================
 
 
-# class ExponentialFamilyDistribution(ABC, nn.Module):
+class ExponentialFamilyDistribution(ABC, nn.Module):
     
-#     def __init__(self,
-#                  parameters=None,
-#                  natural_parameters=None
-#                  is_trainable=False):
+    def __init__(self,
+                 std_params=None,
+                 nat_params=None,
+                 is_trainable=False):
+    
+        # Specify whether the distribution is trainable wrt its NPs
+        self.is_trainable = is_trainable
         
-#         # Initialise q using standard parameters
-#         pass
-    
-    
-#     @property
-#     def standard_parameters(self):
-#         pass
-    
-    
-#     @property
-#     def natural_parameters(self):
-#         pass
-    
-    
-#     @abstractmethod
-#     def std_params_to_nat_params(self):
-#         pass
-    
-    
-#     @abstractmethod
-#     def nat_params_to_std_params(self):
-#         pass
+        # Set standard and natural parameters
+        self.std_params = std_params
+        self.nat_params = nat_params
+
         
-    
-#     @property
-#     @abstractmethod
-#     def torch_dist_class(self):
-#         raise NotImplementedError
-    
-    
-#     def log_prob(self, thetas):
-#         return self.q.log_prob(thetas)
-    
-    
-#     def kl_divergence(self, q_):
-#         return self.q.kl_divergence(q_)
+    @property
+    def std_params(self):
+        
+        # If _std_params None or distribution trainable compute std params
+        if (self.is_trainable) or (self._std_params is None):
+            self._std_params = self._nat_to_std(self._nat_params)
+        
+        return self._std_params
     
     
-#     def sample(self):
-#         return self.q.sample()
+    @property.setter
+    def std_params(self, std_params):
+        self._std_params = std_params
     
-    
-#     def rsample(self):
-#         return self.q.rsample()
+        
+    @property
+    def nat_params(self):
+        
+        if self.is_trainable:
+            return self._nat_from_unc(self._unc_params)
+        
+        else:
+            return self._nat_params
+        
             
+    @nat_params.setter
+    def nat_params(self, nat_params):
+        
+        if self.is_trainable:
+            _unc_params = self._unc_from_nat(nat_params)
+            
+            # TODO: register trainable parameters here
+            self._unc_params = None
+            
+        else:
+            self._nat_params = nat_params
+        
+        
+    @abstractmethod
+    def _nat_from_unc(self, unconstrained):
+        pass
+    
+    
+    @abstractmethod
+    def _unc_from_nat(self, nat_params):
+        pass
+    
+    
+    @abstractmethod
+    def _std_to_nat(self):
+        pass
+    
+    
+    @abstractmethod
+    def _nat_to_std(self):
+        pass
+        
+    
+    @property
+    @abstractmethod
+    def torch_dist_class(self):
+        pass
+    
+    
+    def kl_divergence(self, q_):
+        return self.q.kl_divergence(q_)
+    
+    
+    def log_prob(self, *args, **kwargs):
+        return self.q.log_prob(*args, **kwargs)
+    
+    
+    def sample(self, *args, **kwargs):
+        return self.q.sample(*args, **kwargs)
+    
+    
+    def rsample(self):
+        return self.q.rsample(*args, **kwargs)
+    
+    
