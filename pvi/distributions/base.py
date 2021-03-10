@@ -192,11 +192,13 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         pass
     
     
+    @classmethod
     @abstractmethod
     def _nat_from_std(self, std_params):
         pass
     
     
+    @classmethod
     @abstractmethod
     def _std_from_nat(self, nat_params):
         pass
