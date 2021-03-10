@@ -51,6 +51,7 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         return unc
     
     
+    @classmethod
     def _nat_from_std(self, std_params):
         
         loc = std_params["sp1"]
@@ -64,6 +65,7 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         return nat
     
     
+    @classmethod
     def _std_from_nat(self, nat_params):
         
         np1 = nat_params["np1"]
@@ -128,6 +130,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         return unc
     
     
+    @classmethod
     def _nat_from_std(self, std_params):
         
         loc = std_params["sp1"]
@@ -141,6 +144,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         return nat
     
     
+    @classmethod
     def _std_from_nat(self, nat_params):
         
         np1 = nat_params["np1"]
@@ -149,8 +153,8 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         prec = -2. * np2
         
         np = {
-            "np1" : torch.solve(np1[:, None], prec).solution[:, 0],
-            "np2" : torch.inverse(prec)
+            "sp1" : torch.solve(np1[:, None], prec).solution[:, 0],
+            "sp2" : torch.inverse(prec)
         }
         
         return np
@@ -207,6 +211,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         return unc
     
     
+    @classmethod
     def _nat_from_std(self, std_params):
         
         conc = std_params["sp1"]
@@ -218,6 +223,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         return nat
     
     
+    @classmethod
     def _std_from_nat(self, nat_params):
         
         conc_minus_one = nat_params["np1"]
@@ -282,6 +288,7 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         return std
     
     
+    @classmethod
     def _nat_from_std(self, std_params):
         
         # First parameter is the number of trials and therefore not learnable
@@ -298,6 +305,7 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         return nat
     
     
+    @classmethod
     def _std_from_nat(self, nat_params):
         
         np1 = nat_params["np1"]
