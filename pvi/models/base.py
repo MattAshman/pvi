@@ -7,8 +7,6 @@ class Model(ABC):
     p(y | θ, x) and (approximate) posterior q(θ).
     """
     def __init__(self, hyperparameters=None):
-        super().__init__()
-
         # Hyperparameters of the model.
         if hyperparameters is None:
             hyperparameters = {}
@@ -42,7 +40,7 @@ class Model(ABC):
         """
         Returns the (approximate) predictive posterior.
         :param x: The input locations to make predictions at.
-        :param q: The natural parameters of q(θ).
+        :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ.
         """
         raise NotImplementedError
@@ -72,8 +70,8 @@ class Model(ABC):
         """
         If the likelihood is conjugate with p(θ), performs a conjugate update.
         :param data: The data to compute the conjugate update with.
-        :param q: The parameters of the current global posterior q(θ).
-        :param t_i: The parameters of the local factor t(θ).
+        :param q: The current global posterior q(θ).
+        :param t_i: The local factor t(θ).
         :return: The posterior, p(θ | data).
         """
         raise NotImplementedError

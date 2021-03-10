@@ -14,8 +14,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
     """
 
     def __init__(self, inducing_locations, output_sigma=1., **kwargs):
-        super(Model, self).__init__(**kwargs)
-        super(nn.Module, self).__init__()
+        Model.__init__(self, **kwargs)
+        nn.Module.__init__(self)
 
         # Construct inducing points and kernel.
         if self.hyperparameters["kernel_class"] is not None:
@@ -29,9 +29,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
         self.register_parameter(
             "inducing_locations",
             nn.Parameter(inducing_locations, requires_grad=True))
-        
-        # Keep fixed, for now.
-        self.register_buffer("output_sigma", torch.tensor(output_sigma))
+
+        self.register_parameter("output_sigma", nn.Parameter(
+            torch.tensor(output_sigma), requires_grad=True))
 
     def get_default_nat_params(self):
         return {
@@ -57,11 +57,11 @@ class SparseGaussianProcessModel(Model, nn.Module):
         Returns the (approximate) predictive posterior distribution of a
         sparse Gaussian process.
         :param x: The input locations to make predictions at.
-        :param q: The distribution q(u).
+        :param q: The approximate posterior distribution q(u).
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
-        mu = q.mean
-        su = q.covariance_matrix
+        mu = q["distribution"].mean
+        su = q["distribution"].covariance_matrix
 
         # Parameters of prior.
         kxz = self.kernel(x, self.inducing_locations).evaluate()
@@ -92,44 +92,51 @@ class SparseGaussianProcessModel(Model, nn.Module):
     def conjugate_update(self, data, q, t_i):
         """
         :param data: The local data to refine the model with.
-        :param q: The parameters of the current global posterior q(θ).
-        :param t_i: The parameters of the local factor t(θ).
-        :return: q_new, t_i_new, the new global posterior and the 
-        new local
+        :param q: The current global posterior q(θ).
+        :param t_i: The local factor t(θ).
+        :return: q_new, t_i_new, the new global posterior and the new local
         contribution.
         """
         # Set up data etc.
         x = data["x"]
         y = data["y"]
 
-        # Parameters of prior.
-        kxz = self.kernel(x, self.inducing_locations).evaluate()
-        kzx = kxz.T
-        kzz = add_diagonal(self.kernel(
-            self.inducing_locations, self.inducing_locations).evaluate(),
-                           1e-4)
+        with torch.no_grad():
+            # Parameters of prior.
+            kxz = self.kernel(x, self.inducing_locations).evaluate()
+            kzz = add_diagonal(self.kernel(
+                self.inducing_locations, self.inducing_locations).evaluate(),
+                               1e-4)
 
-        lzz = kzz.cholesky()
-        ikzz = psd_inverse(chol=lzz)
+            lzz = kzz.cholesky()
+            ikzz = psd_inverse(chol=lzz)
 
-        # Closed form solution for optimum q(u).
-        # TODO: this is incorrect. Assume cavity prior rather than p(u).
-        sigma = self.output_sigma
-        prec = (ikzz + sigma.pow(-2)
-                * ikzz.matmul(kzx.matmul(kxz)).matmul(ikzz))
-        np2 = -0.5 * prec
-        np1 = sigma.pow(-2) * ikzz.matmul(kzx).matmul(y).squeeze(-1)
+            sigma = self.output_sigma
+            a = kxz.matmul(ikzz)
+
+            # Closed form solution for optimum q(u).
+            # New local parameters.
+            np2_i_new = -0.5 * sigma.pow(-2) * a.transpose(-1, -2).matmul(a)
+            np1_i_new = sigma.pow(-2) * a.transpose(-1, -2).matmul(y).squeeze(-1)
+
+        # New model parameters.
+        np1 = q["nat_params"]["np1"] - t_i["nat_params"]["np1"] + np1_i_new
+        np2 = q["nat_params"]["np2"] - t_i["nat_params"]["np2"] + np2_i_new
 
         q_new = {
-            "np1": np1,
-            "np2": np2,
+            "nat_params": {
+                "np1": np1,
+                "np2": np2,
+            }
         }
 
         t_i_new = {
-            "np1": np1 - q["np1"] + t_i["np1"],
-            "np2": np2 - q["np2"] + t_i["np2"],
+            "nat_params": {
+                "np1": np1_i_new,
+                "np2": np2_i_new,
+            }
         }
-        
+
         return q_new, t_i_new
 
     def elbo(self, data, q, p):
@@ -139,6 +146,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         :param data: The local data to refine the model with.
         :param q: The parameters of the current global posterior q(θ).
         :param p: The parameters of the prior p(θ) (could be cavity).
+        :return: The evidence lower bound.
         """
         # Set up data etc.
         x = data["x"]
@@ -156,18 +164,24 @@ class SparseGaussianProcessModel(Model, nn.Module):
         ikzz = psd_inverse(kzz)
         a = kxz.matmul(ikzz)
         b = kxx - kxz.matmul(ikzz).matmul(kzx)
+        qmu = q["distribution"].mean
+        qcov = q["distribution"].covariance_matrix
 
         sigma = self.output_sigma
-        dist = self.likelihood_forward(a.matmul(q.mean))
-        ll1 = dist.log_prob(y)
+        dist = self.likelihood_forward(a.matmul(qmu))
+        ll1 = dist.log_prob(y.squeeze())
         ll2 = -0.5 * sigma.pow(-2) * (
-                a.matmul(q.covariance_matrix).matmul(a.transpose(-1, -2)) + b)
+                a.matmul(qcov).matmul(a.transpose(-1, -2)) + b)
         ll = ll1.sum() + ll2.sum()
 
         # Compute the KL divergence between current approximate
         # posterior and prior.
-        kl = distributions.kl_divergence(q, p)
-        
+        kl = distributions.kl_divergence(q["distribution"], p["distribution"])
+
         elbo = ll - kl
-        
+
+        # Alternative derivation.
+        # F = log N(y; A * p.mean, sigma^2 I + A * p.cov * A^T)
+        # - 0.5 * sigma^{-2} * Tr(Kxx - Kxz * Kzz^{-1} * Kzx)
+
         return elbo
