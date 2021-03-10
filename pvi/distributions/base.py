@@ -50,8 +50,8 @@ class ExponentialFamilyFactor(ABC):
         """
         
         # Convert distributions to log-coefficients and natural parameters
-        np1 = self.np_from_distribution(q1)
-        np2 = self.np_from_distribution(q2)
+        np1 = self.np_from_distribution(q1.q)
+        np2 = self.np_from_distribution(q2.q)
         
         # Log coefficient and natural parameters of refined factor
         natural_parameters = {}
@@ -200,6 +200,15 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     @abstractmethod
     def _std_from_nat(self, nat_params):
         pass
+    
+    
+    def non_trainable_copy(self):
+        
+        std_params = self.std_params.detach()
+        nat_params = self.nat_params.detach()
+        
+        return type(self)(std_params, nat_params, is_trainable=False)
+        
     
     
     @property

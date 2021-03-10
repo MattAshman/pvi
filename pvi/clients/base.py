@@ -10,17 +10,15 @@ import logging
 
 class Client:
     
-    def __init__(self, data, likelihood, t, hyperparameters):
+    def __init__(self, data, model, t):
         
         # Set data partition and likelihood
         self.data = data
-        self.likelihood = likelihood
+        self.model = model
         
         # Set likelihood approximating term
         self.t = t
         
-        # Set hyperparameters and initialise training curves
-        self.hyperparameters = hyperparameters
         self._training_curves = []
         
     
@@ -40,7 +38,7 @@ class Client:
         approximating likelihood term.
         """
         
-        if q.family is self.likelihood.conjuagte_family:
+        if False: # type(q) is self.model.conjuagte_family:
             return self.likelihood.conjugate_update(self.data, q, self.t)
             
         else:
@@ -49,22 +47,19 @@ class Client:
         
     def gradient_based_update(self, data, q, t):
         
-        # Initialise approximate posterior being optimised
-        # TODO: create approximate posterior class
-        q_ = q.deepcopy()
+        # Copy the approximate posterior, make q_ not trainable
+        q_ = q.non_trainable_copy()
            
         # Reset optimiser
         logging.info("Resetting optimiser")
-        
-        optimiser = getattr(torch.optim, self.hyperparameters["optimiser"])(
-                    **self.hyperparameters["optimiser_params"])
+        optimiser = getattr(torch.optim, self.model.hyperparameters["optimiser"])(
+                    **self.model.hyperparameters["optimiser_params"])
         
         # Set up data
         x = data["x"]
         y = data["y"]
         
         tensor_dataset = TensorDataset(x, y)
-        
         loader = DataLoader(tensor_dataset,
                             batch_size=self.hyperparameters["batch_size"],
                             shuffle=True)
@@ -98,7 +93,7 @@ class Client:
                 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((self.hyperparameters["num_elbo_samples"],))
-                ll = self.likelihood.likelihood_forward(batch, thetas).mean(0).sum()
+                ll = self.model.likelihood_forward(batch, thetas).mean(0).sum()
                 ll = ll + t.log_prob(thetas).mean(0).sum()
 
                 # Negative local Free Energy is KL minus log-probability
