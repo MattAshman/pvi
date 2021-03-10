@@ -47,13 +47,15 @@ class Client:
         
     def gradient_based_update(self, data, q, t):
         
+        hyperparameters = self.model.hyperparameters
+        
         # Copy the approximate posterior, make q_ not trainable
         q_ = q.non_trainable_copy()
            
         # Reset optimiser
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, self.model.hyperparameters["optimiser"])(
-                    **self.model.hyperparameters["optimiser_params"])
+        optimiser = getattr(torch.optim, hyper["optimiser"])(
+                    **hyper["optimiser_params"])
         
         # Set up data
         x = data["x"]
@@ -61,7 +63,7 @@ class Client:
         
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=self.hyperparameters["batch_size"],
+                            batch_size=hyper["batch_size"],
                             shuffle=True)
 
         # Dict for logging optimisation progress
@@ -72,7 +74,7 @@ class Client:
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        for i in range(self.hyperparameters["epochs"]):
+        for i in range(hyper["epochs"]):
             
             epoch = {
                 "elbo" : 0,
@@ -92,7 +94,7 @@ class Client:
                 kl = q.kl_divergence(q_)
                 
                 # Sample θ from q and compute p(y | θ, x) for each θ
-                thetas = q.rsample((self.hyperparameters["num_elbo_samples"],))
+                thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_forward(batch, thetas).mean(0).sum()
                 ll = ll + t.log_prob(thetas).mean(0).sum()
 
@@ -112,7 +114,7 @@ class Client:
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % self.hyperparameters["print_epochs"] == 0:
+            if i % hyper["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch["elbo"]:.3f}, "
                              f"LL: {epoch["ll"]:.3f}, "
                              f"KL: {epoch["kl"]:.3f}, "
