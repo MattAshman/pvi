@@ -78,6 +78,8 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
     def __init__(self, natural_parameters):
         
         super().__init__(natural_parameters)
+        
+        self.distribution_class = MultivariateGaussianDistribution
     
     
     def log_h(self, thetas):
@@ -120,7 +122,7 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         
         std = self.distribution_class._std_from_nat(np)
         
-        dist = torch.distributions.Normal(loc=std["sp1"],
-                                          covariance_matrix=std["sp2"])
+        dist = torch.distributions.MultivariateNormal(loc=std["sp1"],
+                                                      covariance_matrix=std["sp2"])
         return dist
         
