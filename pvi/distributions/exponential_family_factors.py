@@ -1,5 +1,6 @@
 from abc import ABC, abstractmethod
 from .base import ExponentialFamilyFactor
+from .exponential_family_distributions import *
 
 import math
 
@@ -11,11 +12,13 @@ import torch
 # =============================================================================
     
 
-class MeanFieldGaussian(ExponentialFamilyFactor):
+class MeanFieldGaussianFactor(ExponentialFamilyFactor):
     
     
     def __init__(self, natural_parameters):
         super().__init__(natural_parameters=natural_parameters)
+        
+        self.distribution_class = MeanFieldGaussianDistribution
     
     
     def log_h(self, thetas):
@@ -43,32 +46,23 @@ class MeanFieldGaussian(ExponentialFamilyFactor):
     
     def np_from_distribution(self, q):
         
-        # Exctract loc and scale from torch.distribution
         loc = q.loc.detach()
         scale = q.scale.detach()
         
-        assert loc.shape == scale.shape
-        assert len(loc.shape) == 1
-        
-        # Compute natural parameters for multivariate normal
-        np = {
-            "np1" : loc / scale ** 2,
-            "np2" : - 0.5 * scale ** -2
+        std = {
+            "sp1" : loc,
+            "sp2" : scale
         }
         
-        return np
+        return self.distribution_class._nat_from_std(std)
     
     
     def distribution_from_np(self, np):
         
-        np1 = np["np1"]
-        np2 = np["np2"]
+        std = self.distribution_class._std_from_nat(np)
         
-        loc = - 0.5 * np1 / np2
-        scale = (- 0.5 / np2) ** 0.5
-        
-        dist = torch.distributions.Normal(loc=loc, scale=scale)
-        
+        dist = torch.distributions.Normal(loc=std["sp1"],
+                                          scale=std["sp2"])
         return dist
 
     
@@ -78,7 +72,7 @@ class MeanFieldGaussian(ExponentialFamilyFactor):
 # =============================================================================
 
 
-class MultivariateGaussian(ExponentialFamilyFactor):
+class MultivariateGaussianFactor(ExponentialFamilyFactor):
     
     
     def __init__(self, natural_parameters):
@@ -110,46 +104,23 @@ class MultivariateGaussian(ExponentialFamilyFactor):
     
     
     def np_from_distribution(self, q):
-        """
-        Takes a torch.distribution **q**, assumed to be in the EF
-        and extracts its leading coefficient and natural parameters.
-        """
         
-        # Exctract loc and scale from torch.distribution
         loc = q.loc.detach()
-        scale_tril = q.scale_tril.detach()
+        cov = q.covariance_matrix.detach()
         
-        assert loc.shape[0] == scale_tril.shape[0]
-        assert len(loc.shape) == 1
-        assert len(scale_tril.shape) == 2
-        
-        np1 = torch.cholesky_solve(loc[:, None], scale_tril)[:, 0]
-        np2 = -0.5 * torch.cholesky_inverse(scale_tril, upper=False)
-        
-        # Compute natural parameters for multivariate normal
-        np = {
-            "np1" : np1,
-            "np2" : np2
+        std = {
+            "sp1" : loc,
+            "sp2" : cov
         }
         
-        return np
+        return self.distribution_class._nat_from_std(std)
     
-
+    
     def distribution_from_np(self, np):
-        """
-        Takes a dictionary of natural parameters **np** and returns a
-        torch.distribution defined by these natural parameters.
-        """
         
-        np1 = np["np1"]
-        np2 = np["np2"]
+        std = self.distribution_class._std_from_nat(np)
         
-        loc = - 0.5 * torch.solve(np1[:, None], np2).solution[:, 0]
-        scale_tril = torch.linalg.cholesky(- 2 * np2)
-        
-        dist = torch.distributions.MultivariateNormal(loc=loc,
-                                                      scale_tril=scale_tril)
-        
+        dist = torch.distributions.Normal(loc=std["sp1"],
+                                          covariance_matrix=std["sp2"])
         return dist
-        
         
