@@ -1,6 +1,9 @@
 from abc import ABC, abstractmethod
 from torch import nn
 
+import torch
+
+
 # =============================================================================
 # Base class for approximating likelihood factors of the exponential family
 # =============================================================================
@@ -130,6 +133,8 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
                  std_params=None,
                  nat_params=None,
                  is_trainable=False):
+        
+        super().__init__()
     
         # Specify whether the distribution is trainable wrt its NPs
         self.is_trainable = is_trainable
@@ -137,74 +142,74 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         # Set standard and natural parameters
         self.std_params = std_params
         self.nat_params = nat_params
-
+    
         
     @property
     def std_params(self):
         
-        # If _std_params None or distribution trainable compute std params
-        if (self.is_trainable) or (self._std_params is None):
-            self._std_params = self._nat_to_std(self._nat_params)
+        if self.is_trainable:
+            return self._std_from_unc(self._unc_params)
         
-        return self._std_params
-    
-    
-    @property.setter
+        elif self._std_params is None:
+            return self._std_from_nat(self._nat_params)
+        
+        else:
+            return self._std_params
+        
+            
+    @std_params.setter
     def std_params(self, std_params):
-        self._std_params = std_params
-    
+        
+        if self.is_trainable:
+            self._unc_params = nn.ParameterDict(self._unc_from_std(std_params))
+            
+        else:
+            self._std_params = std_params
+
         
     @property
     def nat_params(self):
         
-        if self.is_trainable:
-            return self._nat_from_unc(self._unc_params)
+        # If _nat_params None or distribution trainable compute nat params
+        if (self.is_trainable) or (self._nat_params is None):
+            self._nat_params = self._nat_from_std(self.std_params)
         
-        else:
-            return self._nat_params
-        
-            
+        return self._nat_params
+    
+    
     @nat_params.setter
     def nat_params(self, nat_params):
-        
-        if self.is_trainable:
-            _unc_params = self._unc_from_nat(nat_params)
-            
-            # TODO: register trainable parameters here
-            self._unc_params = None
-            
-        else:
-            self._nat_params = nat_params
+        self._nat_params = nat_params
         
         
     @abstractmethod
-    def _nat_from_unc(self, unconstrained):
+    def _std_from_unc(self, unc_params):
         pass
     
     
     @abstractmethod
-    def _unc_from_nat(self, nat_params):
+    def _unc_from_std(self, std_params):
         pass
     
     
     @abstractmethod
-    def _std_to_nat(self):
+    def _nat_from_std(self, std_params):
         pass
     
     
     @abstractmethod
-    def _nat_to_std(self):
+    def _std_from_nat(self, nat_params):
         pass
-        
+    
     
     @property
-    @abstractmethod
-    def torch_dist_class(self):
-        pass
+    def q(self):
+        params = list(self.std_params.values())
+        return self.torch_dist_class(*params)
     
     
-    def kl_divergence(self, q_):
-        return self.q.kl_divergence(q_)
+    def kl_divergence(self, other):
+        return torch.distributions.kl_divergence(self.q, other.q)
     
     
     def log_prob(self, *args, **kwargs):
@@ -215,7 +220,12 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         return self.q.sample(*args, **kwargs)
     
     
-    def rsample(self):
+    def rsample(self, *args, **kwargs):
         return self.q.rsample(*args, **kwargs)
     
+    
+    @property
+    @abstractmethod
+    def torch_dist_class(self):
+        pass
     
