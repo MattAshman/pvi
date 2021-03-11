@@ -44,25 +44,24 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         return npf
     
     
-    def np_from_distribution(self, q):
+    def nat_from_dist(self, q):
         
         loc = q.loc.detach()
         scale = q.scale.detach()
         
         std = {
-            "sp1" : loc,
-            "sp2" : scale
+            "loc" : loc,
+            "scale" : scale
         }
         
         return self.distribution_class._nat_from_std(std)
     
     
-    def distribution_from_np(self, np):
+    def dist_from_nat(self, nat):
         
-        std = self.distribution_class._std_from_nat(np)
+        std = self.distribution_class._std_from_nat(nat)
+        dist = torch.distributions.Normal(**std)
         
-        dist = torch.distributions.Normal(loc=std["sp1"],
-                                          scale=std["sp2"])
         return dist
 
     
@@ -105,24 +104,23 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         return npf
     
     
-    def np_from_distribution(self, q):
+    def nat_from_dist(self, q):
         
         loc = q.loc.detach()
         cov = q.covariance_matrix.detach()
         
         std = {
-            "sp1" : loc,
-            "sp2" : cov
+            "loc" : loc,
+            "covariance_matrix" : cov
         }
         
         return self.distribution_class._nat_from_std(std)
     
     
-    def distribution_from_np(self, np):
+    def dist_from_nat(self, nat):
         
-        std = self.distribution_class._std_from_nat(np)
+        std = self.dist_class._std_from_nat(nat)
+        dist = torch.distributions.MultivariateNormal(**std)
         
-        dist = torch.distributions.MultivariateNormal(loc=std["sp1"],
-                                                      covariance_matrix=std["sp2"])
         return dist
         

@@ -31,8 +31,8 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         log_scale = unc_params["up2"]
         
         std = {
-            "sp1" : loc,
-            "sp2" : torch.exp(log_scale)
+            "loc" : loc,
+            "scale" : torch.exp(log_scale)
         }
         
         return std
@@ -40,8 +40,8 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
     
     def _unc_from_std(self, std_params):
         
-        loc = std_params["sp1"].detach()
-        scale = std_params["sp2"].detach()
+        loc = std_params["loc"].detach()
+        scale = std_params["scale"].detach()
         
         unc = {
             "up1" : torch.nn.Parameter(loc),
@@ -54,8 +54,8 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
     @classmethod
     def _nat_from_std(self, std_params):
         
-        loc = std_params["sp1"]
-        scale = std_params["sp2"]
+        loc = std_params["loc"]
+        scale = std_params["scale"]
         
         nat = {
             "np1" : loc * scale ** -2,
@@ -72,8 +72,8 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         np2 = nat_params["np2"]
         
         np = {
-            "np1" : - 0.5 * np1 / np2,
-            "np2" : (- 0.5 / np2) ** 0.5
+            "loc" : - 0.5 * np1 / np2,
+            "scale" : (- 0.5 / np2) ** 0.5
         }
         
         return np
@@ -108,8 +108,8 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         scale_tril = unc_params["up2"]
         
         std = {
-            "sp1" : loc,
-            "sp2" : torch.mm(scale_tril, scale_tril.T)
+            "loc" : loc,
+            "covariance_matrix" : torch.mm(scale_tril, scale_tril.T)
         }
         
         return std
@@ -117,8 +117,8 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
     
     def _unc_from_std(self, std_params):
         
-        loc = std_params["sp1"].detach()
-        cov = std_params["sp2"].detach()
+        loc = std_params["loc"].detach()
+        cov = std_params["covariance_matrix"].detach()
         
         scale_tril = torch.linalg.cholesky(cov)
         
@@ -153,8 +153,8 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         prec = -2. * np2
         
         np = {
-            "sp1" : torch.solve(np1[:, None], prec).solution[:, 0],
-            "sp2" : torch.inverse(prec)
+            "loc" : torch.solve(np1[:, None], prec).solution[:, 0],
+            "covariance_matrix" : torch.inverse(prec)
         }
         
         return np
@@ -193,7 +193,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         log_conc = unc_params["up1"]
         
         std = {
-            "sp1" : torch.exp(log_conc)
+            "concentration" : torch.exp(log_conc)
         }
         
         return std
@@ -201,7 +201,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
     
     def _unc_from_std(self, std_params):
         
-        conc = std_params["sp1"].detach()
+        conc = std_params["concentration"].detach()
         log_conc = torch.exp(conc)
         
         unc = {
@@ -214,7 +214,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
     @classmethod
     def _nat_from_std(self, std_params):
         
-        conc = std_params["sp1"]
+        conc = std_params["concentration"]
         
         nat = {
             "np1" : conc - 1.
@@ -229,7 +229,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         conc_minus_one = nat_params["np1"]
         
         std = {
-            "sp1" : conc_minus_one + 1.
+            "concentration" : conc_minus_one + 1.
         }
         
         return std
@@ -263,8 +263,8 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         p = p / p.sum()
         
         std = {
-            "sp1" : up1,
-            "sp2" : p,
+            "total_count" : up1,
+            "probs" : p,
         }
         
         return std
@@ -274,8 +274,8 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
     def _unc_from_std(self, std_params):
         
         # First parameter is the number of trials and therefore not learnable
-        sp1 = std_params["up1"]
-        sp2 = std_params["up2"]
+        sp1 = std_params["total_count"]
+        sp2 = std_params["probs"]
         
         N = sp1
         log_p = torch.log(sp2)
@@ -292,8 +292,8 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
     def _nat_from_std(self, std_params):
         
         # First parameter is the number of trials and therefore not learnable
-        sp1 = std_params["up1"]
-        sp2 = std_params["up2"]
+        sp1 = std_params["total_count"]
+        sp2 = std_params["probs"]
         
         log_p = torch.log(sp2)
         
@@ -315,8 +315,8 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         p = p / p.sum()
         
         std = {
-            "sp1" : np1,
-            "sp2" : p
+            "total_count" : np1,
+            "probs" : p
         }
         
     
