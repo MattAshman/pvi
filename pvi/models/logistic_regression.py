@@ -1,10 +1,7 @@
-import logging
 import torch
 
 from torch import distributions, nn, optim
 from .base import Model
-
-logger = logging.getLogger(__name__)
 
 
 class LogisticRegressionModel(Model, nn.Module):
@@ -45,7 +42,7 @@ class LogisticRegressionModel(Model, nn.Module):
         :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ ≅ (1/M) Σ_m p(y | θ_m, x) θ_m ~ q(θ).
         """
-        thetas = q["distribution"].sample(
+        thetas = q.distribution.sample(
             (self.hyperparameters["num_predictive_samples"],))
 
         comp = self.likelihood_forward(x, thetas)
@@ -53,8 +50,7 @@ class LogisticRegressionModel(Model, nn.Module):
 
         return distributions.MixtureSameFamily(mix, comp)
 
-    @staticmethod
-    def likelihood_forward(x, theta):
+    def likelihood_forward(self, x, theta):
         """
         Returns the model's likelihood p(y | θ, x).
         :param x: Input of shape (*, D).
