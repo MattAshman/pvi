@@ -2,6 +2,10 @@ import torch
 
 from torch import distributions, nn
 from .base import Model
+from pvi.distributions.exponential_family_factors import \
+    MultivariateGaussianFactor
+from pvi.distributions.exponential_family_distributions import \
+    MultivariateGaussianDistribution
 
 
 class LinearRegressionModel(Model, nn.Module):
@@ -28,8 +32,7 @@ class LinearRegressionModel(Model, nn.Module):
             "D": None
         }
 
-    @staticmethod
-    def forward(x, q):
+    def forward(self, x, q):
         """
         Returns the predictive posterior distribution of a Bayesian linear
         regression model.
@@ -37,9 +40,9 @@ class LinearRegressionModel(Model, nn.Module):
         :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ.
         """
-        prec = -2 * q["nat_params"]["np2"]
+        prec = -2 * q.nat_params["np2"]
         mu = torch.solve(
-            q["nat_params"]["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
+            q.nat_params["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
 
         # Append 1 to end of x.
         x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
@@ -47,7 +50,7 @@ class LinearRegressionModel(Model, nn.Module):
         ppvar = x_.unsqueeze(-2).matmul(
             torch.solve(x_.unsqueeze(-1), prec)[0]).reshape(-1)
 
-        return distributions.Normal(ppmu, ppvar)
+        return distributions.Normal(ppmu, ppvar**0.5)
 
     def likelihood_forward(self, x, theta):
         """
@@ -96,22 +99,20 @@ class LinearRegressionModel(Model, nn.Module):
             np1_i_new = (sigma ** (-2) * x_.T.matmul(data["y"])).squeeze(-1)
 
         # New model parameters.
-        np1 = q["nat_params"]["np1"] - t_i["nat_params"]["np1"] + np1_i_new
-        np2 = q["nat_params"]["np2"] - t_i["nat_params"]["np2"] + np2_i_new
+        np1 = q.nat_params["np1"] - t_i.nat_params["np1"] + np1_i_new
+        np2 = q.nat_params["np2"] - t_i.nat_params["np2"] + np2_i_new
 
-        q_new = {
-            "nat_params": {
-                "np1": np1,
-                "np2": np2,
-            }
+        q_new_nps = {
+            "np1": np1,
+            "np2": np2,
         }
+        q_new = MultivariateGaussianDistribution(nat_params=q_new_nps)
 
-        t_i_new = {
-            "nat_params": {
-                "np1": np1_i_new,
-                "np2": np2_i_new,
-            }
+        t_i_new_nps = {
+            "np1": np1_i_new,
+            "np2": np2_i_new,
         }
+        t_i_new = MultivariateGaussianFactor(t_i_new_nps)
 
         return q_new, t_i_new
 
@@ -125,8 +126,8 @@ class LinearRegressionModel(Model, nn.Module):
         """
         n = data["x"].shape[0]
         sigma = self.output_sigma
-        qmu = q["distribution"].mean
-        qcov = q["distribution"].covariance_matrix
+        qmu = q.distribution.mean
+        qcov = q.distribution.covariance_matrix
 
         # Append 1 to end of x.
         x_ = torch.cat((data["x"], torch.ones(len(data["x"])).unsqueeze(-1)),

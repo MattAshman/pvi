@@ -1,11 +1,14 @@
-import logging
 import torch
 
 from torch import distributions, nn, optim
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
+from pvi.distributions.exponential_family_factors import \
+    MultivariateGaussianFactor
+from pvi.distributions.exponential_family_distributions import \
+    MultivariateGaussianDistribution
 
-logger = logging.getLogger(__name__)
+JITTER = 1e-6
 
 
 class SparseGaussianProcessModel(Model, nn.Module):
@@ -26,9 +29,10 @@ class SparseGaussianProcessModel(Model, nn.Module):
             raise ValueError("Kernel class not specified.")
 
         # Add private inducing points to parameters.
+        # TODO: these are shared across clients, hence requires_grad=False.
         self.register_parameter(
             "inducing_locations",
-            nn.Parameter(inducing_locations, requires_grad=True))
+            nn.Parameter(inducing_locations, requires_grad=False))
 
         self.register_parameter("output_sigma", nn.Parameter(
             torch.tensor(output_sigma), requires_grad=True))
@@ -61,7 +65,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
         mu = q["distribution"].mean
-        su = q["distribution"].covariance_matrix
+        su = q.distribution.covariance_matrix
 
         # Parameters of prior.
         kxz = self.kernel(x, self.inducing_locations).evaluate()
@@ -106,7 +110,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
             kxz = self.kernel(x, self.inducing_locations).evaluate()
             kzz = add_diagonal(self.kernel(
                 self.inducing_locations, self.inducing_locations).evaluate(),
-                               1e-4)
+                               JITTER)
 
             lzz = kzz.cholesky()
             ikzz = psd_inverse(chol=lzz)
@@ -116,26 +120,24 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
             # Closed form solution for optimum q(u).
             # New local parameters.
-            np2_i_new = -0.5 * sigma.pow(-2) * a.transpose(-1, -2).matmul(a)
-            np1_i_new = sigma.pow(-2) * a.transpose(-1, -2).matmul(y).squeeze(-1)
+            np2_i_new = -0.5 * sigma.pow(-2) * a.T.matmul(a)
+            np1_i_new = sigma.pow(-2) * a.T.matmul(y).squeeze(-1)
 
         # New model parameters.
-        np1 = q["nat_params"]["np1"] - t_i["nat_params"]["np1"] + np1_i_new
-        np2 = q["nat_params"]["np2"] - t_i["nat_params"]["np2"] + np2_i_new
+        np1 = q.nat_params["np1"] - t_i.nat_params["np1"] + np1_i_new
+        np2 = q.nat_params["np2"] - t_i.nat_params["np2"] + np2_i_new
 
-        q_new = {
-            "nat_params": {
-                "np1": np1,
-                "np2": np2,
-            }
+        q_new_nps = {
+            "np1": np1,
+            "np2": np2,
         }
+        q_new = MultivariateGaussianDistribution(nat_params=q_new_nps)
 
-        t_i_new = {
-            "nat_params": {
-                "np1": np1_i_new,
-                "np2": np2_i_new,
-            }
+        t_i_new_nps = {
+            "np1": np1_i_new,
+            "np2": np2_i_new,
         }
+        t_i_new = MultivariateGaussianFactor(t_i_new_nps)
 
         return q_new, t_i_new
 
@@ -143,9 +145,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
         """
         Returns the ELBO of the sparse Gaussian process model under q(u), with 
         prior p(u).
-        :param data: The local data to refine the model with.
-        :param q: The parameters of the current global posterior q(θ).
-        :param p: The parameters of the prior p(θ) (could be cavity).
+        :param data: The local data.
+        :param q: The current global posterior q(θ).
+        :param p: The prior p(θ) (could be cavity).
         :return: The evidence lower bound.
         """
         # Set up data etc.
@@ -157,31 +159,26 @@ class SparseGaussianProcessModel(Model, nn.Module):
         kzx = kxz.T
         kzz = add_diagonal(self.kernel(
             self.inducing_locations, self.inducing_locations).evaluate(),
-                           1e-4)
-        kxx = add_diagonal(self.kernel(x, x).evaluate(), 1e-4)
+                           JITTER)
+        kxx = add_diagonal(self.kernel(x, x).evaluate(), JITTER)
 
         # Derivation follows that in Hensman et al. (2013).
         ikzz = psd_inverse(kzz)
         a = kxz.matmul(ikzz)
         b = kxx - kxz.matmul(ikzz).matmul(kzx)
-        qmu = q["distribution"].mean
-        qcov = q["distribution"].covariance_matrix
+        qmu = q.distribution.mean
+        qcov = q.distribution.covariance_matrix
 
         sigma = self.output_sigma
         dist = self.likelihood_forward(a.matmul(qmu))
         ll1 = dist.log_prob(y.squeeze())
-        ll2 = -0.5 * sigma.pow(-2) * (
-                a.matmul(qcov).matmul(a.transpose(-1, -2)) + b)
+        ll2 = -0.5 * sigma.pow(-2) * (a.matmul(qcov).matmul(a.T) + b)
         ll = ll1.sum() + ll2.sum()
 
         # Compute the KL divergence between current approximate
         # posterior and prior.
-        kl = distributions.kl_divergence(q["distribution"], p["distribution"])
+        kl = q.kl_divergence(p.distribution)
 
         elbo = ll - kl
-
-        # Alternative derivation.
-        # F = log N(y; A * p.mean, sigma^2 I + A * p.cov * A^T)
-        # - 0.5 * sigma^{-2} * Tr(Kxx - Kxz * Kzz^{-1} * Kzx)
 
         return elbo
