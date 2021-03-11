@@ -15,25 +15,19 @@ class ExponentialFamilyFactor(ABC):
     The exponential family is made up of distributions which can be written
     in the form
     
-        p(x | θ) = h(x) exp(ν.T f(x) + A(ν)).
+        p(θ | v) = h(θ) exp(ν.T f(θ) + A(ν)).
     
     For a list of exponential family distributions see:
         https://en.wikipedia.org/wiki/Category:Exponential_family_distributions
         https://en.wikipedia.org/wiki/Exponential_family#Table_of_distributions
-    
-    
-    TODO: Write children classes for the following members of the EF
-    
-        - Dirichlet
-        - Multinomial
         
     There are many more members but these are especially useful for our
     applications.
     """
     
-    def __init__(self, natural_parameters):
+    def __init__(self, nat_params):
         
-        self.natural_parameters = natural_parameters
+        self.nat_params = nat_params
       
     
     def compute_refined_factor(self, q1, q2):
@@ -50,34 +44,34 @@ class ExponentialFamilyFactor(ABC):
         """
         
         # Convert distributions to log-coefficients and natural parameters
-        np1 = self.np_from_distribution(q1.q)
-        np2 = self.np_from_distribution(q2.q)
+        np1 = self.nat_from_dist(q1.distribution)
+        np2 = self.nat_from_dist(q2.distribution)
         
         # Log coefficient and natural parameters of refined factor
-        natural_parameters = {}
+        nat_params = {}
         
         # Compute natural parameters of the new t-factor
-        for name, np in self.natural_parameters.items():
-            natural_parameters[name] = np1[name] - np2[name] + np
+        for name, np in self.nat_params.items():
+            nat_params[name] = np1[name] - np2[name] + np
             
         # Create and return refined t of the same type
-        t = type(self)(natural_parameters)
+        t = type(self)(nat_params)
         
         return t
     
 
     def __call__(self, thetas):
         """
-        Returns the value of log t(θ) where
+        Returns the value of log t(θ) (up to a const. independent of θ)
         
-            log t(θ) = log c + log h(x) + ν.T f(x)
+            log t(θ) = log h(θ) + ν.T f(θ) + const.
             
         Input **thetas** is assumed to be a torch.tensor of shape (N, D)
         where N is the batch dimension and D is the dimension of the
         distribution.
         """
         
-        # Compute inner product ν.T f(x), log h(θ), log t(θ) (all shape (N,))
+        # Compute inner product ν.T f(θ), log h(θ), log t(θ) (all shape (N,))
         npf = self.npf(thetas)
         log_h = self.log_h(thetas)
         log_t = log_h + npf
@@ -104,7 +98,7 @@ class ExponentialFamilyFactor(ABC):
     
     
     @abstractmethod
-    def np_from_distribution(self, q):
+    def nat_from_dist(self, q):
         """
         Takes a torch.distribution **q**, assumed to be in the EF
         and extracts its leading coefficient and natural parameters.
@@ -113,7 +107,7 @@ class ExponentialFamilyFactor(ABC):
     
     
     @abstractmethod
-    def distribution_from_np(self, np):
+    def dist_from_nat(self, np):
         """
         Takes a dictionary of natural parameters **np** and returns a
         torch.distribution defined by these natural parameters.
@@ -212,25 +206,25 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     
     @property
-    def q(self):
-        params = list(self.std_params.values())
-        return self.torch_dist_class(*params)
+    def distribution(self):
+        return self.torch_dist_class(**self.std_params)
     
     
     def kl_divergence(self, other):
-        return torch.distributions.kl_divergence(self.q, other.q)
+        return torch.distributions.kl_divergence(self.distribution,
+                                                 other.distribution)
     
     
     def log_prob(self, *args, **kwargs):
-        return self.q.log_prob(*args, **kwargs)
+        return self.distribution.log_prob(*args, **kwargs)
     
     
     def sample(self, *args, **kwargs):
-        return self.q.sample(*args, **kwargs)
+        return self.distribution.sample(*args, **kwargs)
     
     
     def rsample(self, *args, **kwargs):
-        return self.q.rsample(*args, **kwargs)
+        return self.distribution.rsample(*args, **kwargs)
     
     
     @property

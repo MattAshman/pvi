@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod
+from .base import Client
 
 
 # =============================================================================
@@ -6,20 +6,15 @@ from abc import ABC, abstractmethod
 # =============================================================================
 
 
-class AsynchronousClient(ABC):
+class AsynchronousClient(Client):
     
-    def __init__(self, server, client_id, data, likelihood, t):
+    def __init__(self, server, client_id, data, model, t):
+        
+        super().__init__(data=data, model=model, t=t)
         
         # Set server and the client id
         self.server = server
         self.client_id = client_id
-        
-        # Set data partition and likelihood
-        self.data = data
-        self.likelihood = likelihood
-        
-        # Set likelihood approximating term
-        self.t = t
     
     
     def fit(self):
@@ -46,7 +41,7 @@ class AsynchronousClient(ABC):
         q = self.server.q
         
         # Compute new posterior (ignored) and approximating likelihood term
-        self.q, self.t = super().q_update(q, self.t)
+        self.q, self.t = self.update_q(q, self.t)
         
         # Send new appeoximating likelihood term to server
         self.server.update_posterior(self.t, client_id)
