@@ -143,44 +143,47 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
         return q_new, t_i_new
 
-    def elbo(self, data, q, p):
+    def local_free_energy(self, data, q, t):
         """
-        Returns the ELBO (up to an additive constant) of the sparse Gaussian
-        process model under q(u), with prior p(u).
+        Returns the local variational free energy (up to an additive constant)
+        of the sparse Gaussian process model under q(u), with local factor
+        t(u).
         :param data: The local data.
         :param q: The current global posterior q(θ).
-        :param p: The prior p(θ) (could be cavity).
+        :param t: The local factor t(θ) (could be cavity).
         :return: The evidence lower bound.
         """
-        # Set up data etc.
-        x = data["x"]
-        y = data["y"]
+        raise NotImplementedError
 
-        # Parameters of prior.
-        kxz = self.kernel(x, self.inducing_locations).evaluate()
-        kzx = kxz.T
-        kzz = add_diagonal(self.kernel(
-            self.inducing_locations, self.inducing_locations).evaluate(),
-                           JITTER)
-        kxx = add_diagonal(self.kernel(x, x).evaluate(), JITTER)
-
-        # Derivation follows that in Hensman et al. (2013).
-        ikzz = psd_inverse(kzz)
-        a = kxz.matmul(ikzz)
-        b = kxx - kxz.matmul(ikzz).matmul(kzx)
-        qmu = q.distribution.mean
-        qcov = q.distribution.covariance_matrix
-
-        sigma = self.output_sigma
-        dist = self.likelihood_forward(a.matmul(qmu))
-        ll1 = dist.log_prob(y.squeeze())
-        ll2 = -0.5 * sigma.pow(-2) * (a.matmul(qcov).matmul(a.T) + b)
-        ll = ll1.sum() + ll2.sum()
-
-        # Compute the KL divergence between current approximate
-        # posterior and prior.
-        kl = q.kl_divergence(p.distribution)
-
-        elbo = ll - kl
-
-        return elbo
+        # # Set up data etc.
+        # x = data["x"]
+        # y = data["y"]
+        #
+        # # Parameters of prior.
+        # kxz = self.kernel(x, self.inducing_locations).evaluate()
+        # kzx = kxz.T
+        # kzz = add_diagonal(self.kernel(
+        #     self.inducing_locations, self.inducing_locations).evaluate(),
+        #                    JITTER)
+        # kxx = add_diagonal(self.kernel(x, x).evaluate(), JITTER)
+        #
+        # # Derivation follows that in Hensman et al. (2013).
+        # ikzz = psd_inverse(kzz)
+        # a = kxz.matmul(ikzz)
+        # b = kxx - kxz.matmul(ikzz).matmul(kzx)
+        # qmu = q.distribution.mean
+        # qcov = q.distribution.covariance_matrix
+        #
+        # sigma = self.output_sigma
+        # dist = self.likelihood_forward(a.matmul(qmu))
+        # ll1 = dist.log_prob(y.squeeze())
+        # ll2 = -0.5 * sigma.pow(-2) * (a.matmul(qcov).matmul(a.T) + b)
+        # ll = ll1.sum() + ll2.sum()
+        #
+        # # Compute the KL divergence between current approximate
+        # # posterior and prior.
+        # kl = q.kl_divergence(p.distribution)
+        #
+        # elbo = ll - kl
+        #
+        # return elbo
