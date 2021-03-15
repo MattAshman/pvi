@@ -15,8 +15,8 @@ import torch
 class MeanFieldGaussianFactor(ExponentialFamilyFactor):
     
     
-    def __init__(self, natural_parameters):
-        super().__init__(natural_parameters=natural_parameters)
+    def __init__(self, nat_params):
+        super().__init__(nat_params=nat_params)
         
         self.distribution_class = MeanFieldGaussianDistribution
     
@@ -35,8 +35,8 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
     
     def npf(self, thetas):
         
-        np1 = self.natural_parameters["np1"]
-        np2 = self.natural_parameters["np2"]
+        np1 = self.nat_params["np1"]
+        np2 = self.nat_params["np2"]
         
         npf = torch.mv(thetas, np1)
         npf = npf + torch.mv(thetas ** 2, np2)
@@ -74,9 +74,9 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
 class MultivariateGaussianFactor(ExponentialFamilyFactor):
     
     
-    def __init__(self, natural_parameters):
+    def __init__(self, nat_params):
         
-        super().__init__(natural_parameters)
+        super().__init__(nat_params)
         
         self.distribution_class = MultivariateGaussianDistribution
     
@@ -95,8 +95,8 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
     
     def npf(self, thetas):
         
-        np1 = self.natural_parameters["np1"]
-        np2 = self.natural_parameters["np2"]
+        np1 = self.nat_params["np1"]
+        np2 = self.nat_params["np2"]
         
         npf = torch.mv(thetas, np1)
         npf = npf + torch.sum(thetas * torch.mm(thetas, np2), dim=1)
