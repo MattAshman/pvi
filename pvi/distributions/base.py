@@ -44,8 +44,8 @@ class ExponentialFamilyFactor(ABC):
         """
         
         # Convert distributions to log-coefficients and natural parameters
-        np1 = self.nat_from_dist(q1.distribution)
-        np2 = self.nat_from_dist(q2.distribution)
+        np1 = q1.nat_params
+        np2 = q2.nat_params
         
         # Log coefficient and natural parameters of refined factor
         nat_params = {}
@@ -153,19 +153,21 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             
     @std_params.setter
     def std_params(self, std_params):
-        
+
         if self.is_trainable:
             self._unc_params = nn.ParameterDict(self._unc_from_std(std_params))
-            
+
         else:
             self._std_params = std_params
+
+        self._nat_params = None
 
         
     @property
     def nat_params(self):
         
         # If _nat_params None or distribution trainable compute nat params
-        if (self.is_trainable) or (self._nat_params is None):
+        if self.is_trainable or self._nat_params is None:
             self._nat_params = self._nat_from_std(self.std_params)
         
         return self._nat_params
@@ -173,9 +175,16 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     @nat_params.setter
     def nat_params(self, nat_params):
+
         self._nat_params = nat_params
-        
-        
+
+        if self.is_trainable:
+            self._unc_params = None
+
+        else:
+            self._std_params = None
+
+
     @abstractmethod
     def _std_from_unc(self, unc_params):
         pass
@@ -197,9 +206,14 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     
     def non_trainable_copy(self):
-        
-        std_params = self.std_params.detach()
-        nat_params = self.nat_params.detach()
+
+        std_params, nat_params = {}, {}
+
+        for k, v in self.std_params.items():
+            std_params[k] = v.detach()
+
+        for k, v in self.nat_params.items():
+            nat_params[k] = v.detach()
         
         return type(self)(std_params, nat_params, is_trainable=False)
         
@@ -231,4 +245,3 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     @abstractmethod
     def torch_dist_class(self):
         pass
-    
