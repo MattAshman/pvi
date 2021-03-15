@@ -16,6 +16,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
     Sparse Gaussian process model using closed-form optimisation of q(u).
     """
 
+    conjugate_family = MultivariateGaussianDistribution
+
     def __init__(self, inducing_locations, output_sigma=1., **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
@@ -64,7 +66,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         :param q: The approximate posterior distribution q(u).
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
-        mu = q["distribution"].mean
+        mu = q.distribution.mean
         su = q.distribution.covariance_matrix
 
         # Parameters of prior.

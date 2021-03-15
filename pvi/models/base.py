@@ -75,3 +75,8 @@ class Model(ABC):
         :return: The posterior, p(θ | data).
         """
         raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def conjugate_family(self):
+        raise NotImplementedError
