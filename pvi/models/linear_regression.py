@@ -12,6 +12,9 @@ class LinearRegressionModel(Model, nn.Module):
     """
     Linear regression model with a Gaussian prior distribution.
     """
+    
+    conjugate_family = MultivariateGaussianDistribution
+
     def __init__(self, output_sigma=1., **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)

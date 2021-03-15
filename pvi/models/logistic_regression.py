@@ -9,6 +9,9 @@ class LogisticRegressionModel(Model, nn.Module):
     Logistic regression model with a multivariate Gaussian approximate
     posterior.
     """
+    
+    conjugate_family = None
+
     def __init__(self, **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
