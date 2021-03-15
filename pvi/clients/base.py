@@ -107,7 +107,7 @@ class Client(ABC):
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
                     batch, thetas).mean(0).sum()
-                ll = ll + self.t(thetas).mean(0).sum()
+                ll = ll - self.t(thetas).mean(0).sum()
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll
