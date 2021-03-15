@@ -1,6 +1,11 @@
-from abc import ABC, abstracmethod
+from abc import ABC, abstractmethod
 
 import logging
+import torch
+
+from torch.utils.data import TensorDataset, DataLoader
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -32,30 +37,40 @@ class Client:
         pass
     
     
-    def q_update(self, q):
+    def update_q(self, q):
         """
         Computes a refined approximate posterior and the associated
         approximating likelihood term.
         """
-        
-        if False: # type(q) is self.model.conjuagte_family:
-            return self.likelihood.conjugate_update(self.data, q, self.t)
+
+        # Type(q) is self.model.conjugate_family.
+        if type(q) == self.model.conjugate_family:
+            return self.model.conjugate_update(self.data, q, self.t)
             
         else:
-            return self.gradient_based_update(self.data, q, self.t)
+            return self.gradient_based_update(self.data, q)
         
         
-    def gradient_based_update(self, data, q, t):
+    def gradient_based_update(self, data, q):
         
-        hyperparameters = self.model.hyperparameters
+        hyper = self.model.hyperparameters
         
-        # Copy the approximate posterior, make q_ not trainable
+        # Copy the approximate posterior, make not trainable
         q_ = q.non_trainable_copy()
+        qcav = q.non_trainable_copy()
+
+        # Set natural parameters of cavity
+        qcav.nat_params = {
+            "np1": q.nat_params["np1"] - self.t.nat_params["np1"],
+            "np2": q.nat_params["np2"] - self.t.nat_params["np2"],
+        }
            
         # Reset optimiser
+        # TODO: not optimising model parameters for now (inducing points,
+        # kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, hyper["optimiser"])(
-                    **hyper["optimiser_params"])
+            q.parameters(), **hyper["optimiser_params"])
         
         # Set up data
         x = data["x"]
@@ -90,18 +105,18 @@ class Client:
                     "y" : y_batch,
                 }
                 
-                # Compute KL divergence between q and q_
-                kl = q.kl_divergence(q_)
+                # Compute KL divergence between q and qcav
+                kl = q.kl_divergence(qcav)
                 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
-                ll = self.model.likelihood_forward(batch, thetas).mean(0).sum()
-                ll = ll + t.log_prob(thetas).mean(0).sum()
+                ll = self.model.likelihood_log_prob(
+                    batch, thetas).mean(0).sum()
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll
                 loss.backward()
-                self.optimiser.step()
+                optimiser.step()
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
@@ -115,15 +130,19 @@ class Client:
             training_curve["ll"].append(epoch["ll"])
 
             if i % hyper["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch["elbo"]:.3f}, "
-                             f"LL: {epoch["ll"]:.3f}, "
-                             f"KL: {epoch["kl"]:.3f}, "
+                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
+                             f"LL: {epoch['ll']:.3f}, "
+                             f"KL: {epoch['kl']:.3f}, "
                              f"Epochs: {i}.")
 
         # Log the training curves for this update
         self._training_curves.append(training_curve)
 
         # Compute new local contribution from old distributions
-        t = t.compute_refined_factor(q, q_)
+        t_new = self.t.compute_refined_factor(q, q_)
         
-        return q, t
+        return q, t_new
+
+    @property
+    def training_curves(self):
+        return self._training_curves
