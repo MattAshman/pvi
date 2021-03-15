@@ -143,8 +143,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
     def elbo(self, data, q, p):
         """
-        Returns the ELBO of the sparse Gaussian process model under q(u), with 
-        prior p(u).
+        Returns the ELBO (up to an additive constant) of the sparse Gaussian
+        process model under q(u), with prior p(u).
         :param data: The local data.
         :param q: The current global posterior q(θ).
         :param p: The prior p(θ) (could be cavity).
