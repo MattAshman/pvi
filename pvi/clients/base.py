@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class Client:
+class Client(ABC):
     
     def __init__(self, data, model, t):
         
@@ -24,11 +24,11 @@ class Client:
         # Set likelihood approximating term
         self.t = t
         
-        self._training_curves = []
+        self.training_curves = []
         
     
     @abstractmethod
-    def fit(self):
+    def fit(self, q):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
@@ -44,26 +44,19 @@ class Client:
         """
 
         # Type(q) is self.model.conjugate_family.
-        if type(q) == self.model.conjugate_family:
+        if str(type(q)) == str(self.model.conjugate_family):
             return self.model.conjugate_update(self.data, q, self.t)
             
         else:
-            return self.gradient_based_update(self.data, q)
+            return self.gradient_based_update(q)
         
         
-    def gradient_based_update(self, data, q):
+    def gradient_based_update(self, q):
         
         hyper = self.model.hyperparameters
         
         # Copy the approximate posterior, make not trainable
         q_ = q.non_trainable_copy()
-        qcav = q.non_trainable_copy()
-
-        # Set natural parameters of cavity
-        qcav.nat_params = {
-            "np1": q.nat_params["np1"] - self.t.nat_params["np1"],
-            "np2": q.nat_params["np2"] - self.t.nat_params["np2"],
-        }
            
         # Reset optimiser
         # TODO: not optimising model parameters for now (inducing points,
@@ -73,8 +66,8 @@ class Client:
             q.parameters(), **hyper["optimiser_params"])
         
         # Set up data
-        x = data["x"]
-        y = data["y"]
+        x = self.data["x"]
+        y = self.data["y"]
         
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
@@ -106,12 +99,13 @@ class Client:
                 }
                 
                 # Compute KL divergence between q and qcav
-                kl = q.kl_divergence(qcav)
+                kl = q.kl_divergence(q_)
                 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
                     batch, thetas).mean(0).sum()
+                ll = ll + self.t(thetas).mean(0).sum()
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll
@@ -136,13 +130,9 @@ class Client:
                              f"Epochs: {i}.")
 
         # Log the training curves for this update
-        self._training_curves.append(training_curve)
+        self.training_curves.append(training_curve)
 
         # Compute new local contribution from old distributions
         t_new = self.t.compute_refined_factor(q, q_)
         
         return q, t_new
-
-    @property
-    def training_curves(self):
-        return self._training_curves
