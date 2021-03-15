@@ -53,7 +53,8 @@ class ExponentialFamilyFactor(ABC):
         # Compute natural parameters of the new t-factor (detach gradients)
         for name, np in self.nat_params.items():
             nat_params[name] = (
-                    np1[name].detach() - np2[name].detach() + np.detach())
+                    np1[name].detach().clone() - np2[name].detach().clone()
+                    + np.detach().clone())
             
         # Create and return refined t of the same type
         t = type(self)(nat_params)
@@ -222,20 +223,20 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             nat_params = None
             std_params = self._std_from_unc(self._unc_params)
             for k, v in std_params.items():
-                std_params[k] = v.detach()
+                std_params[k] = v.detach().clone()
 
         else:
             if self._std_params is not None:
                 std_params = {}
                 for k, v in self.std_params.items():
-                    std_params[k] = v.detach()
+                    std_params[k] = v.detach().clone()
             else:
                 std_params = None
 
             if self._nat_params is not None:
                 nat_params = {}
                 for k, v in self.nat_params.items():
-                    nat_params[k] = v.detach()
+                    nat_params[k] = v.detach().clone()
             else:
                 nat_params = None
         
@@ -250,20 +251,20 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             nat_params = None
             std_params = self._std_from_unc(self._unc_params)
             for k, v in std_params.items():
-                std_params[k] = v.detach()
+                std_params[k] = v.detach().clone()
 
         else:
             if self._std_params is not None:
                 std_params = {}
                 for k, v in self.std_params.items():
-                    std_params[k] = v.detach()
+                    std_params[k] = v.detach().clone()
             else:
                 std_params = None
 
             if self._nat_params is not None:
                 nat_params = {}
                 for k, v in self.nat_params.items():
-                    nat_params[k] = v.detach()
+                    nat_params[k] = v.detach().clone()
             else:
                 nat_params = None
 
