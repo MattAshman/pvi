@@ -54,7 +54,7 @@ class Client(ABC):
         
         
     def gradient_based_update(self, q):
-        
+
         hyper = self.model.hyperparameters
         
         # Copy the approximate posterior, make old posterior non-trainable.
@@ -102,7 +102,7 @@ class Client(ABC):
                 
                 # Compute KL divergence between q and q_old.
                 kl = q.kl_divergence(q_old).sum()
-                
+
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
