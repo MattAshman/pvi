@@ -45,18 +45,20 @@ class Client(ABC):
 
         # Type(q) is self.model.conjugate_family.
         if str(type(q)) == str(self.model.conjugate_family):
+            # No need to make q trainable.
             return self.model.conjugate_update(self.data, q, self.t)
             
         else:
-            return self.gradient_based_update(q)
+            # Pass a trainable copy to optimise.
+            return self.gradient_based_update(q.trainable_copy())
         
         
     def gradient_based_update(self, q):
         
         hyper = self.model.hyperparameters
         
-        # Copy the approximate posterior, make not trainable
-        q_ = q.non_trainable_copy()
+        # Copy the approximate posterior, make old posterior non-trainable.
+        q_old = q.non_trainable_copy()
            
         # Reset optimiser
         # TODO: not optimising model parameters for now (inducing points,
@@ -83,7 +85,6 @@ class Client(ABC):
         
         # Gradient-based optimisation loop -- loop over epochs
         for i in range(hyper["epochs"]):
-            
             epoch = {
                 "elbo" : 0,
                 "kl"   : 0,
@@ -92,14 +93,15 @@ class Client(ABC):
             
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
-                
+                optimiser.zero_grad()
+
                 batch = {
                     "x" : x_batch,
                     "y" : y_batch,
                 }
                 
-                # Compute KL divergence between q and qcav
-                kl = q.kl_divergence(q_)
+                # Compute KL divergence between q and q_old.
+                kl = q.kl_divergence(q_old).sum()
                 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
@@ -133,6 +135,6 @@ class Client(ABC):
         self.training_curves.append(training_curve)
 
         # Compute new local contribution from old distributions
-        t_new = self.t.compute_refined_factor(q, q_)
+        t_new = self.t.compute_refined_factor(q, q_old)
         
         return q, t_new
