@@ -1,4 +1,4 @@
-from base import Client
+from .base import Client
 
 
 # =============================================================================
@@ -19,6 +19,6 @@ class SynchronousClient(Client):
         """
         
         # Compute new posterior (ignored) and approximating likelihood term
-        _, self.t = super().update_q(q, self.t)
+        _, self.t = super().update_q(q)
         
         return self.t
