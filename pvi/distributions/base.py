@@ -50,9 +50,10 @@ class ExponentialFamilyFactor(ABC):
         # Log coefficient and natural parameters of refined factor
         nat_params = {}
         
-        # Compute natural parameters of the new t-factor
+        # Compute natural parameters of the new t-factor (detach gradients)
         for name, np in self.nat_params.items():
-            nat_params[name] = np1[name] - np2[name] + np
+            nat_params[name] = (
+                    np1[name].detach() - np2[name].detach() + np.detach())
             
         # Create and return refined t of the same type
         t = type(self)(nat_params)
@@ -132,10 +133,26 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
         # Specify whether the distribution is trainable wrt its NPs
         self.is_trainable = is_trainable
+
+        # Set all to None.
+        self._nat_params = None
+        self._std_params = None
+        self._unc_params = None
         
-        # Set standard and natural parameters
-        self.std_params = std_params
-        self.nat_params = nat_params
+        # Initialise standard and natural parameters
+        if is_trainable:
+            # Only initialise std_params (initialises unc_params).
+            if std_params is not None:
+                self.std_params = std_params
+            elif nat_params is not None:
+                self.std_params = self._std_from_nat(nat_params)
+            else:
+                # No intitial parameter values specified.
+                raise ValueError("No initial parameterisation specified. "
+                                 "Cannot create optimisable parameters.")
+        else:
+            self.std_params = std_params
+            self.nat_params = nat_params
     
         
     @property
@@ -199,16 +216,58 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     def non_trainable_copy(self):
 
-        std_params, nat_params = {}, {}
+        # Prevents unecessary computation of std_params or nat_params when
+        # creating a copy.
+        if self.is_trainable:
+            nat_params = None
+            std_params = self._std_from_unc(self._unc_params)
+            for k, v in std_params.items():
+                std_params[k] = v.detach()
 
-        for k, v in self.std_params.items():
-            std_params[k] = v.detach()
+        else:
+            if self._std_params is not None:
+                std_params = {}
+                for k, v in self.std_params.items():
+                    std_params[k] = v.detach()
+            else:
+                std_params = None
 
-        for k, v in self.nat_params.items():
-            nat_params[k] = v.detach()
+            if self._nat_params is not None:
+                nat_params = {}
+                for k, v in self.nat_params.items():
+                    nat_params[k] = v.detach()
+            else:
+                nat_params = None
         
         return type(self)(std_params, nat_params, is_trainable=False)
-        
+
+
+    def trainable_copy(self):
+
+        # Prevents unecessary computation of std_params or nat_params when
+        # creating a copy.
+        if self.is_trainable:
+            nat_params = None
+            std_params = self._std_from_unc(self._unc_params)
+            for k, v in std_params.items():
+                std_params[k] = v.detach()
+
+        else:
+            if self._std_params is not None:
+                std_params = {}
+                for k, v in self.std_params.items():
+                    std_params[k] = v.detach()
+            else:
+                std_params = None
+
+            if self._nat_params is not None:
+                nat_params = {}
+                for k, v in self.nat_params.items():
+                    nat_params[k] = v.detach()
+            else:
+                nat_params = None
+
+        return type(self)(std_params, nat_params, is_trainable=True)
     
     
     @property
