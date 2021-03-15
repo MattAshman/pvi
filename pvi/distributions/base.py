@@ -160,8 +160,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         else:
             self._std_params = std_params
 
-        self._nat_params = None
-
         
     @property
     def nat_params(self):
@@ -177,12 +175,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     def nat_params(self, nat_params):
 
         self._nat_params = nat_params
-
-        if self.is_trainable:
-            self._unc_params = None
-
-        else:
-            self._std_params = None
 
 
     @abstractmethod
