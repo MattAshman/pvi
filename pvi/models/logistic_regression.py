@@ -49,7 +49,7 @@ class LogisticRegressionModel(Model, nn.Module):
             (self.hyperparameters["num_predictive_samples"],))
 
         comp_ = self.likelihood_forward(x, thetas)
-        comp = distributions.Bernoulli(comp_.logits.T)
+        comp = distributions.Bernoulli(logits=comp_.logits.T)
         mix = distributions.Categorical(torch.ones(len(thetas),))
 
         return distributions.MixtureSameFamily(mix, comp)
