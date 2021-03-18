@@ -1,25 +1,44 @@
+import logging
+
+from tqdm.auto import tqdm
 from .base import Server
+
+logger = logging.getLogger(__name__)
 
 
 class SynchronousServer(Server):
-    def __init__(self, model, q, clients, max_iterations=100):
-        super().__init__(model, q, clients, max_iterations)
+    def __init__(self, model, q, clients, hyperparameters=None):
+        super().__init__(model, q, clients, hyperparameters)
+
+    def get_default_hyperparameters(self):
+        return {
+            **super().get_default_hyperparameters(),
+            "max_iterations": 100,
+        }
 
     def tick(self):
         if self.should_stop():
             return False
 
+        logger.debug("Getting client updates.")
+
         delta_nps = []
-        for i, client in enumerate(self.clients):
-            t_i_old = client.t
-            t_i_new = client.fit(self.q)
+        clients_updated = 0
 
-            # Compute change in natural parameters.
-            delta_np = {}
-            for k in self.q.nat_params.keys():
-                delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
+        for i, client in tqdm(enumerate(self.clients), leave=False):
+            if client.can_upate():
+                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
+                t_i_old = client.t
+                t_i_new = client.fit(self.q)
+                # Compute change in natural parameters.
+                delta_np = {}
+                for k in self.q.nat_params.keys():
+                    delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
 
-            delta_nps.append(delta_np)
+                delta_nps.append(delta_np)
+                clients_updated += 1
+
+        logger.debug("Received client updates. Updating global posterior.")
 
         # Update global posterior.
         q_new_nps = {}
@@ -28,10 +47,16 @@ class SynchronousServer(Server):
 
         self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
 
+        logger.debug(f"Iteration {self.iterations} complete."
+                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+
+        self.iterations += 1
+
         # Log progress.
-        self.log["delta_nps"].append(delta_nps)
-        self.log["nps"].append(self.q.nat_params)
+        self.log["nat_params"].append(self.q.nat_params)
 
     def should_stop(self):
-        if self.iterations > self.max_iterations - 1:
+        if self.iterations > self.hyperparameters["max_iterations"] - 1:
             return True
+        else:
+            return False

@@ -6,7 +6,14 @@ class Server(ABC):
     """
     An abstract class for the server.
     """
-    def __init__(self, model, q, clients, max_iterations):
+    def __init__(self, model, q, clients, hyperparameters=None):
+
+        if hyperparameters is None:
+            hyperparameters = {}
+
+        self.hyperparameters = self.get_default_hyperparameters()
+        self.set_hyperparameters(hyperparameters)
+
         # Shared probabilistic model.
         self.model = model
 
@@ -16,11 +23,17 @@ class Server(ABC):
         # Clients.
         self.clients = clients
 
-        # Maximum number of iterations before stopping.
-        self.max_iterations = max_iterations
+        # Internal iteration counter.
         self.iterations = 0
 
         self.log = defaultdict(list)
+
+    def set_hyperparameters(self, hyperparameters):
+        self.hyperparameters = {**self.hyperparameters, **hyperparameters}
+
+    @abstractmethod
+    def get_default_hyperparameters(self):
+        return {}
 
     @abstractmethod
     def tick(self):
@@ -46,3 +59,18 @@ class Server(ABC):
 
     def add_client(self, client):
         self.clients.append(client)
+
+    def get_compiled_log(self):
+        """
+        Get full log, including logs from each client.
+        :return: full log.
+        """
+        final_log = {
+            "server": self.log
+        }
+
+        client_logs = [client.log for client in self.clients]
+        for i, log in enumerate(client_logs):
+            final_log["client_" + str(i)] = log
+
+        return final_log

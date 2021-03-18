@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from collections import defaultdict
 
 import logging
 import torch
@@ -24,8 +25,16 @@ class Client(ABC):
         # Set likelihood approximating term
         self.t = t
         
-        self.training_curves = []
-        
+        self.log = defaultdict(list)
+        self._can_update = True
+
+    def can_update(self):
+        """
+        A check to see if this client can indeed update. Examples of reasons
+        one may not be is that they haven't finished optimisation.
+        :return:
+        """
+        return self._can_update
     
     @abstractmethod
     def fit(self, q):
@@ -35,8 +44,7 @@ class Client(ABC):
         client, but in all cases it calls Client.q_update internally.
         """
         pass
-    
-    
+
     def update_q(self, q):
         """
         Computes a refined approximate posterior and the associated
@@ -51,11 +59,12 @@ class Client(ABC):
         else:
             # Pass a trainable copy to optimise.
             return self.gradient_based_update(q.trainable_copy())
-        
-        
-    def gradient_based_update(self, q):
 
+    def gradient_based_update(self, q):
         hyper = self.model.hyperparameters
+
+        # Cannot update during optimisation.
+        self._can_update = False
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = q.non_trainable_copy()
@@ -132,9 +141,12 @@ class Client(ABC):
                              f"Epochs: {i}.")
 
         # Log the training curves for this update
-        self.training_curves.append(training_curve)
+        self.log["training_curves"].append(training_curve)
 
         # Compute new local contribution from old distributions
         t_new = self.t.compute_refined_factor(q, q_old)
+
+        # Finished optimisation, can now update.
+        self._can_update = True
         
         return q, t_new

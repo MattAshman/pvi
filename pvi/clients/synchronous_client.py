@@ -10,8 +10,7 @@ class SynchronousClient(Client):
     
     def __init__(self, data, model, t):
         super().__init__(data=data, model=model, t=t)
-        
-        
+
     def fit(self, q):
         """
         Computes a refined posterior and its associated approximating

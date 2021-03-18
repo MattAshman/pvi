@@ -16,7 +16,6 @@ class AsynchronousClient(Client):
         self.server = server
         self.client_id = client_id
     
-    
     def fit(self):
         """
         Perpetually queries the server for the latest q and updates it.
@@ -29,8 +28,7 @@ class AsynchronousClient(Client):
             time the server was queried, to avoid excess computations.
         """
         while True: self._fit()
-        
-        
+
     def _fit(self):
         """
         Computes a refined posterior and its associated approximating
