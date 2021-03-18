@@ -2,7 +2,10 @@
 .DS_Store
 .idea
 rough
+
+# Data files
 datasets
+data/data
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
