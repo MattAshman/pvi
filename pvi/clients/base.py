@@ -1,9 +1,8 @@
-from abc import ABC, abstractmethod
-from collections import defaultdict
-
 import logging
 import torch
 
+from abc import ABC, abstractmethod
+from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
 
 logger = logging.getLogger(__name__)
