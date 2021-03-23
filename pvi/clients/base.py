@@ -93,8 +93,8 @@ class Client(ABC):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch")
-        for i in epoch_iter:
+        # epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
+        for i in range(hyper["epochs"]):
             epoch = {
                 "elbo" : 0,
                 "kl"   : 0,
@@ -135,8 +135,8 @@ class Client(ABC):
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"])
+            # epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+            #                        ll=epoch["ll"])
 
             if i % hyper["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
