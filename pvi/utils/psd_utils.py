@@ -1,4 +1,5 @@
 import torch
+import warnings
 
 __all__ = ["psd_logdet", "psd_inverse", "add_diagonal"]
 
@@ -63,3 +64,32 @@ def add_diagonal(x, val):
     d = (torch.ones(x.shape[-2], device=x.device) * val).diag_embed()
 
     return x + d
+
+
+def safe_cholesky(x, min_eps=1e-8, max_eps=1e-2):
+    """
+    Computes the Cholesky decomposition x = LL^T, adding jitter to the diagonal
+    of x if needed.
+    :param x: Matrix, shape (*, D, D).
+    :param min_eps: Minimum jitter to add.
+    :param max_eps: Maximum jitter to add.
+    :return: L.
+    """
+    assert x.shape[-2] == x.shape[-1], "x must be square."
+
+    eps = 0
+    chol = None
+    while chol is None:
+        try:
+            chol = torch.cholesky(add_diagonal(x, eps))
+        except RuntimeError:
+            if eps >= max_eps:
+                raise RuntimeError("Could not compute Cholesky decomposition"
+                                   "with maximum ({}) jitter.".format(eps))
+            else:
+                warnings.warn("Failed to compute Cholesky decomposition with "
+                              "{} jitter.".format(eps))
+                eps = max(min_eps, 10*eps)
+                pass
+
+    return chol
