@@ -2,7 +2,7 @@ import logging
 import torch
 
 from tqdm.auto import tqdm
-from torch import distributions, nn
+from torch import distributions
 from torch.utils.data import TensorDataset, DataLoader
 from pvi.clients.base import Client
 from pvi.utils.psd_utils import psd_inverse, add_diagonal, safe_cholesky
