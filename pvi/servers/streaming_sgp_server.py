@@ -36,7 +36,4 @@ class StreamingSGPServer(Server):
         self.log["inducing_locations"].append(self.q.inducing_locations)
 
     def should_stop(self):
-        if self.iterations > self.hyperparameters["max_iterations"] - 1:
-            return True
-        else:
-            return False
+        return self.iterations > self.hyperparameters["max_iterations"] - 1
