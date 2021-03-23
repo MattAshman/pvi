@@ -18,6 +18,7 @@ import zipfile
 import urllib.request
 import argparse
 import numpy as np
+import pandas as pd
 
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder,  \
@@ -32,36 +33,56 @@ ROOT_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases'
 
 datasets = {
     
-    'abalone'    : {'base_url'    : f'{ROOT_URL}/abalone/',
-                    'zipped'      : False,
-                    'files'       : ['abalone.data'],
-                    'delimiter'   : ',',
-                    'drop-header' : False},
+    'abalone'        : {'base_url'    : f'{ROOT_URL}/abalone/',
+                        'zipped'      : False,
+                        'files'       : ['abalone.data'],
+                        'delimiter'   : ',',
+                        'drop-header' : False},
     
-    'adult'      : {'base_url'    : f'{ROOT_URL}/adult/',
-                    'zipped'      : False,
-                    'files'       : ['adult.data'],
-                    'delimiter'   : ',',
-                    'drop-header' : False},
+    'adult'          : {'base_url'    : f'{ROOT_URL}/adult/',
+                        'zipped'      : False,
+                        'files'       : ['adult.data'],
+                        'delimiter'   : ',',
+                        'drop-header' : False},
     
-    'mushroom'   : {'base_url'    : f'{ROOT_URL}/mushroom/',
-                    'zipped'      : False,
-                    'files'       : ['agaricus-lepiota.data'],
-                    'delimiter'   : ',',
-                    'drop-header' : False},
+    'mushroom'       : {'base_url'    : f'{ROOT_URL}/mushroom/',
+                        'zipped'      : False,
+                        'files'       : ['agaricus-lepiota.data'],
+                        'delimiter'   : ',',
+                        'drop-header' : False},
     
-    'credit'     : {'base_url'    : f'{ROOT_URL}/credit-screening/',
-                    'zipped'      : False,
-                    'files'       : ['crx.data'],
-                    'delimiter'   : ',',
-                    'drop-header' : False},
+    'credit'         : {'base_url'    : f'{ROOT_URL}/credit-screening/',
+                        'zipped'      : False,
+                        'files'       : ['crx.data'],
+                        'delimiter'   : ',',
+                        'drop-header' : False},
     
-    'bank'       : {'base_url'    : f'{ROOT_URL}/00222/',
-                    'zipped'      : True,
-                    'zipfile'     : 'bank.zip', 
-                    'files'       : ['bank/bank-full.csv'],
-                    'delimiter'   : ';',
-                    'drop-header' : True}
+    'bank'           : {'base_url'    : f'{ROOT_URL}/00222/',
+                        'zipped'      : True,
+                        'zipfile'     : 'bank.zip', 
+                        'files'       : ['bank/bank-full.csv'],
+                        'delimiter'   : ';',
+                        'drop-header' : True},
+    
+    'superconductor' : {'base_url'    : f'{ROOT_URL}/00464/',
+                        'zipped'      : True,
+                        'zipfile'     : 'superconduct.zip', 
+                        'files'       : ['superconduct/train.csv'],
+                        'delimiter'   : ',',
+                        'drop-header' : True},
+    
+    'protein'        : {'base_url'    : f'{ROOT_URL}/00265/',
+                        'zipped'      : False,
+                        'files'       : ['CASP.csv'],
+                        'delimiter'   : ',',
+                        'drop-header' : True},
+    
+    'power'          : {'base_url'    : f'{ROOT_URL}/00294/',
+                        'zipped'      : True,
+                        'zipfile'     : 'CCPP.zip',
+                        'files'       : ['CCPP/CCPP/Folds5x2_pp.xlsx'],
+                        'delimiter'   : ',',
+                        'drop-header' : True}
 }
 
 argparser = argparse.ArgumentParser()
@@ -114,9 +135,16 @@ def download_datasets(root_dir, datasets):
                 url = f"{base_url}/{file_name}"
                 urllib.request.urlretrieve(url, save_location)
 
-            _data = np.loadtxt(save_location,
-                               dtype=str,
-                               delimiter=info['delimiter'])
+            _data = None
+            
+            if save_location[-5:] == '.xlsx':
+                _data = np.array(pd.read_excel(save_location), dtype=str)
+                
+            else:
+                _data = np.loadtxt(save_location,
+                                   dtype=str,
+                                   delimiter=info['delimiter'])
+                
             _data = _data[1:] if info['drop-header'] else _data
 
             rows_with_missing = np.any(_data == '?', axis=1)
@@ -202,10 +230,35 @@ def superconductor_output_generator(y):
 superconductor_config = {
     "numerical_features"     : list(range(81)),
     "categorical_features"   : [],
-    "label_generator"        : superconductor_labeller,
     "folder"                 : "/superconductor",
-    "target"                 : 81,
-    "categorical_features"   : []
+    "output_column"          : 81,
+    "output_generator"       : superconductor_output_generator
+}
+
+# Protein dataset
+def protein_output_generator(y):
+    oe = StandardScaler()
+    return oe.fit_transform(y)
+
+protein_config = {
+    "numerical_features"     : list(range(9)),
+    "categorical_features"   : [],
+    "folder"                 : "/protein",
+    "output_column"          : 9,
+    "output_generator"       : protein_output_generator
+}
+
+# Power plant dataset
+def power_output_generator(y):
+    oe = StandardScaler()
+    return oe.fit_transform(y)
+
+power_config = {
+    "numerical_features"     : list(range(4)),
+    "categorical_features"   : [],
+    "folder"                 : "/power",
+    "output_column"          : 4,
+    "output_generator"       : power_output_generator
 }
 
 
@@ -285,8 +338,14 @@ process_dataset(f"{args.dir}/data/mushroom", mushroom_config)
 print("Processing credit dataset")
 process_dataset(f"{args.dir}/data/credit", credit_config)
 
-print("Processing bank Dataset")
+print("Processing bank dataset")
 process_dataset(f"{args.dir}/data/bank", bank_config)
 
-# print("Processing Superconductor Dataset")
-# process_dataset(f"{args.data_dir}/superconductor", superconductor_config)
+print("Processing superconductor dataset")
+process_dataset(f"{args.dir}/data/superconductor", superconductor_config)
+
+print("Processing protein dataset")
+process_dataset(f"{args.dir}/data/protein", protein_config)
+
+print("Processing power dataset")
+process_dataset(f"{args.dir}/data/power", power_config)
