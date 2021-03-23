@@ -1,4 +1,4 @@
-from base import Client
+from .base import Client
 
 
 # =============================================================================
@@ -10,8 +10,7 @@ class SynchronousClient(Client):
     
     def __init__(self, data, model, t):
         super().__init__(data=data, model=model, t=t)
-        
-        
+
     def fit(self, q):
         """
         Computes a refined posterior and its associated approximating
@@ -19,6 +18,6 @@ class SynchronousClient(Client):
         """
         
         # Compute new posterior (ignored) and approximating likelihood term
-        _, self.t = super().update_q(q, self.t)
+        _, self.t = super().update_q(q)
         
         return self.t

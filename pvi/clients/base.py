@@ -1,6 +1,12 @@
-from abc import ABC, abstracmethod
-
 import logging
+import torch
+
+from abc import ABC, abstractmethod
+from collections import defaultdict
+from torch.utils.data import TensorDataset, DataLoader
+from tqdm.auto import tqdm
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -8,7 +14,7 @@ import logging
 # =============================================================================
 
 
-class Client:
+class Client(ABC):
     
     def __init__(self, data, model, t):
         
@@ -19,47 +25,60 @@ class Client:
         # Set likelihood approximating term
         self.t = t
         
-        self._training_curves = []
-        
+        self.log = defaultdict(list)
+        self._can_update = True
+
+    def can_update(self):
+        """
+        A check to see if this client can indeed update. Examples of reasons
+        one may not be is that they haven't finished optimisation.
+        :return:
+        """
+        return self._can_update
     
     @abstractmethod
-    def fit(self):
+    def fit(self, q):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
         client, but in all cases it calls Client.q_update internally.
         """
         pass
-    
-    
-    def q_update(self, q):
+
+    def update_q(self, q):
         """
         Computes a refined approximate posterior and the associated
         approximating likelihood term.
         """
-        
-        if False: # type(q) is self.model.conjuagte_family:
-            return self.likelihood.conjugate_update(self.data, q, self.t)
+
+        # Type(q) is self.model.conjugate_family.
+        if str(type(q)) == str(self.model.conjugate_family):
+            # No need to make q trainable.
+            return self.model.conjugate_update(self.data, q, self.t)
             
         else:
-            return self.gradient_based_update(self.data, q, self.t)
+            # Pass a trainable copy to optimise.
+            return self.gradient_based_update(q.trainable_copy())
+
+    def gradient_based_update(self, q):
+        hyper = self.model.hyperparameters
+
+        # Cannot update during optimisation.
+        self._can_update = False
         
-        
-    def gradient_based_update(self, data, q, t):
-        
-        hyperparameters = self.model.hyperparameters
-        
-        # Copy the approximate posterior, make q_ not trainable
-        q_ = q.non_trainable_copy()
+        # Copy the approximate posterior, make old posterior non-trainable.
+        q_old = q.non_trainable_copy()
            
         # Reset optimiser
+        # TODO: not optimising model parameters for now (inducing points,
+        # kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, hyper["optimiser"])(
-                    **hyper["optimiser_params"])
+            q.parameters(), **hyper["optimiser_params"])
         
         # Set up data
-        x = data["x"]
-        y = data["y"]
+        x = self.data["x"]
+        y = self.data["y"]
         
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
@@ -74,8 +93,8 @@ class Client:
         }
         
         # Gradient-based optimisation loop -- loop over epochs
+        # epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
         for i in range(hyper["epochs"]):
-            
             epoch = {
                 "elbo" : 0,
                 "kl"   : 0,
@@ -84,24 +103,26 @@ class Client:
             
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
-                
+                optimiser.zero_grad()
+
                 batch = {
                     "x" : x_batch,
                     "y" : y_batch,
                 }
                 
-                # Compute KL divergence between q and q_
-                kl = q.kl_divergence(q_)
-                
+                # Compute KL divergence between q and q_old.
+                kl = q.kl_divergence(q_old).sum()
+
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
-                ll = self.model.likelihood_forward(batch, thetas).mean(0).sum()
-                ll = ll + t.log_prob(thetas).mean(0).sum()
+                ll = self.model.likelihood_log_prob(
+                    batch, thetas).mean(0).sum()
+                ll = ll - self.t(thetas).mean(0).sum()
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll
                 loss.backward()
-                self.optimiser.step()
+                optimiser.step()
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
@@ -114,16 +135,22 @@ class Client:
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
+            # epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+            #                        ll=epoch["ll"])
+
             if i % hyper["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch["elbo"]:.3f}, "
-                             f"LL: {epoch["ll"]:.3f}, "
-                             f"KL: {epoch["kl"]:.3f}, "
+                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
+                             f"LL: {epoch['ll']:.3f}, "
+                             f"KL: {epoch['kl']:.3f}, "
                              f"Epochs: {i}.")
 
         # Log the training curves for this update
-        self._training_curves.append(training_curve)
+        self.log["training_curves"].append(training_curve)
 
         # Compute new local contribution from old distributions
-        t = t.compute_refined_factor(q, q_)
+        t_new = self.t.compute_refined_factor(q, q_old)
+
+        # Finished optimisation, can now update.
+        self._can_update = True
         
-        return q, t
+        return q, t_new

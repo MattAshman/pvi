@@ -44,15 +44,17 @@ class ExponentialFamilyFactor(ABC):
         """
         
         # Convert distributions to log-coefficients and natural parameters
-        np1 = self.nat_from_dist(q1.distribution)
-        np2 = self.nat_from_dist(q2.distribution)
+        np1 = q1.nat_params
+        np2 = q2.nat_params
         
         # Log coefficient and natural parameters of refined factor
         nat_params = {}
         
-        # Compute natural parameters of the new t-factor
+        # Compute natural parameters of the new t-factor (detach gradients)
         for name, np in self.nat_params.items():
-            nat_params[name] = np1[name] - np2[name] + np
+            nat_params[name] = (
+                    np1[name].detach().clone() - np2[name].detach().clone()
+                    + np.detach().clone())
             
         # Create and return refined t of the same type
         t = type(self)(nat_params)
@@ -132,10 +134,26 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
         # Specify whether the distribution is trainable wrt its NPs
         self.is_trainable = is_trainable
+
+        # Set all to None.
+        self._nat_params = None
+        self._std_params = None
+        self._unc_params = None
         
-        # Set standard and natural parameters
-        self.std_params = std_params
-        self.nat_params = nat_params
+        # Initialise standard and natural parameters
+        if is_trainable:
+            # Only initialise std_params (initialises unc_params).
+            if std_params is not None:
+                self.std_params = std_params
+            elif nat_params is not None:
+                self.std_params = self._std_from_nat(nat_params)
+            else:
+                # No intitial parameter values specified.
+                raise ValueError("No initial parameterisation specified. "
+                                 "Cannot create optimisable parameters.")
+        else:
+            self.std_params = std_params
+            self.nat_params = nat_params
     
         
     @property
@@ -153,10 +171,10 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             
     @std_params.setter
     def std_params(self, std_params):
-        
+
         if self.is_trainable:
             self._unc_params = nn.ParameterDict(self._unc_from_std(std_params))
-            
+
         else:
             self._std_params = std_params
 
@@ -165,7 +183,7 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     def nat_params(self):
         
         # If _nat_params None or distribution trainable compute nat params
-        if (self.is_trainable) or (self._nat_params is None):
+        if self.is_trainable or self._nat_params is None:
             self._nat_params = self._nat_from_std(self.std_params)
         
         return self._nat_params
@@ -173,9 +191,10 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     @nat_params.setter
     def nat_params(self, nat_params):
+
         self._nat_params = nat_params
-        
-        
+
+
     @abstractmethod
     def _std_from_unc(self, unc_params):
         pass
@@ -197,12 +216,54 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     
     def non_trainable_copy(self):
-        
-        std_params = self.std_params.detach()
-        nat_params = self.nat_params.detach()
+
+        # Prevents unecessary computation of std_params or nat_params when
+        # creating a copy.
+        if self.is_trainable:
+            nat_params = None
+            std_params = self.std_params
+            for k, v in std_params.items():
+                std_params[k] = v.detach().clone()
+
+        else:
+            if self._std_params is not None:
+                std_params = {k: v.detach().clone()
+                              for k, v in self.std_params.items()}
+            else:
+                std_params = None
+
+            if self._nat_params is not None:
+                nat_params = {k: v.detach().clone()
+                              for k, v in self.nat_params.items()}
+            else:
+                nat_params = None
         
         return type(self)(std_params, nat_params, is_trainable=False)
-        
+
+
+    def trainable_copy(self):
+
+        # Prevents unecessary computation of std_params or nat_params when
+        # creating a copy.
+        if self.is_trainable:
+            nat_params = None
+            std_params = {k: v.detach().clone()
+                          for k, v in self.std_params.items()}
+
+        else:
+            if self._std_params is not None:
+                std_params = {k: v.detach().clone()
+                              for k, v in self.std_params.items()}
+            else:
+                std_params = None
+
+            if self._nat_params is not None:
+                nat_params = {k: v.detach().clone()
+                              for k, v in self.nat_params.items()}
+            else:
+                nat_params = None
+
+        return type(self)(std_params, nat_params, is_trainable=True)
     
     
     @property
@@ -231,4 +292,3 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     @abstractmethod
     def torch_dist_class(self):
         pass
-    
