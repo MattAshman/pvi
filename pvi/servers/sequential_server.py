@@ -22,7 +22,6 @@ class SequentialServer(Server):
 
         logger.debug("Getting client updates.")
 
-        delta_nps = []
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
@@ -31,18 +30,14 @@ class SequentialServer(Server):
                 t_i_old = client.t
                 t_i_new = client.fit(self.q)
                 # Compute change in natural parameters.
-                delta_np = {}
-                for k in self.q.nat_params.keys():
-                    delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
-
-                delta_nps.append(delta_np)
+                delta_np = {k : (t_i_new.nat_params[k] - t_i_old.nat_params[k])
+                            for k in self.q.nat_params.keys()}
 
                 logger.debug(
                     "Received client update. Updating global posterior.")
                 # Update global posterior.
-                q_new_nps = {}
-                for k, v in self.q.nat_params.items():
-                    q_new_nps[k] = v + delta_np[k]
+                q_new_nps = {k : v + delta_np[k]
+                             for k, v in self.q.nat_params.items()}
 
                 self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
                 clients_updated += 1
@@ -56,7 +51,4 @@ class SequentialServer(Server):
         self.log["nat_params"].append(self.q.nat_params)
 
     def should_stop(self):
-        if self.iterations > self.hyperparameters["max_iterations"] - 1:
-            return True
-        else:
-            return False
+        return self.iterations > self.hyperparameters["max_iterations"] - 1

@@ -56,7 +56,4 @@ class SynchronousServer(Server):
         self.log["nat_params"].append(self.q.nat_params)
 
     def should_stop(self):
-        if self.iterations > self.hyperparameters["max_iterations"] - 1:
-            return True
-        else:
-            return False
+        return self.iterations > self.hyperparameters["max_iterations"] - 1
