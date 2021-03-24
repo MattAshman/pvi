@@ -6,7 +6,7 @@ from torch import distributions
 from torch.utils.data import TensorDataset, DataLoader
 from pvi.clients.base import Client
 from pvi.utils.psd_utils import psd_inverse, add_diagonal, safe_cholesky
-from pvi.models.private_sgp import PrivateSparseGaussianProcessRegression
+from pvi.models.sgp import SparseGaussianProcessRegression
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +188,7 @@ class StreamingSGPClient(Client):
 
                 # Compute E_q[log p(y | f)].
                 if (str(type(self.model))
-                        == str(PrivateSparseGaussianProcessRegression)):
+                        == str(SparseGaussianProcessRegression)):
                     """
                     Can compute E_q[log p(y | f)] in closed form:
                     

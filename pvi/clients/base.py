@@ -4,7 +4,6 @@ import torch
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
-from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
