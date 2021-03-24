@@ -1,7 +1,10 @@
 import torch
+import numpy as np
 
 from torch import distributions, nn, optim
 from .base import Model
+from pvi.distributions.exponential_family_distributions import \
+    MultivariateGaussianDistribution
 
 
 class LogisticRegressionModel(Model, nn.Module):
@@ -45,14 +48,30 @@ class LogisticRegressionModel(Model, nn.Module):
         :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ ≅ (1/M) Σ_m p(y | θ_m, x) θ_m ~ q(θ).
         """
-        thetas = q.distribution.sample(
-            (self.hyperparameters["num_predictive_samples"],))
+        # thetas = q.distribution.sample(
+        #     (self.hyperparameters["num_predictive_samples"],))
+        #
+        # comp_ = self.likelihood_forward(x, thetas)
+        # comp = distributions.Bernoulli(logits=comp_.logits.T)
+        # mix = distributions.Categorical(torch.ones(len(thetas),))
 
-        comp_ = self.likelihood_forward(x, thetas)
-        comp = distributions.Bernoulli(logits=comp_.logits.T)
-        mix = distributions.Categorical(torch.ones(len(thetas),))
+        # return distributions.MixtureSameFamily(mix, comp)
 
-        return distributions.MixtureSameFamily(mix, comp)
+        # Use Probit approximation.
+        q_loc = q.std_params["loc"]
+        x_ = torch.cat([x, torch.ones((len(x), 1))], dim=1).unsqueeze(-1)
+
+        if str(type(q)) == str(MultivariateGaussianDistribution):
+            q_cov = q.std_params["covariance_matrix"]
+        else:
+            q_scale = q.std_params["scale"]
+            q_cov = q_scale.diag_embed() ** 2
+
+        denom = x_.transpose(-1, -2).matmul(q_cov).matmul(x_).reshape(-1)
+        denom = (1 + np.pi * denom / 8) ** 0.5
+        logits = q_loc.unsqueeze(-2).matmul(x_).reshape(-1) / denom
+
+        return distributions.Bernoulli(logits=logits)
 
     def likelihood_forward(self, x, theta):
         """
