@@ -5,7 +5,7 @@ from .base import Server
 logger = logging.getLogger(__name__)
 
 
-class StreamingSGPServer(Server):
+class ContinualLearningServer(Server):
     def __init__(self, model, q, clients, hyperparameters=None):
         super().__init__(model, q, clients, hyperparameters)
 
