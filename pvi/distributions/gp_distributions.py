@@ -1,3 +1,9 @@
+"""
+Identical to the multivariate Gaussian distributions in exponential_family_*.py
+files, except they maintain their own inducing locations at which they are
+defined.
+"""
+
 from pvi.distributions.exponential_family_distributions import \
     MultivariateGaussianDistribution
 from pvi.distributions.exponential_family_factors import \
