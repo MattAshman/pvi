@@ -217,13 +217,10 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     def non_trainable_copy(self):
 
-        # Prevents unecessary computation of std_params or nat_params when
-        # creating a copy.
         if self.is_trainable:
             nat_params = None
-            std_params = self.std_params
-            for k, v in std_params.items():
-                std_params[k] = v.detach().clone()
+            std_params = {k: v.detach().clone()
+                          for k, v in self.std_params.items()}
 
         else:
             if self._std_params is not None:
@@ -243,8 +240,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
 
     def trainable_copy(self):
 
-        # Prevents unecessary computation of std_params or nat_params when
-        # creating a copy.
         if self.is_trainable:
             nat_params = None
             std_params = {k: v.detach().clone()
