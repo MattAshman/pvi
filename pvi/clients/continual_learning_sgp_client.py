@@ -4,7 +4,8 @@ import torch
 from tqdm.auto import tqdm
 from torch import distributions, nn
 from torch.utils.data import TensorDataset, DataLoader
-from pvi.clients.base import ContinualLearningClient
+from pvi.clients.base import ContinualLearningClient, \
+    BayesianContinualLearningClient
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.models.sgp import SparseGaussianProcessRegression
 from pvi.distributions.gp_distributions import \
@@ -187,7 +188,6 @@ class ContinualLearningSGPClient(ContinualLearningClient):
                 # Everything is the same from here on in.
                 kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
                                    JITTER)
-                ikzz = psd_inverse(kzz)
                 p = type(q)(
                     inducing_locations=z,
                     std_params={
@@ -207,44 +207,13 @@ class ContinualLearningSGPClient(ContinualLearningClient):
 
                     = log N(y; E_q[f], σ^2) - 0.5 / (σ ** 2) Var_q[f].
                     """
-                    kxz = self.model.kernel(x, z).evaluate()
-                    kxx = add_diagonal(self.model.kernel(x, x).evaluate(),
-                                       JITTER)
+                    ll = self.model.expected_log_likelihood(batch, q).sum()
 
-                    a = kxz.matmul(ikzz)
-                    c = kxx - a.matmul(kxz.T)
-
-                    qf_loc = a.matmul(q.std_params["loc"])
-                    qf_cov = c + a.matmul(
-                        q.std_params["covariance_matrix"]).matmul(a.T)
-
-                    sigma = self.model.outputsigma
-                    dist = self.model.likelihood_forward(qf_loc)
-                    ll1 = dist.log_prob(y.squeeze())
-                    ll2 = -0.5 * sigma ** (-2) * qf_cov.diag()
-                    ll = ll1.sum() + ll2.sum()
                 else:
                     """
                     Cannot compute in closed form---use MC estimate instead.
                     """
-                    # Parameters of prior.
-                    kxz = self.model.kernel(x_batch, z).evaluate()
-                    kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
-                                       JITTER)
-                    kxx = add_diagonal(
-                        self.model.kernel(x_batch, x_batch).evaluate(),
-                        JITTER)
-                    ikzz = psd_inverse(kzz)
-
-                    a = kxz.matmul(ikzz)
-                    c = kxx - a.matmul(kxz.T)
-
-                    qf_loc = a.matmul(q.std_params["loc"])
-                    qf_cov = c + a.matmul(
-                        q.std_params["covariance_matrix"]).matmul(a.T)
-
-                    qf = distributions.MultivariateNormal(
-                        qf_loc, covariance_matrix=qf_cov)
+                    qf = self.model.posterior(x_batch, q)
                     fs = qf.rsample(
                         (self.model.hyperparameters["num_elbo_samples"],))
                     ll = self.model.likelihood_log_prob(
@@ -289,3 +258,267 @@ class ContinualLearningSGPClient(ContinualLearningClient):
         self._can_update = True
 
         return q_new
+
+
+class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
+    """
+    Continual learning SGP client with Bayesian treatment of model
+    hyperparameters.
+    """
+    def __init__(self, data, model, inducing_locations):
+        super().__init__(data, model)
+
+        # Private inducing locations Z_b.
+        self.inducing_locations = inducing_locations
+
+    def fit(self, q, qeps):
+        """
+        Computes a refined posterior and its associated approximating
+        likelihood term. This method is called directly by the server.
+        """
+        # Compute new posterior (ignored) and approximating likelihood term
+        q, qeps = self.gradient_based_update(q, qeps)
+
+        return q, qeps
+
+    def gradient_based_update(self, q, qeps):
+        """
+        The gradient based update in the streaming SGP setting involves
+        completely overhalling the current approximate posterior q with new
+        inducing points, hence we override the default gradient_based_update
+        function.
+        :param q: The current approximate posterior, q(a | Z_a).
+        :param qeps: The current approximate posterior, q(ε).
+        :return q_new, qeps_new: The new approximate posteriors,
+        q(a, b | Z_a, Z_b) and q(ε).
+        """
+        hyper = self.model.hyperparameters
+
+        # Cannot update during optimisation.
+        self._can_update = False
+
+        # Set up data etc.
+        x = self.data["x"]
+        y = self.data["y"]
+
+        tensor_dataset = TensorDataset(x, y)
+        loader = DataLoader(tensor_dataset,
+                            batch_size=hyper["batch_size"],
+                            shuffle=True)
+
+        # Copy current approximate posterior, ensuring non-trainable.
+        qa = q.non_trainable_copy()
+        peps = qeps.non_trainable_copy()
+        za = qa.inducing_locations
+
+        # Parameterise as q(b | a) N(b; mb + Aa, Sb), initialised as
+        # q(b | a) = p(b | a).
+        zb = self.inducing_locations
+        mb = torch.zeros(len(zb))
+
+        if za is not None:
+            # Fixed during optimisation.
+            qa_cov = qa.std_params["covariance_matrix"]
+            qa_loc = qa.std_params["loc"]
+
+            kaa = add_diagonal(self.model.kernel(za, za).evaluate().detach(),
+                               JITTER)
+            ikaa = psd_inverse(kaa)
+            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
+                               JITTER)
+            kba = self.model.kernel(zb, za).evaluate().detach()
+            # Initialise Sb = Kbb - Kba Kaa^{-1} Kab.
+            sb = kbb - kba.matmul(ikaa).matmul(kba.T)
+            sb_chol = torch.cholesky(sb)
+        else:
+            # Initialise Sb = Kbb.
+            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
+                               JITTER)
+            sb = kbb
+            sb_chol = torch.cholesky(sb)
+
+        # Variational parameters of q(b | a).
+        zb = nn.Parameter(zb, requires_grad=True)
+        mb = nn.Parameter(mb, requires_grad=True)
+        sb_chol = nn.Parameter(sb_chol, requires_grad=True)
+
+        # + variational parameters of q(ε).
+        parameters = [zb, mb, sb_chol] + list(qeps.parameters())
+
+        # Reset optimiser
+        logging.info("Resetting optimiser")
+        optimiser = getattr(torch.optim, hyper["optimiser"])(
+            parameters, **hyper["optimiser_params"])
+
+        # Dict for logging optimisation progress
+        training_curve = {
+            "elbo": [],
+            "kl": [],
+            "kleps": [],
+            "ll": [],
+        }
+
+        # Gradient-based optimisation loop -- loop over epochs
+        epoch_iter = tqdm(range(hyper["epochs"]), "Epochs")
+        for i in epoch_iter:
+            epoch = {
+                "elbo": 0,
+                "kl": 0,
+                "kleps": 0,
+                "ll": 0,
+            }
+
+            # Loop over batches in current epoch
+            for (x_batch, y_batch) in iter(loader):
+                optimiser.zero_grad()
+
+                batch = {
+                    "x": x_batch,
+                    "y": y_batch
+                }
+
+                if za is None:
+                    """
+                    No inducing points yet. Perform standard VI approach, with 
+
+                    F(q(u)) = KL(q(ε) || p(ε)) + ∫q(ε) KL(q(u) || p(u | ε)) dε 
+                              - ∫q(ε)q(f | ε) log p(y | f, ε) dεdu.
+
+                    Just set q(u) = q(b) and Z = Z_b.
+                    """
+                    q = MultivariateGaussianDistributionWithZ(
+                        inducing_locations=zb,
+                        std_params={
+                            "loc": mb,
+                            "covariance_matrix": sb_chol.matmul(sb_chol.T)
+                        }
+                    )
+                    z = zb
+
+                else:
+                    """
+                    Perform modified VI approach, with
+
+                    q(a, b) ⍺ q(a) q(b | a)
+
+                    F(q(f)) = KL(q(ε) || p(ε)) 
+                              + ∫q(ε) KL(q(a, b) || p(a, b | ε)) dε 
+                              - ∫q(ε) KL(q(a) || p(a | ε)) dε
+                              - ∫q(ε)q(f | ε) log p(y | f, ε) dεdu.
+
+                    Just set q(a, b) ⍺ q(a) q(b | a) and Z = {Z_a, Z_b}.
+                    """
+                    z = torch.cat([za, zb], axis=0)
+
+                    kba = self.model.kernel(zb, za).evaluate().detach()
+                    a = kba.matmul(ikaa)
+
+                    q_loc = torch.empty(len(z))
+                    q_cov = torch.empty(len(z), len(z))
+
+                    q_loc[:len(za)] = qa_loc
+                    q_loc[len(za):] = mb + a.matmul(qa_loc)
+
+                    q_cov[:len(za), :len(za)] = qa_cov
+                    q_cov[len(za):, len(za):] = (
+                            sb_chol.matmul(sb_chol.T)
+                            + a.matmul(qa_cov).matmul(a.T))
+                    q_cov[len(za):, :len(za)] = a.matmul(qa_cov)
+                    q_cov[:len(za), len(za):] = qa_cov.matmul(a.T)
+
+                    q = type(q)(
+                        inducing_locations=z,
+                        std_params={
+                            "loc": q_loc,
+                            "covariance_matrix": q_cov
+                        },
+                    )
+
+                kleps = qeps.kl_divergence(peps).sum() / len(x)
+
+                ll = 0
+                kl = 0
+                eps = qeps.rsample((hyper["num_elbo_hyper_samples"],))
+                for e in eps:
+                    self.model.set_parameters(e)
+
+                    kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
+                                       JITTER)
+                    p = type(q)(
+                        inducing_locations=z,
+                        std_params={
+                            "loc": torch.zeros(len(z)),
+                            "covariance_matrix": kzz,
+                        }
+                    )
+                    # Compute KL(q(a, b) || p(a, b | ε)).
+                    kl += q.kl_divergence(p).sum() / len(x)
+
+                    if za is not None:
+                        kaa = add_diagonal(
+                            self.model.kernel(za, za).evaluate(), JITTER)
+                        pa = type(q)(
+                            inducing_locations=za,
+                            std_params={
+                                "loc": torch.zeros(len(za)),
+                                "covariance_matrix": kaa,
+                            }
+                        )
+                        # Compute KL(q(a) || p(a | ε)).
+                        kl -= qa.kl_divergence(pa).sum() / len(x)
+
+                    # Compute E_q(f | ε)[log p(y | f, ε)].
+                    if str(type(q)) == str(self.model.conjugate_family):
+                        ll += self.model.expected_log_likelihood(
+                            batch, q).sum() / len(x_batch)
+
+                    else:
+                        qf = self.model.posterior(x_batch, q)
+                        fs = qf.rsample(
+                            (self.model.hyperparameters["num_elbo_samples"],))
+                        ll += self.model.likelihood_log_prob(
+                            batch, fs).mean(0).sum() / len(x_batch)
+
+                # Normalise values.
+                kl /= len(eps)
+                ll /= len(eps)
+
+                loss = kl + kleps - ll
+                loss.backward()
+                optimiser.step()
+
+                # Keep track of quantities for current batch.
+                epoch["elbo"] += -loss.item()
+                epoch["kl"] += kl.item()
+                epoch["kleps"] += kleps.item()
+                epoch["ll"] += ll.item()
+
+                epoch_iter.set_postfix(elbo=-loss.item(), kl=kl.item(),
+                                       ll=ll.item())
+
+            # Log progress for current epoch
+            training_curve["elbo"].append(epoch["elbo"])
+            training_curve["kl"].append(epoch["kl"])
+            training_curve["kleps"].append(epoch["kleps"])
+            training_curve["ll"].append(epoch["ll"])
+
+            if i % hyper["print_epochs"] == 0:
+                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
+                             f"LL: {epoch['ll']:.3f}, "
+                             f"KL: {epoch['kl']:.3f}, "
+                             f"KL eps: {epoch['kleps']:.3f}, "
+                             f"Epochs: {i}.")
+
+        # Log the training curves for this update
+        self.log["training_curves"].append(training_curve)
+
+        # Update clients inducing points.
+        self.inducing_locations = zb.detach()
+
+        # Create non_trainable_copy to send back to server.
+        q_new = q.non_trainable_copy()
+        qeps_new = qeps.non_trainable_copy()
+
+        self._can_update = True
+
+        return q_new, qeps_new
