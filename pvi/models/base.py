@@ -6,13 +6,20 @@ class Model(ABC):
     An abstract class for probabilistic models defined by a likelihood
     p(y | θ, x) and (approximate) posterior q(θ).
     """
-    def __init__(self, hyperparameters=None):
+    def __init__(self, parameters=None, hyperparameters=None):
         # Hyperparameters of the model.
         if hyperparameters is None:
             hyperparameters = {}
 
         self.hyperparameters = self.get_default_hyperparameters()
         self.set_hyperparameters(hyperparameters)
+
+        # Parameters of the model.
+        if parameters is None:
+            parameters = {}
+
+        self.parameters = self.get_default_parameters()
+        self.set_parameters(parameters)
 
     @abstractmethod
     def get_default_nat_params(self):
@@ -24,14 +31,22 @@ class Model(ABC):
     def set_hyperparameters(self, hyperparameters):
         self.hyperparameters = {**self.hyperparameters, **hyperparameters}
 
-    def get_hyperparameters(self):
-        return self.hyperparameters
-
     @staticmethod
     @abstractmethod
     def get_default_hyperparameters():
         """
         :return: A default set of hyperparameters for the model.
+        """
+        raise NotImplementedError
+
+    def set_parameters(self, parameters):
+        self.parameters = {**self.parameters, **parameters}
+
+    @staticmethod
+    @abstractmethod
+    def get_default_parameters():
+        """
+        :return: A default set of parameters for the model.
         """
         raise NotImplementedError
 

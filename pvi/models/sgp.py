@@ -2,6 +2,7 @@ import torch
 
 from abc import ABC
 from torch import distributions, nn, optim
+from gpytorch.kernels import ScaleKernel, RBFKernel
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions.gp_distributions import \
@@ -38,11 +39,30 @@ class SparseGaussianProcessModel(ABC, Model, nn.Module):
         return {
             "D": None,
             "num_inducing": 50,
+            "kernel_class": lambda args: ScaleKernel(RBFKernel(**args)),
+            "kernel_params": {
+                "outputscale": 1.,
+                "lengthscale": 1.
+            },
             "optimiser_class": optim.Adam,
             "optimiser_params": {"lr": 1e-3},
             "reset_optimiser": True,
             "epochs": 100,
             "print_epochs": 10
+        }
+
+    def set_parameters(self, parameters):
+        self.kernel.outputscale = parameters["outputscale"]
+        self.kernel.base_kernel.lengthscale = parameters["lengthscale"]
+
+    @staticmethod
+    def get_default_parameters():
+        """
+        :return: A default set of parameters for the model.
+        """
+        return {
+            "outputscale": 1.,
+            "lengthscale": 1.,
         }
 
     def posterior(self, x, q):
@@ -81,11 +101,26 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
     conjugate_family = MultivariateGaussianDistributionWithZ
 
-    def __init__(self, output_sigma=1., **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.register_parameter("output_sigma", nn.Parameter(
-            torch.tensor(output_sigma), requires_grad=True))
+    def set_parameters(self, parameters):
+        super().set_parameters(parameters)
+
+        self.output_sigma = nn.Parameter(self.parameters["output_sigma"])
+        self.kernel.outputscale = self.parameters["outputscale"]
+        self.kernel.base_kernel.lengthscale = self.parameters["lengthscale"]
+
+    @staticmethod
+    def get_default_parameters():
+        """
+        :return: A default set of parameters for the model.
+        """
+        return {
+            "outputscale": 1.,
+            "lengthscale": 1.,
+            "output_sigma": 1.,
+        }
 
     def forward(self, x, q):
         return self.posterior(x, q)
@@ -224,6 +259,22 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
             **super().get_default_hyperparameters(),
             "num_elbo_samples": 1,
             "num_predictive_samples": 1,
+        }
+
+    def set_parameters(self, parameters):
+        super().set_parameters(parameters)
+
+        self.kernel.outputscale = self.parameters["outputscale"]
+        self.kernel.base_kernel.lengthscale = self.parameters["lengthscale"]
+
+    @staticmethod
+    def get_default_parameters():
+        """
+        :return: A default set of parameters for the model.
+        """
+        return {
+            "outputscale": 1.,
+            "lengthscale": 1.,
         }
 
     def forward(self, x, q):
