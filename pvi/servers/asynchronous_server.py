@@ -18,9 +18,10 @@ class AsynchronousServer(Server):
     def __init__(self, model, q, clients, hyperparameters=None):
         super().__init__(model, q, clients, hyperparameters)
 
-        client_probs = 1 / np.array([client.data['x'].shape[0]
-                                     for client in clients])
+        client_probs = [1 / client.data["x"].shape[0] for client in clients]
         self.client_probs = client_probs
+
+        self.log["q"].append(self.q)
 
     def get_default_hyperparameters(self):
         return {
@@ -84,7 +85,7 @@ class AsynchronousServer(Server):
         self.iterations += 1
 
         # Log progress.
-        self.log["nat_params"].append(self.q.nat_params)
+        self.log["q"].append(self.q)
         self.log["communications"].append(clients_updated)
 
     def should_stop(self):

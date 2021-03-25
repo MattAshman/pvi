@@ -9,6 +9,9 @@ class ContinualLearningServer(Server):
     def __init__(self, model, q, clients, hyperparameters=None):
         super().__init__(model, q, clients, hyperparameters)
 
+        self.client_idx = 0
+        self.log["q"].append(self.q)
+
     def get_default_hyperparameters(self):
         return {
             **super().get_default_hyperparameters(),
@@ -21,19 +24,21 @@ class ContinualLearningServer(Server):
 
         logger.debug("Getting client updates.")
 
-        client = self.clients[self.iterations]
+        client = self.clients[self.client_idx]
 
         if client.can_update():
+            # TODO: ensure that client.fit returns non-trainable copy?
             self.q = client.fit(self.q)
 
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
 
         self.iterations += 1
+        self.client_idx = (self.client_idx + 1) % len(self.clients)
 
         # Log progress.
-        self.log["nat_params"].append(self.q.nat_params)
-        self.log["inducing_locations"].append(self.q.inducing_locations)
+        self.log["q"].append(self.q)
+        self.log["communications"].append(1)
 
     def should_stop(self):
         return self.iterations > self.hyperparameters["max_iterations"] - 1
