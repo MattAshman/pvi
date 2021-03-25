@@ -14,6 +14,7 @@ class SynchronousServer(Server):
         return {
             **super().get_default_hyperparameters(),
             "max_iterations": 100,
+            "damping_factor": 1.,
         }
 
     def tick(self):
@@ -22,11 +23,12 @@ class SynchronousServer(Server):
 
         logger.debug("Getting client updates.")
 
+        damping = self.hyperparameters["damping_factor"]
         delta_nps = []
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
-            if client.can_upate():
+            if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
                 t_i_new = client.fit(self.q)
@@ -43,7 +45,8 @@ class SynchronousServer(Server):
         # Update global posterior.
         q_new_nps = {}
         for k, v in self.q.nat_params.items():
-            q_new_nps[k] = v + sum([delta_np[k] for delta_np in delta_nps])
+            q_new_nps[k] = (
+                    v + sum([delta_np[k] for delta_np in delta_nps]) * damping)
 
         self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
 

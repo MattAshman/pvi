@@ -14,6 +14,7 @@ class SequentialServer(Server):
         return {
             **super().get_default_hyperparameters(),
             "max_iterations": 100,
+            "damping_factor": 1.,
         }
 
     def tick(self):
@@ -22,6 +23,7 @@ class SequentialServer(Server):
 
         logger.debug("Getting client updates.")
 
+        damping = self.hyperparameters["damping_factor"]
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
@@ -30,13 +32,13 @@ class SequentialServer(Server):
                 t_i_old = client.t
                 t_i_new = client.fit(self.q)
                 # Compute change in natural parameters.
-                delta_np = {k : (t_i_new.nat_params[k] - t_i_old.nat_params[k])
+                delta_np = {k: (t_i_new.nat_params[k] - t_i_old.nat_params[k])
                             for k in self.q.nat_params.keys()}
 
                 logger.debug(
                     "Received client update. Updating global posterior.")
                 # Update global posterior.
-                q_new_nps = {k : v + delta_np[k]
+                q_new_nps = {k: v + delta_np[k] * damping
                              for k, v in self.q.nat_params.items()}
 
                 self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
