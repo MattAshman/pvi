@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 JITTER = 1e-6
 
 
-class StreamingSGPClient(ContinualLearningClient):
+class ContinualLearningSGPClient(ContinualLearningClient):
     def __init__(self, data, model, inducing_locations):
         super().__init__(data, model)
 
@@ -89,12 +89,19 @@ class StreamingSGPClient(ContinualLearningClient):
         zb = nn.Parameter(zb, requires_grad=True)
         mb = nn.Parameter(mb, requires_grad=True)
         sb_chol = nn.Parameter(sb_chol, requires_grad=True)
-        variational_parameters = nn.ParameterList([zb, mb, sb_chol])
+        variational_parameters = [zb, mb, sb_chol]
+
+        # Model parameters. Includes kernel hyperparameters and observation
+        # noise.
+        model_parameters = list(self.model.parameters())
+
+        # Optimise both variational and model parameters.
+        parameters = variational_parameters + model_parameters
 
         # Reset optimiser
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, hyper["optimiser"])(
-            variational_parameters, **hyper["optimiser_params"])
+            parameters, **hyper["optimiser_params"])
 
         # Dict for logging optimisation progress
         training_curve = {
