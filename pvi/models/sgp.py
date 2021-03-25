@@ -1,6 +1,5 @@
 import torch
 
-from abc import ABC
 from torch import distributions, nn, optim
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from .base import Model
@@ -11,7 +10,7 @@ from pvi.distributions.gp_distributions import \
 JITTER = 1e-6
 
 
-class SparseGaussianProcessModel(ABC, Model, nn.Module):
+class SparseGaussianProcessModel(Model, nn.Module):
     """
     Sparse Gaussian process model.
     """
@@ -52,8 +51,10 @@ class SparseGaussianProcessModel(ABC, Model, nn.Module):
         }
 
     def set_parameters(self, parameters):
-        self.kernel.outputscale = parameters["outputscale"]
-        self.kernel.base_kernel.lengthscale = parameters["lengthscale"]
+        super().set_parameters(parameters)
+
+        self.kernel.outputscale = self.parameters["outputscale"]
+        self.kernel.base_kernel.lengthscale = self.parameters["lengthscale"]
 
     @staticmethod
     def get_default_parameters():
@@ -108,8 +109,6 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         super().set_parameters(parameters)
 
         self.output_sigma = nn.Parameter(self.parameters["output_sigma"])
-        self.kernel.outputscale = self.parameters["outputscale"]
-        self.kernel.base_kernel.lengthscale = self.parameters["lengthscale"]
 
     @staticmethod
     def get_default_parameters():
@@ -117,8 +116,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         :return: A default set of parameters for the model.
         """
         return {
-            "outputscale": 1.,
-            "lengthscale": 1.,
+            **SparseGaussianProcessModel.get_default_parameters(),
             "output_sigma": 1.,
         }
 
@@ -256,25 +254,9 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
     @staticmethod
     def get_default_hyperparameters():
         return {
-            **super().get_default_hyperparameters(),
+            **SparseGaussianProcessModel.get_default_hyperparameters(),
             "num_elbo_samples": 1,
             "num_predictive_samples": 1,
-        }
-
-    def set_parameters(self, parameters):
-        super().set_parameters(parameters)
-
-        self.kernel.outputscale = self.parameters["outputscale"]
-        self.kernel.base_kernel.lengthscale = self.parameters["lengthscale"]
-
-    @staticmethod
-    def get_default_parameters():
-        """
-        :return: A default set of parameters for the model.
-        """
-        return {
-            "outputscale": 1.,
-            "lengthscale": 1.,
         }
 
     def forward(self, x, q):
