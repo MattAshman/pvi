@@ -27,6 +27,7 @@ class AsynchronousServer(Server):
         return {
             **super().get_default_hyperparameters(),
             "max_iterations": 100,
+            "damping_factor": 1.,
         }
 
     def tick(self):
@@ -35,7 +36,7 @@ class AsynchronousServer(Server):
 
         logger.debug("Getting client updates.")
 
-        delta_nps = []
+        damping = self.hyperparameters["damping_factor"]
         clients_updated = 0
 
         for i in tqdm(range(len(self.clients)), leave=False):
@@ -57,27 +58,28 @@ class AsynchronousServer(Server):
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
                 t_i_new = client.fit(self.q)
+
                 # Compute change in natural parameters.
                 delta_np = {}
                 for k in self.q.nat_params.keys():
                     delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
 
-                delta_nps.append(delta_np)
+                logger.debug(
+                    "Received client updates. Updating global posterior.")
+
+                # Update global posterior with damping factor.
+                q_new_nps = {k: v + delta_np[k] * damping
+                             for k, v in self.q.nat_params.items()}
+
+                self.q = type(self.q)(nat_params=q_new_nps,
+                                      is_trainable=False)
+
                 clients_updated += 1
 
             else:
                 logger.debug(f"Skipping client {client_index}, client not "
                              "avalible to update.")
                 continue
-
-        logger.debug("Received client updates. Updating global posterior.")
-
-        # Update global posterior.
-        q_new_nps = {}
-        for k, v in self.q.nat_params.items():
-            q_new_nps[k] = v + sum([delta_np[k] for delta_np in delta_nps])
-
-        self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
 
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
