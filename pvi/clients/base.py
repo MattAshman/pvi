@@ -155,7 +155,7 @@ class PVIClient(ABC):
         return q, t_new
 
 
-class ContinualLearningClient(ABC):
+class ContinualLearningClient:
 
     def __init__(self, data, model):
 
@@ -174,14 +174,11 @@ class ContinualLearningClient(ABC):
         """
         return self._can_update
 
-    @abstractmethod
     def fit(self, q):
         """
-        Computes the refined approximating posterior (q). This method differs
-        from client to client, but in all cases it calls Client.q_update
-        internally.
+        Computes the refined approximating posterior (q).
         """
-        pass
+        return self.update_q(q)
 
     def update_q(self, q):
         """

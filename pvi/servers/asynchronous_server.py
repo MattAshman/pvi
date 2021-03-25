@@ -19,7 +19,7 @@ class AsynchronousServer(Server):
         super().__init__(model, q, clients, hyperparameters)
 
         client_probs = [1 / client.data["x"].shape[0] for client in clients]
-        self.client_probs = client_probs
+        self.client_probs = [prob / sum(client_probs) for prob in client_probs]
 
         self.log["q"].append(self.q)
 
@@ -53,7 +53,7 @@ class AsynchronousServer(Server):
             logger.debug(f"Selected Client {client_index}")
             client = self.clients[client_index]
 
-            if client.can_upate():
+            if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
                 t_i_new = client.fit(self.q)
