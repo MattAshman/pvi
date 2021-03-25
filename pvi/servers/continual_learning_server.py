@@ -28,7 +28,8 @@ class ContinualLearningServer(Server):
 
         if client.can_update():
             # TODO: ensure that client.fit returns non-trainable copy?
-            self.q = client.fit(self.q)
+            q_new = client.fit(self.q)
+            self.q = q_new.non_trainable_copy()
 
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")

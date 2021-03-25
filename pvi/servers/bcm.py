@@ -38,12 +38,12 @@ class BayesianCommitteeMachineSame(Server):
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
-            if client.can_upate():
+            if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 q_i = client.fit(self.q)
 
                 # Store natural parameters.
-                np = {k: v for k, v in q_i.nat_params.items()}
+                np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
                 clients_updated += 1
 
@@ -104,18 +104,18 @@ class BayesianCommitteeMachineSplit(Server):
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
-            if client.can_upate():
+            if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
 
                 # Client prior is weighted by (N_k / N).
                 p_i_nps = {k: v * self.client_props[i]
-                           for k, v in self.q.nat_params}
+                           for k, v in self.q.nat_params.items()}
                 p_i = type(self.q)(nat_params=p_i_nps, is_trainable=False)
 
                 q_i = client.fit(p_i)
 
                 # Store natural parameters.
-                np = {k: v for k, v in q_i.nat_params.items()}
+                np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
                 clients_updated += 1
 
