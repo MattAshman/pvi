@@ -100,12 +100,12 @@ class LogisticRegressionModel(Model, nn.Module):
 
         return distributions.Bernoulli(logits=logits)
 
-    def conjugate_update(self, data, q, t_i):
+    def conjugate_update(self, data, q, t=None):
         """
         :param data: The local data to refine the model with.
         :param q: The current global posterior q(θ).
-        :param t_i: The the local factor t(θ).
-        :return: q_new, t_i_new, the new global posterior and the new local
+        :param t: The the local factor t(θ).
+        :return: q_new, t_new, the new global posterior and the new local
         contribution.
         """
         raise NotImplementedError

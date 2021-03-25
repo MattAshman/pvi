@@ -2,8 +2,6 @@ import torch
 
 from torch import distributions, nn
 from .base import Model
-from pvi.distributions.exponential_family_factors import \
-    MultivariateGaussianFactor
 from pvi.distributions.exponential_family_distributions import \
     MultivariateGaussianDistribution
 
@@ -82,12 +80,12 @@ class LinearRegressionModel(Model, nn.Module):
 
         return distributions.Normal(mu, self.output_sigma)
 
-    def conjugate_update(self, data, q, t_i):
+    def conjugate_update(self, data, q, t=None):
         """
         :param data: The local data to refine the model with.
         :param q: The current global posterior q(θ).
-        :param t_i: The local factor t(θ).
-        :return: q_new, t_i_new, the new global posterior and the new local
+        :param t: The local factor t(θ).
+        :return: q_new, t_new, the new global posterior and the new local
         contribution.
         """
         # Append 1 to end of x.
@@ -98,26 +96,25 @@ class LinearRegressionModel(Model, nn.Module):
             sigma = self.output_sigma
 
             # Closed-form solution.
-            np2_i_new = (-0.5 * sigma ** (-2) * x_.T.matmul(x_))
-            np1_i_new = (sigma ** (-2) * x_.T.matmul(data["y"])).squeeze(-1)
+            t_new_np2 = (-0.5 * sigma ** (-2) * x_.T.matmul(x_))
+            t_new_np1 = (sigma ** (-2) * x_.T.matmul(data["y"])).squeeze(-1)
+            t_new_nps = {"np1": t_new_np1, "np2": t_new_np2}
 
-        # New model parameters.
-        np1 = q.nat_params["np1"] - t_i.nat_params["np1"] + np1_i_new
-        np2 = q.nat_params["np2"] - t_i.nat_params["np2"] + np2_i_new
+        if t is None:
+            # New model parameters.
+            q_new_nps = {k: v + t_new_nps[k] for k, v in q.nat_params.items()}
 
-        q_new_nps = {
-            "np1": np1,
-            "np2": np2,
-        }
-        q_new = MultivariateGaussianDistribution(nat_params=q_new_nps)
+            q_new = type(q)(nat_params=q_new_nps, is_trainable=False)
+            return q_new
 
-        t_i_new_nps = {
-            "np1": np1_i_new,
-            "np2": np2_i_new,
-        }
-        t_i_new = MultivariateGaussianFactor(t_i_new_nps)
+        else:
+            # New model parameters.
+            q_new_nps = {k: v + t_new_nps[k] - t.nat_params[k]
+                         for k, v in q.nat_params.items()}
 
-        return q_new, t_i_new
+            q_new = type(q)(nat_params=q_new_nps, is_trainable=False)
+            t_new = type(t)(nat_params=t_new_nps)
+            return q_new, t_new
 
     def mll(self, data, q):
         """

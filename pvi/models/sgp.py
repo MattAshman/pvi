@@ -11,7 +11,8 @@ JITTER = 1e-6
 
 class SparseGaussianProcessRegression(Model, nn.Module):
     """
-    Sparse Gaussian process regression model using closed-form optimisation of q(u).
+    Sparse Gaussian process regression model using closed-form optimisation of
+    q(u).
     """
 
     conjugate_family = MultivariateGaussianDistributionWithZ
@@ -87,22 +88,23 @@ class SparseGaussianProcessRegression(Model, nn.Module):
         """
         return distributions.Normal(x, self.output_sigma)
     
-    def conjugate_update(self, data, q, t_i):
+    def conjugate_update(self, data, q, t=None):
         """
         :param data: The local data to refine the model with.
         :param q: The current global posterior q(u).
-        :param t_i: The local factor t(u).
-        :return: q_new, t_i_new, the new global posterior and the new local
+        :param t: The local factor t(u).
+        :return: q_new, t_new, the new global posterior and the new local
         contribution.
         """
-        assert torch.eq(q.inducing_locations, t_i.inducing_locations), \
-            "q and t_i must share the same inducing locations for conjugate " \
-            "update."
+        if t is not None:
+            assert torch.eq(q.inducing_locations, t.inducing_locations), \
+                "q and t must share the same inducing locations for " \
+                "conjugate update."
 
         # Set up data etc.
         x = data["x"]
         y = data["y"]
-        z = t_i.inducing_locations
+        z = q.inducing_locations
 
         with torch.no_grad():
             # Parameters of prior.
@@ -117,34 +119,29 @@ class SparseGaussianProcessRegression(Model, nn.Module):
 
             # Closed form solution for optimum q(u).
             # New local parameters.
-            np2_i_new = -0.5 * sigma.pow(-2) * a.T.matmul(a)
-            np1_i_new = sigma.pow(-2) * a.T.matmul(y).squeeze(-1)
+            t_new_np2 = -0.5 * sigma.pow(-2) * a.T.matmul(a)
+            t_new_np1 = sigma.pow(-2) * a.T.matmul(y).squeeze(-1)
+            t_new_nps = {"np1": t_new_np1, "np2": t_new_np2}
 
-        # New model parameters.
-        np1 = q.nat_params["np1"] - t_i.nat_params["np1"] + np1_i_new
-        np2 = q.nat_params["np2"] - t_i.nat_params["np2"] + np2_i_new
+        if t is None:
+            # New model parameters.
+            q_new_nps = {k: v + t_new_nps[k] for k, v in q.nat_params.items()}
 
-        q_new_nps = {
-            "np1": np1,
-            "np2": np2,
-        }
-        q_new = type(q)(
-            inducing_locations=q.inducing_locations,
-            nat_params=q_new_nps,
-        )
+            q_new = type(q)(inducing_locations=z, nat_params=q_new_nps,
+                            is_trainable=False)
+            return q_new
 
-        t_i_new_nps = {
-            "np1": np1_i_new,
-            "np2": np2_i_new,
-        }
-        t_i_new = type(t_i)(
-            inducing_locations=t_i.inducing_locations,
-            nat_params=t_i_new_nps,
-        )
+        else:
+            # New model parameters.
+            q_new_nps = {k: v + t_new_nps[k] - t.nat_params[k]
+                         for k, v in q.nat_params.items()}
 
-        return q_new, t_i_new
+            q_new = type(q)(inducing_locations=z, nat_params=q_new_nps,
+                            is_trainable=False)
+            t_new = type(t)(inducing_locations=z, nat_params=t_new_nps)
+            return q_new, t_new
 
-    def local_free_energy(self, data, q, t):
+    def local_free_energy(self, data, q, t=None):
         """
         Returns the local variational free energy (up to an additive constant)
         of the sparse Gaussian process model under q(u), with local factor
@@ -239,17 +236,17 @@ class SparseGaussianProcessClassification(Model, nn.Module):
         """
         return distributions.Bernoulli(logits=theta)
 
-    def conjugate_update(self, data, q, t_i):
+    def conjugate_update(self, data, q, t=None):
         """
         :param data: The local data to refine the model with.
         :param q: The current global posterior q(θ).
-        :param t_i: The local factor t(θ).
-        :return: q_new, t_i_new, the new global posterior and the new local
+        :param t: The local factor t(θ).
+        :return: q_new, t_new, the new global posterior and the new local
         contribution.
         """
         raise NotImplementedError
 
-    def local_free_energy(self, data, q, t):
+    def local_free_energy(self, data, q, t=None):
         """
         Returns the local variational free energy (up to an additive constant)
         of the sparse Gaussian process model under q(u), with local factor

@@ -66,13 +66,13 @@ class Model(ABC):
         return dist.log_prob(data["y"])
 
     @abstractmethod
-    def conjugate_update(self, data, q, t_i):
+    def conjugate_update(self, data, q, t=None):
         """
-        If the likelihood is conjugate with p(θ), performs a conjugate update.
+        If the likelihood is conjugate with q(θ), performs a conjugate update.
         :param data: The data to compute the conjugate update with.
         :param q: The current global posterior q(θ).
-        :param t_i: The local factor t(θ).
-        :return: The posterior, p(θ | data).
+        :param t: The local factor t(θ).
+        :return: The updated posterior, p(θ | data).
         """
         raise NotImplementedError
 
