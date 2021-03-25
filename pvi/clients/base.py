@@ -278,10 +278,13 @@ class ContinualLearningClient:
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
 
+        # Create non_trainable_copy to send back to server.
+        q_new = q.non_trainable_copy()
+
         # Finished optimisation, can now update.
         self._can_update = True
 
-        return q
+        return q_new
 
 
 class BayesianContinualLearningClient:
@@ -350,6 +353,7 @@ class BayesianContinualLearningClient:
         training_curve = {
             "elbo": [],
             "kl": [],
+            "kleps": [],
             "ll": [],
         }
 
@@ -359,6 +363,7 @@ class BayesianContinualLearningClient:
             epoch = {
                 "elbo": 0,
                 "kl": 0,
+                "kleps": 0,
                 "ll": 0,
             }
 
@@ -372,9 +377,8 @@ class BayesianContinualLearningClient:
                 }
 
                 # Compute KL divergence between q and p.
-                kl = q.kl_divergence(p).sum()
-                kl += qeps.kl_divergence(peps).sum()
-                kl /= len(x)
+                kl = q.kl_divergence(p).sum() / len(x)
+                kleps = qeps.kl_divergence(peps).sum() / len(x)
 
                 # Estimate E_q[log p(y | x, θ, ε)].
                 ll = 0
@@ -393,7 +397,7 @@ class BayesianContinualLearningClient:
                 ll /= (len(eps) * len(x_batch))
 
                 # Negative local Free Energy is KL minus log-probability
-                loss = kl - ll
+                loss = kl + kleps - ll
                 loss.backward()
                 optimiser.step()
 
@@ -401,26 +405,30 @@ class BayesianContinualLearningClient:
                 # Will be very slow if training on GPUs.
                 epoch["elbo"] += -loss.item()
                 epoch["kl"] += kl.item()
+                epoch["kleps"] += kleps.item()
                 epoch["ll"] += ll.item()
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
+            training_curve["kleps"].append(epoch["kleps"])
             training_curve["ll"].append(epoch["ll"])
-
-            # epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-            #                        ll=epoch["ll"])
 
             if i % hyper["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
+                             f"KL eps: {epoch['kleps']:.3f}, "
                              f"Epochs: {i}.")
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
 
+        # Create non_trainable_copy to send back to server.
+        q_new = q.non_trainable_copy()
+        qeps_new = qeps.non_trainable_copy()
+
         # Finished optimisation, can now update.
         self._can_update = True
 
-        return q, qeps
+        return q_new, qeps_new
