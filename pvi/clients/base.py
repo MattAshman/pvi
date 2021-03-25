@@ -378,15 +378,15 @@ class BayesianContinualLearningClient:
 
                 # Compute KL divergence between q and p.
                 kl = q.kl_divergence(p).sum() / len(x)
-                kleps = qeps.kl_divergence(peps).sum() / len(x)
+                kleps = qeps.kl_divergence(peps).values().sum() / len(x)
 
                 # Estimate E_q[log p(y | x, θ, ε)].
                 ll = 0
-                eps = qeps.rsample((hyper["num_elbo_hyper_samples"],))
-                for e in eps:
+                for i in range(hyper["num_elbo_hyper_samples"]):
+                    eps = qeps.rsample()
                     # TODO: This assumes a .set_parameters(eps) function and
                     #  a mean field q(θ, ε) = q(θ)q(ε).
-                    self.model.set_parameters(e)
+                    self.model.set_parameters(eps)
                     if str(type(q)) == str(self.model.conjugate_family):
                         ll += self.model.expected_log_likelihood(batch, q).sum()
                     else:
@@ -394,7 +394,7 @@ class BayesianContinualLearningClient:
                         ll += self.model.likelihood_log_prob(
                             batch, thetas).mean(0).sum()
 
-                ll /= (len(eps) * len(x_batch))
+                ll /= (hyper["num_elbo_hyper_samples"] * len(x_batch))
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl + kleps - ll
