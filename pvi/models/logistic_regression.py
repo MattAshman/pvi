@@ -112,3 +112,6 @@ class LogisticRegressionModel(Model, nn.Module):
         contribution.
         """
         raise NotImplementedError
+
+    def expected_log_likelihood(self, data, q):
+        raise NotImplementedError
