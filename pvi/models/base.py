@@ -76,6 +76,16 @@ class Model(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def expected_log_likelihood(self, data, q):
+        """
+        Computes the expected log likelihood of the data under q(θ).
+        :param data: The data to compute the conjugate update with.
+        :param q: The current global posterior q(θ).
+        :return: The expected log likelihood of the data.
+        """
+        raise NotImplementedError
+
     @property
     @abstractmethod
     def conjugate_family(self):
