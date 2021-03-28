@@ -22,6 +22,7 @@ class AsynchronousServer(Server):
         self.client_probs = [prob / sum(client_probs) for prob in client_probs]
 
         self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
 
     def get_default_hyperparameters(self):
         return {
