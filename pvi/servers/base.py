@@ -26,6 +26,9 @@ class Server(ABC):
         # Internal iteration counter.
         self.iterations = 0
 
+        # Internal communication counter.
+        self.communications = 0
+
         self.log = defaultdict(list)
 
     def set_hyperparameters(self, hyperparameters):

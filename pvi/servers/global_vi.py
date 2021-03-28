@@ -27,6 +27,12 @@ class GlobalVIServer(Server):
         # Dictates whether to use a homogenous data split or not.
         self.homogenous_split = homogenous_split
 
+        # Tracks number of epochs.
+        self.epochs = 0
+
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
+
     def get_default_hyperparameters(self):
         return {
             **super().get_default_hyperparameters(),
@@ -77,6 +83,7 @@ class GlobalVIServer(Server):
             "elbo": [],
             "kl": [],
             "ll": [],
+            "communications": [],
         }
 
         p = self.q.non_trainable_copy()
@@ -85,8 +92,6 @@ class GlobalVIServer(Server):
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, model_hypers["optimiser"])(
             q.parameters(), **model_hypers["optimiser_params"])
-
-        communications = 0
 
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(model_hypers["epochs"]), desc="Epochs")
@@ -100,7 +105,7 @@ class GlobalVIServer(Server):
 
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
-                communications += 1
+                self.communications += 1
                 optimiser.zero_grad()
 
                 batch = {
@@ -147,6 +152,11 @@ class GlobalVIServer(Server):
                              f"KL: {epoch['kl']:.3f}, "
                              f"Epochs: {i}.")
 
+            # Log q so we can track performance each epoch.
+            self.log["q"].append(q.non_trainable_copy())
+            self.log["communications"].append(self.communications)
+            self.epochs += 1
+
         # Update global posterior.
         self.q = q.non_trainable_copy()
 
@@ -154,8 +164,6 @@ class GlobalVIServer(Server):
 
         # Log training.
         self.log["training_curves"].append(training_curve)
-        self.log["q"].append(q)
-        self.log["communications"].append(communications)
 
     def should_stop(self):
         return self.iterations > self.hyperparameters["max_iterations"] - 1

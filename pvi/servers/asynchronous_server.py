@@ -21,12 +21,12 @@ class AsynchronousServer(Server):
         client_probs = [1 / client.data["x"].shape[0] for client in clients]
         self.client_probs = [prob / sum(client_probs) for prob in client_probs]
 
-        self.log["q"].append(self.q)
+        self.log["q"].append(self.q.non_trainable_copy())
 
     def get_default_hyperparameters(self):
         return {
             **super().get_default_hyperparameters(),
-            "max_iterations": 100,
+            "max_iterations": 20,
             "damping_factor": 1.,
         }
 
@@ -75,6 +75,11 @@ class AsynchronousServer(Server):
                                       is_trainable=False)
 
                 clients_updated += 1
+                self.communications += 1
+
+                # Log q after each update.
+                self.log["q"].append(self.q.non_trainable_copy())
+                self.log["communications"].append(self.communications)
 
             else:
                 logger.debug(f"Skipping client {client_index}, client not "
@@ -87,8 +92,7 @@ class AsynchronousServer(Server):
         self.iterations += 1
 
         # Log progress.
-        self.log["q"].append(self.q)
-        self.log["communications"].append(clients_updated)
+        self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.hyperparameters["max_iterations"] - 1

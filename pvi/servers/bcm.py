@@ -20,7 +20,8 @@ class BayesianCommitteeMachineSame(Server):
     def __init__(self, model, q, clients, hyperparameters=None):
         super().__init__(model, q, clients, hyperparameters)
 
-        self.log["q"].append(self.q)
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
 
     def get_default_hyperparameters(self):
         return {
@@ -46,6 +47,7 @@ class BayesianCommitteeMachineSame(Server):
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
                 clients_updated += 1
+                self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
 
@@ -61,8 +63,9 @@ class BayesianCommitteeMachineSame(Server):
         self.iterations += 1
 
         # Log progress.
-        self.log["q"].append(self.q)
-        self.log["communications"].append(clients_updated)
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
+        self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.hyperparameters["max_iterations"] - 1
@@ -86,7 +89,8 @@ class BayesianCommitteeMachineSplit(Server):
         client_props = [n / sum(nk) for n in nk]
         self.client_props = client_props
 
-        self.log["q"].append(self.q)
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
 
     def get_default_hyperparameters(self):
         return {
@@ -118,6 +122,7 @@ class BayesianCommitteeMachineSplit(Server):
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
                 clients_updated += 1
+                self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
 
@@ -133,8 +138,9 @@ class BayesianCommitteeMachineSplit(Server):
         self.iterations += 1
 
         # Log progress.
-        self.log["q"].append(self.q)
-        self.log["communications"].append(clients_updated)
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
+        self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.hyperparameters["max_iterations"] - 1
