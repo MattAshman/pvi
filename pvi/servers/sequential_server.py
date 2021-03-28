@@ -11,7 +11,7 @@ class SequentialServer(Server):
         super().__init__(model, q, clients, hyperparameters)
 
         self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].appennd(self.communications)
+        self.log["communications"].append(self.communications)
 
     def get_default_hyperparameters(self):
         return {
