@@ -1,5 +1,8 @@
+import torch
+
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from torch import distributions
 
 
 class Server(ABC):
@@ -74,3 +77,46 @@ class Server(ABC):
             final_log["client_" + str(i)] = log
 
         return final_log
+
+
+class BayesianServer(Server):
+    def __init__(self, model, q, qeps, clients, hyperparameters=None):
+        super().__init__(model, q, clients, hyperparameters)
+
+        # Global posterior q(ε).
+        self.qeps = qeps
+
+    @abstractmethod
+    def get_default_hyperparameters(self):
+        return {}
+
+    @abstractmethod
+    def tick(self):
+        """
+        Defines what the server should do on each update round. Could be a
+        synchronous update, asynchronous update etc.
+        """
+        pass
+
+    @abstractmethod
+    def should_stop(self):
+        """
+        Defines when the server should stop running.
+        """
+        pass
+
+    def model_predict(self, x):
+        """
+        Returns the current models predictive posterior distribution.
+        :return: ∫ p(y | x, θ, ε) q(θ)q(ε) dθ dε.
+        """
+        nsamples = self.hyperparameters["num_predictive_samples"]
+        comp = []
+        for _ in range(nsamples):
+            eps = self.qeps.sample()
+            self.model.set_parameters(eps)
+            comp.append(self.model(x, self.q))
+
+        mix = distributions.Categorical(torch.ones(nsamples),)
+
+        return distributions.MixtureSameFamily(mix, comp)
