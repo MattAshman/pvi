@@ -74,7 +74,7 @@ class Model(ABC):
         Compute the log probability of the data under the model's likelihood.
         :param data: The data to compute the log likelihood of.
         :param theta: The latent variables of the model.
-        :return: The log likelihood of the data.
+        :return: log p(y | x, θ)
         """
         dist = self.likelihood_forward(data["x"], theta)
         return dist.log_prob(data["y"])
@@ -96,7 +96,7 @@ class Model(ABC):
         Computes the expected log likelihood of the data under q(θ).
         :param data: The data to compute the conjugate update with.
         :param q: The current global posterior q(θ).
-        :return: The expected log likelihood of the data.
+        :return: ∫ q(θ) log p(y | x, θ) dθ.
         """
         raise NotImplementedError
 

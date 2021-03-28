@@ -53,7 +53,7 @@ class BayesianContinualLearningServer(BayesianServer):
 
     def get_default_hyperparameters(self):
         return {
-            **super().get_default_hyperparameters(),
+            "num_eps_samples": 1,
         }
 
     def tick(self):

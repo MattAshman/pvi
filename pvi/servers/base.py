@@ -110,13 +110,11 @@ class BayesianServer(Server):
         Returns the current models predictive posterior distribution.
         :return: ∫ p(y | x, θ, ε) q(θ)q(ε) dθ dε.
         """
-        nsamples = self.hyperparameters["num_predictive_samples"]
-        comp = []
-        for _ in range(nsamples):
+        neps = self.hyperparameters["num_eps_samples"]
+        dists = []
+        for _ in range(neps):
             eps = self.qeps.sample()
-            self.model.set_parameters(eps)
-            comp.append(self.model(x, self.q))
+            self.model.set_eps(eps)
+            dists.append(self.model(x, self.q))
 
-        mix = distributions.Categorical(torch.ones(nsamples),)
-
-        return distributions.MixtureSameFamily(mix, comp)
+        return dists
