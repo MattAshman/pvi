@@ -26,6 +26,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
         else:
             raise ValueError("Kernel class not specified.")
 
+        # Set eps.
+        self.set_eps(self.eps)
+
     def get_default_nat_params(self):
         return {
             "np1": torch.tensor([0.] * self.hyperparameters["num_inducing"]),
@@ -38,7 +41,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         return {
             "D": None,
             "num_inducing": 50,
-            "kernel_class": lambda args: ScaleKernel(RBFKernel(**args)),
+            "kernel_class": lambda **kwargs: ScaleKernel(RBFKernel(**kwargs)),
             "kernel_params": {
                 "outputscale": 1.,
                 "lengthscale": 1.
@@ -50,16 +53,19 @@ class SparseGaussianProcessModel(Model, nn.Module):
             "print_epochs": 10
         }
 
-    def set_parameters(self, parameters):
-        super().set_parameters(parameters)
+    def set_eps(self, eps):
+        super().set_eps(eps)
 
-        self.kernel.outputscale = self.parameters["outputscale"]
-        self.kernel.base_kernel.lengthscale = self.parameters["lengthscale"]
+        # Inverse softplus transformation.
+        self.kernel.raw_outputscale = torch.log(
+            torch.exp(self.eps["outputscale"]) - 1)
+        self.kernel.base_kernel.raw_lengthscale = torch.log(
+            torch.exp(self.eps["lengthscale"]) - 1)
 
     @staticmethod
-    def get_default_parameters():
+    def get_default_eps():
         """
-        :return: A default set of parameters for the model.
+        :return: A default set of eps for the model.
         """
         return {
             "outputscale": 1.,
@@ -105,18 +111,18 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def set_parameters(self, parameters):
-        super().set_parameters(parameters)
+    def set_eps(self, eps):
+        super().set_eps(eps)
 
-        self.output_sigma = nn.Parameter(self.parameters["output_sigma"])
+        self.output_sigma = nn.Parameter(self.eps["output_sigma"])
 
     @staticmethod
-    def get_default_parameters():
+    def get_default_eps():
         """
-        :return: A default set of parameters for the model.
+        :return: A default set of eps for the model.
         """
         return {
-            **SparseGaussianProcessModel.get_default_parameters(),
+            **SparseGaussianProcessModel.get_default_eps(),
             "output_sigma": 1.,
         }
 
