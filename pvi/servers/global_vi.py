@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 class GlobalVIServer(Server):
     def __init__(self, model, q, clients, hyperparameters=None,
-                 homogenous_split=True):
+                 homogenous_split=False):
         super().__init__(model, q, clients, hyperparameters)
 
         # Global VI server has access to the entire dataset.
