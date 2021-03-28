@@ -116,6 +116,9 @@ class LinearRegressionModel(Model, nn.Module):
             t_new = type(t)(nat_params=t_new_nps)
             return q_new, t_new
 
+    def expected_log_likelihood(self, data, q):
+        raise NotImplementedError
+
     def mll(self, data, q):
         """
         Returns the marginal log-likelihood of the linear regression model
