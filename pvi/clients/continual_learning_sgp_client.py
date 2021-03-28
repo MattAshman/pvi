@@ -327,9 +327,14 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
             kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
                                JITTER)
             kba = self.model.kernel(zb, za).evaluate().detach()
+
             # Initialise Sb = Kbb - Kba Kaa^{-1} Kab.
             sb = kbb - kba.matmul(ikaa).matmul(kba.T)
             sb_chol = torch.cholesky(sb)
+
+            # Initialise Ab = KbaKaa^{-1}.
+            ab = kba.matmul(ikaa)
+            ab = nn.Parameter(ab, requires_grad=True)
         else:
             # Initialise Sb = Kbb.
             kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
@@ -337,7 +342,10 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
             sb = kbb
             sb_chol = torch.cholesky(sb)
 
-        # Variational parameters of q(b | a).
+            # Ab is None.
+            ab = nn.Parameter(torch.tensor(0.), requires_grad=False)
+
+        # Variational parameters of q(b | a) = N(b; A_b a + m_b, S_b).
         zb = nn.Parameter(zb, requires_grad=True)
         mb = nn.Parameter(mb, requires_grad=True)
         sb_chol = nn.Parameter(sb_chol, requires_grad=True)
@@ -410,21 +418,18 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                     """
                     z = torch.cat([za, zb], axis=0)
 
-                    kba = self.model.kernel(zb, za).evaluate().detach()
-                    a = kba.matmul(ikaa)
-
                     q_loc = torch.empty(len(z))
                     q_cov = torch.empty(len(z), len(z))
 
                     q_loc[:len(za)] = qa_loc
-                    q_loc[len(za):] = mb + a.matmul(qa_loc)
+                    q_loc[len(za):] = mb + ab.matmul(qa_loc)
 
                     q_cov[:len(za), :len(za)] = qa_cov
                     q_cov[len(za):, len(za):] = (
                             sb_chol.matmul(sb_chol.T)
-                            + a.matmul(qa_cov).matmul(a.T))
-                    q_cov[len(za):, :len(za)] = a.matmul(qa_cov)
-                    q_cov[:len(za), len(za):] = qa_cov.matmul(a.T)
+                            + ab.matmul(qa_cov).matmul(ab.T))
+                    q_cov[len(za):, :len(za)] = ab.matmul(qa_cov)
+                    q_cov[:len(za), len(za):] = qa_cov.matmul(ab.T)
 
                     q = type(q)(
                         inducing_locations=z,
@@ -443,10 +448,12 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                     for v in eps.values():
                         v.retain_grad()
 
+                    # Set model ε.
                     self.model.set_eps(eps)
 
                     kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
                                        JITTER)
+
                     p = type(q)(
                         inducing_locations=z,
                         std_params={
@@ -460,6 +467,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                     if za is not None:
                         kaa = add_diagonal(
                             self.model.kernel(za, za).evaluate(), JITTER)
+
                         pa = type(q)(
                             inducing_locations=za,
                             std_params={
@@ -474,7 +482,6 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                     if str(type(q)) == str(self.model.conjugate_family):
                         ll += self.model.expected_log_likelihood(
                             batch, q).sum() / len(x_batch)
-
                     else:
                         qf = self.model.posterior(x_batch, q)
                         fs = qf.rsample(
@@ -489,9 +496,6 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                 loss = kl + kleps - ll
                 loss.backward()
                 optimiser.step()
-
-                import pdb
-                pdb.set_trace()
 
                 # Keep track of quantities for current batch.
                 epoch["elbo"] += -loss.item()

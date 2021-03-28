@@ -26,7 +26,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         else:
             raise ValueError("Kernel class not specified.")
 
-        # Set eps.
+        # Set ε after model is constructed.
         self.set_eps(self.eps)
 
     def get_default_nat_params(self):
@@ -57,19 +57,17 @@ class SparseGaussianProcessModel(Model, nn.Module):
         super().set_eps(eps)
 
         # Inverse softplus transformation.
-        self.kernel.raw_outputscale = torch.log(
-            torch.exp(self.eps["outputscale"]) - 1)
-        self.kernel.base_kernel.raw_lengthscale = torch.log(
-            torch.exp(self.eps["lengthscale"]) - 1)
+        self.kernel.set_outputscale(self.eps["outputscale"])
+        self.kernel.base_kernel.set_lengthscale(self.eps["lengthscale"])
 
     @staticmethod
     def get_default_eps():
         """
-        :return: A default set of eps for the model.
+        :return: A default set of ε for the model.
         """
         return {
-            "outputscale": 1.,
-            "lengthscale": 1.,
+            "outputscale": torch.tensor(1.),
+            "lengthscale": torch.tensor(1.),
         }
 
     def posterior(self, x, q):
