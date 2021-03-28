@@ -1,6 +1,5 @@
 import torch
 
-from abc import ABC
 from torch import distributions, nn, optim
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
@@ -10,7 +9,7 @@ from pvi.distributions.gp_distributions import \
 JITTER = 1e-6
 
 
-class SparseGaussianProcessModel(ABC, Model, nn.Module):
+class SparseGaussianProcessModel(Model, nn.Module):
     """
     Sparse Gaussian process model.
     """

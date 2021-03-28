@@ -5,6 +5,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from collections import defaultdict
 from .base import Server
 from pvi.utils.dataset import ListDataset
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -13,7 +14,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class GlobalVI(Server):
+class GlobalVIServer(Server):
     def __init__(self, model, q, clients, hyperparameters=None,
                  homogenous_split=True):
         super().__init__(model, q, clients, hyperparameters)
@@ -60,14 +61,15 @@ class GlobalVI(Server):
             for client in self.clients:
                 # Chunk clients data into batch size.
                 data = {k: data[k] + [v[i:i+m] for i in range(
-                    0, len(client.data["x"]), m)] for k, v in client.data}
+                    0, len(client.data["x"]), m)]
+                        for k, v in client.data.items()}
 
             # Lists of tensors size (batch_size, *).
             x = data["x"]
             y = data["y"]
             list_dataset = ListDataset(x, y)
             loader = DataLoader(list_dataset,
-                                batch_size=1,
+                                batch_size=None,
                                 shuffle=True)
 
         # Dict for logging optimisation progress
@@ -87,7 +89,9 @@ class GlobalVI(Server):
         communications = 0
 
         # Gradient-based optimisation loop -- loop over epochs
-        for i in range(model_hypers["epochs"]):
+        epoch_iter = tqdm(range(model_hypers["epochs"]), desc="Epochs")
+        # for i in range(model_hypers["epochs"]):
+        for i in epoch_iter:
             epoch = {
                 "elbo": 0,
                 "kl": 0,
@@ -105,14 +109,14 @@ class GlobalVI(Server):
                 }
 
                 # Compute KL divergence between q and p.
-                kl = q.kl_divergence(p).sum() / len(x)
+                kl = q.kl_divergence(p).sum() / len(self.data["x"])
 
                 # Compute E_q[log p(y | x, θ)].
                 if str(type(q)) == str(self.model.conjugate_family):
                     ll = self.model.expected_log_likelihood(batch, q).sum()
                 else:
                     thetas = q.rsample(
-                        (model_hypers["num_elbo_theta_samples"],))
+                        (model_hypers["num_elbo_samples"],))
                     ll = self.model.likelihood_log_prob(
                         batch, thetas).mean(0).sum()
 
@@ -129,6 +133,9 @@ class GlobalVI(Server):
                 epoch["kl"] += kl.item()
                 epoch["ll"] += ll.item()
 
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"])
+
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
@@ -139,6 +146,9 @@ class GlobalVI(Server):
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
                              f"Epochs: {i}.")
+
+        # Update global posterior.
+        self.q = q.non_trainable_copy()
 
         self.iterations += 1
 
