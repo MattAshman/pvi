@@ -277,7 +277,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
         likelihood term. This method is called directly by the server.
         """
         # Compute new posterior (ignored) and approximating likelihood term
-        q, qeps = self.gradient_based_update(q, qeps)
+        q, qeps = self.gradient_based_update(q, qeps.trainable_copy())
 
         return q, qeps
 
@@ -295,7 +295,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
         hyper = self.model.hyperparameters
 
         # Cannot update during optimisation.
-        self._can_update = False
+        # self._can_update = False
 
         # Set up data etc.
         x = self.data["x"]
@@ -343,7 +343,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
         sb_chol = nn.Parameter(sb_chol, requires_grad=True)
 
         # + variational parameters of q(ε).
-        parameters = [zb, mb, sb_chol] + list(qeps.parameters())
+        parameters = [zb, mb, sb_chol] + qeps.parameters()
 
         # Reset optimiser
         logging.info("Resetting optimiser")
@@ -434,13 +434,16 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                         },
                     )
 
-                kleps = qeps.kl_divergence(peps).sum() / len(x)
+                kleps = sum(qeps.kl_divergence(peps).values()) / len(x)
 
                 ll = 0
                 kl = 0
-                eps = qeps.rsample((hyper["num_elbo_hyper_samples"],))
-                for e in eps:
-                    self.model.set_parameters(e)
+                for _ in range(hyper["num_elbo_hyper_samples"]):
+                    eps = qeps.rsample()
+                    for v in eps.values():
+                        v.retain_grad()
+
+                    self.model.set_eps(eps)
 
                     kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
                                        JITTER)
@@ -480,12 +483,15 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                             batch, fs).mean(0).sum() / len(x_batch)
 
                 # Normalise values.
-                kl /= len(eps)
-                ll /= len(eps)
+                kl /= hyper["num_elbo_hyper_samples"]
+                ll /= hyper["num_elbo_hyper_samples"]
 
                 loss = kl + kleps - ll
                 loss.backward()
                 optimiser.step()
+
+                import pdb
+                pdb.set_trace()
 
                 # Keep track of quantities for current batch.
                 epoch["elbo"] += -loss.item()

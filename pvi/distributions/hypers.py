@@ -26,7 +26,7 @@ class HyperparameterDistribution:
         )
 
     def kl_divergence(self, other):
-        return {k: v.kl_divergence(other[k])
+        return {k: v.kl_divergence(other.distributions[k])
                 for k, v in self.distributions.items()}
 
     def log_prob(self, args_dict, kwargs_dict):
@@ -40,6 +40,10 @@ class HyperparameterDistribution:
     def rsample(self, *args, **kwargs):
         return {k: v.rsample(*args, **kwargs)
                 for k, v in self.distributions.items()}
+
+    def parameters(self):
+        parameters = [list(v.parameters()) for v in self.distributions.values()]
+        return [item for sublist in parameters for item in sublist]
 
 
 class HyperparameterFactor:
