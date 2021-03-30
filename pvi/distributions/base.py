@@ -52,11 +52,12 @@ class ExponentialFamilyFactor(ABC):
         # Compute natural parameters of the new t-factor (detach gradients)
         for name, np in self.nat_params.items():
             nat_params[name] = (
-                    np1[name].detach().clone() - np2[name].detach().clone()
+                    np1[name].detach().clone()
+                    - np2[name].detach().clone()
                     + np.detach().clone())
             
         # Create and return refined t of the same type
-        t = type(self)(nat_params)
+        t = type(self)(nat_params=nat_params)
         
         return t
 

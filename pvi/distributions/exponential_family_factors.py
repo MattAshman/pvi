@@ -77,7 +77,6 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
 class MultivariateGaussianFactor(ExponentialFamilyFactor):
 
     def __init__(self, nat_params):
-        
         super().__init__(nat_params)
         
         self.distribution_class = MultivariateGaussianDistribution
@@ -111,7 +110,7 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         np2 = self.nat_params["np2"]
 
         loc = q.std_params["loc"]
-        cov = q.mean_params["covariance_matrix"]
+        cov = q.std_params["covariance_matrix"]
 
         eqlogt = (np1.dot(loc)
                   + np2.matmul(cov).trace() + loc.dot(torch.mv(np2, loc)))
@@ -162,16 +161,22 @@ class GammaFactor(ExponentialFamilyFactor):
         return torch.zeros(size=thetas.shape[:1])
 
     def npf(self, thetas):
+
         np1 = self.nat_params["np1"]
         np2 = self.nat_params["np2"]
 
-        npf = torch.mv(thetas.log(), np1)
-        npf = npf + torch.mv(thetas.pow(-1), np2)
+        npf = thetas.log() * np1
+        npf = npf + thetas * np2
 
         return npf
 
     def eqlogt(self, q):
+
+        alpha = q.std_params["concentration"]
+        beta = 1 / q.std_params["rate"]
+
         raise NotImplementedError
+
 
     def nat_from_dist(self, q):
         concentration = q.concentration.detach()
