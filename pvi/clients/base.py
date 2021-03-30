@@ -66,15 +66,12 @@ class PVIClient(ABC):
         # Cannot update during optimisation.
         self._can_update = False
         
-        # Copy the approximate posterior, make old posterior non-trainable.
+        # Copy the approximate posterior, make old posterior non-trainable
         q_old = q.non_trainable_copy()
-        # qcav_nat_params = {k: v - self.t.nat_params[k]
-        #                    for k, v in q_old.nat_params.items()}
-        # qcav = type(q)(nat_params=qcav_nat_params, is_trainable=False)
            
         # Reset optimiser
         # TODO: not optimising model parameters for now (inducing points,
-        # kernel hyperparameters, observation noise etc.).
+        #  kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, hyper["optimiser"])(
             q.parameters(), **hyper["optimiser_params"])
@@ -116,7 +113,6 @@ class PVIClient(ABC):
                 
                 # Compute KL divergence between q and q_old.
                 kl = q.kl_divergence(q_old).sum() / len(x)
-                # kl = q.kl_divergence(qcav).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
@@ -194,7 +190,7 @@ class ContinualLearningClient:
         # Type(q) is self.model.conjugate_family.
         if str(type(q)) == str(self.model.conjugate_family):
             # No need to make q trainable.
-            q_new, _ = self.model.conjugate_update(self.data, q, None)
+            q_new = self.model.conjugate_update(self.data, q, None)
             return q_new
         else:
             # Pass a trainable copy to optimise.
@@ -252,12 +248,12 @@ class ContinualLearningClient:
                 }
 
                 # Compute KL divergence between q and p.
-                kl = q.kl_divergence(p).sum()
+                kl = q.kl_divergence(p).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
-                    batch, thetas).mean(0).sum()
+                    batch, thetas).mean(0).sum() / len(x_batch)
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll

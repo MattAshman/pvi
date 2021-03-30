@@ -89,12 +89,19 @@ class StreamingSGPClient(ContinualLearningClient):
         zb = nn.Parameter(zb, requires_grad=True)
         mb = nn.Parameter(mb, requires_grad=True)
         sb_chol = nn.Parameter(sb_chol, requires_grad=True)
-        variational_parameters = nn.ParameterList([zb, mb, sb_chol])
+        variational_parameters = [zb, mb, sb_chol]
 
-        # Reset optimiser
+        # Model parameters. Includes kernel hyperparameters and observation
+        # noise.
+        model_parameters = list(self.model.parameters())
+
+        # Optimise both variational and model parameters.
+        parameters = variational_parameters + model_parameters
+
+        # Reset optimiser.
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, hyper["optimiser"])(
-            variational_parameters, **hyper["optimiser_params"])
+            parameters, **hyper["optimiser_params"])
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -200,22 +207,7 @@ class StreamingSGPClient(ContinualLearningClient):
 
                     = log N(y; E_q[f], σ^2) - 0.5 / (σ ** 2) Var_q[f].
                     """
-                    kxz = self.model.kernel(x, z).evaluate()
-                    kxx = add_diagonal(self.model.kernel(x, x).evaluate(),
-                                       JITTER)
-
-                    a = kxz.matmul(ikzz)
-                    c = kxx - a.matmul(kxz.T)
-
-                    qf_loc = a.matmul(q.std_params["loc"])
-                    qf_cov = c + a.matmul(
-                        q.std_params["covariance_matrix"]).matmul(a.T)
-
-                    sigma = self.model.outputsigma
-                    dist = self.model.likelihood_forward(qf_loc)
-                    ll1 = dist.log_prob(y.squeeze())
-                    ll2 = -0.5 * sigma ** (-2) * qf_cov.diag()
-                    ll = ll1.sum() + ll2.sum()
+                    ll = self.model.expected_log_likelihood(batch, q)
                 else:
                     """
                     Cannot compute in closed form---use MC estimate instead.
