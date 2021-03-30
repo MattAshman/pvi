@@ -1,8 +1,5 @@
-import torch
-
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from torch import distributions
 
 
 class Server(ABC):
@@ -34,9 +31,10 @@ class Server(ABC):
     def set_hyperparameters(self, hyperparameters):
         self.hyperparameters = {**self.hyperparameters, **hyperparameters}
 
+    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters(self):
-        return {}
+    def get_default_hyperparameters():
+        raise NotImplementedError
 
     @abstractmethod
     def tick(self):
@@ -86,9 +84,10 @@ class BayesianServer(Server):
         # Global posterior q(ε).
         self.qeps = qeps
 
+    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters(self):
-        return {}
+    def get_default_hyperparameters():
+        raise NotImplementedError
 
     @abstractmethod
     def tick(self):

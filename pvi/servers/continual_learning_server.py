@@ -12,10 +12,9 @@ class ContinualLearningServer(Server):
         self.client_idx = 0
         self.log["q"].append(self.q)
 
-    def get_default_hyperparameters(self):
-        return {
-            **super().get_default_hyperparameters(),
-        }
+    @staticmethod
+    def get_default_hyperparameters():
+        return {}
 
     def tick(self):
         if self.should_stop():
@@ -51,7 +50,8 @@ class BayesianContinualLearningServer(BayesianServer):
         self.client_idx = 0
         self.log["q"].append(self.q)
 
-    def get_default_hyperparameters(self):
+    @staticmethod
+    def get_default_hyperparameters():
         return {
             "num_eps_samples": 1,
         }
