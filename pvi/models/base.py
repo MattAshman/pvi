@@ -6,13 +6,19 @@ class Model(ABC):
     An abstract class for probabilistic models defined by a likelihood
     p(y | θ, x) and (approximate) posterior q(θ).
     """
-    def __init__(self, hyperparameters=None):
+    def __init__(self, eps=None, hyperparameters=None):
         # Hyperparameters of the model.
         if hyperparameters is None:
             hyperparameters = {}
 
         self.hyperparameters = self.get_default_hyperparameters()
         self.set_hyperparameters(hyperparameters)
+
+        # Parameters of the model.
+        if eps is None:
+            eps = {}
+
+        self.eps = {**eps, **self.get_default_eps()}
 
     @abstractmethod
     def get_default_nat_params(self):
@@ -24,14 +30,20 @@ class Model(ABC):
     def set_hyperparameters(self, hyperparameters):
         self.hyperparameters = {**self.hyperparameters, **hyperparameters}
 
-    def get_hyperparameters(self):
-        return self.hyperparameters
-
-    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         """
         :return: A default set of hyperparameters for the model.
+        """
+        raise NotImplementedError
+
+    def set_eps(self, eps):
+        self.eps = {**self.eps, **eps}
+
+    @abstractmethod
+    def get_default_eps(self):
+        """
+        :return: A default set of parameters for the model.
         """
         raise NotImplementedError
 
@@ -60,7 +72,7 @@ class Model(ABC):
         Compute the log probability of the data under the model's likelihood.
         :param data: The data to compute the log likelihood of.
         :param theta: The latent variables of the model.
-        :return: The log likelihood of the data.
+        :return: log p(y | x, θ)
         """
         dist = self.likelihood_forward(data["x"], theta)
         return dist.log_prob(data["y"])
@@ -82,7 +94,7 @@ class Model(ABC):
         Computes the expected log likelihood of the data under q(θ).
         :param data: The data to compute the conjugate update with.
         :param q: The current global posterior q(θ).
-        :return: The expected log likelihood of the data.
+        :return: ∫ q(θ) log p(y | x, θ) dθ.
         """
         raise NotImplementedError
 

@@ -27,11 +27,19 @@ class LinearRegressionModel(Model, nn.Module):
                 [1.]*(self.hyperparameters["D"] + 1)).diag_embed(),
         }
 
-    @staticmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         return {
             "D": None
         }
+
+    def set_eps(self, eps):
+        super().set_eps(eps)
+
+    def get_default_eps(self):
+        """
+        :return: A default set of ε for the model.
+        """
+        return {}
 
     def forward(self, x, q):
         """

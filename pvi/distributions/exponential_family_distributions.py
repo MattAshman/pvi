@@ -133,7 +133,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         return std
 
     def _unc_from_std(self, std_params):
-        
+
         loc = std_params["loc"].detach()
         cov = std_params["covariance_matrix"].detach()
         
@@ -352,26 +352,26 @@ class GammaDistribution(ExponentialFamilyDistribution):
         raise NotImplementedError
 
     def _std_from_unc(self, unc_params):
-        log_concentration = unc_params["log_concentration"]
-        log_rate = unc_params["log_rate"]
+        log_alpha = unc_params["log_alpha"]
+        log_beta = unc_params["log_beta"]
 
-        concetration = log_concentration.exp()
-        rate = log_rate.exp()
+        concentration = log_alpha.exp()
+        rate = 1 / log_beta.exp()
 
         std = {
-            "concentration": concetration,
+            "concentration": concentration,
             "rate": rate
         }
 
         return std
 
     def _unc_from_std(self, std_params):
-        concentration = std_params["concentration"]
-        rate = std_params["rate"]
+        concentration = std_params["concentration"].detach()
+        rate = std_params["rate"].detach()
 
         unc = {
-            "log_concentration": concentration.log(),
-            "log_rate": rate.log()
+            "log_alpha": torch.nn.Parameter(concentration.log()),
+            "log_beta": torch.nn.Parameter((1 / rate).log())
         }
 
         return unc
@@ -382,7 +382,7 @@ class GammaDistribution(ExponentialFamilyDistribution):
         rate = std_params["rate"]
 
         np1 = concentration - 1
-        np2 = -rate
+        np2 = - 1 / rate
 
         nat = {
             "np1": np1,
@@ -397,7 +397,7 @@ class GammaDistribution(ExponentialFamilyDistribution):
         np2 = nat_params["np2"]
 
         concentration = np1 + 1
-        rate = -np2
+        rate = -1 / np2
 
         std = {
             "concentration": concentration,

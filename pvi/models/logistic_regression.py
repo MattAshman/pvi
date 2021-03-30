@@ -26,8 +26,7 @@ class LogisticRegressionModel(Model, nn.Module):
                     self.hyperparameters["D"]+1)).diag_embed()
         }
 
-    @staticmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         return {
             "D": None,
             "optimiser_class": optim.Adam,
@@ -40,6 +39,15 @@ class LogisticRegressionModel(Model, nn.Module):
             "print_epochs": 10,
             "use_probit_approximation": True,
         }
+
+    def set_eps(self, eps):
+        super().set_eps(eps)
+
+    def get_default_eps(self):
+        """
+        :return: A default set of ε for the model.
+        """
+        return {}
 
     def forward(self, x, q):
         """

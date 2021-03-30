@@ -1,6 +1,7 @@
 import torch
 
 from torch import distributions, nn, optim
+from gpytorch.kernels import ScaleKernel, RBFKernel
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions.gp_distributions import \
@@ -25,6 +26,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
         else:
             raise ValueError("Kernel class not specified.")
 
+        # Set ε after model is constructed.
+        self.set_eps(self.eps)
+
     def get_default_nat_params(self):
         return {
             "np1": torch.tensor([0.] * self.hyperparameters["num_inducing"]),
@@ -32,16 +36,36 @@ class SparseGaussianProcessModel(Model, nn.Module):
                 [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
         }
 
-    @staticmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         return {
             "D": None,
             "num_inducing": 50,
+            "kernel_class": lambda **kwargs: ScaleKernel(RBFKernel(**kwargs)),
+            "kernel_params": {
+                "outputscale": 1.,
+                "lengthscale": 1.
+            },
             "optimiser_class": optim.Adam,
             "optimiser_params": {"lr": 1e-3},
             "reset_optimiser": True,
             "epochs": 100,
             "print_epochs": 10
+        }
+
+    def set_eps(self, eps):
+        super().set_eps(eps)
+
+        # Inverse softplus transformation.
+        self.kernel.set_outputscale(self.eps["outputscale"])
+        self.kernel.base_kernel.set_lengthscale(self.eps["lengthscale"])
+
+    def get_default_eps(self):
+        """
+        :return: A default set of ε for the model.
+        """
+        return {
+            "outputscale": torch.tensor(1.),
+            "lengthscale": torch.tensor(1.),
         }
 
     def posterior(self, x, q):
@@ -80,11 +104,22 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
     conjugate_family = MultivariateGaussianDistributionWithZ
 
-    def __init__(self, output_sigma=1., **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.register_parameter("output_sigma", nn.Parameter(
-            torch.tensor(output_sigma), requires_grad=True))
+    def set_eps(self, eps):
+        super().set_eps(eps)
+
+        self.output_sigma = nn.Parameter(self.eps["output_sigma"])
+
+    def get_default_eps(self):
+        """
+        :return: A default set of eps for the model.
+        """
+        return {
+            **super().get_default_eps(),
+            "output_sigma": 1.,
+        }
 
     def forward(self, x, q):
         return self.posterior(x, q)
@@ -217,8 +252,7 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
                 [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
         }
 
-    @staticmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         return {
             **super().get_default_hyperparameters(),
             "num_elbo_samples": 1,
