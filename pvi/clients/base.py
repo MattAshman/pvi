@@ -67,9 +67,6 @@ class PVIClient(ABC):
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = q.non_trainable_copy()
-        # qcav_nat_params = {k: v - self.t.nat_params[k]
-        #                    for k, v in q_old.nat_params.items()}
-        # qcav = type(q)(nat_params=qcav_nat_params, is_trainable=False)
            
         # Reset optimiser
         # TODO: not optimising model parameters for now (inducing points,
@@ -114,13 +111,12 @@ class PVIClient(ABC):
                 
                 # Compute KL divergence between q and q_old.
                 kl = q.kl_divergence(q_old).sum() / len(x)
-                # kl = q.kl_divergence(qcav).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
                     batch, thetas).mean(0).sum() / len(x_batch)
-                ll = ll - self.t(thetas).mean(0).sum() / len(x)
+                ll = ll - self.t.eqlogt(q) / len(x)
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll

@@ -28,8 +28,7 @@ class ExponentialFamilyFactor(ABC):
     def __init__(self, nat_params):
         
         self.nat_params = nat_params
-      
-    
+
     def compute_refined_factor(self, q1, q2):
         """
         Computes the log-coefficient and natural parameters of the
@@ -60,7 +59,6 @@ class ExponentialFamilyFactor(ABC):
         t = type(self)(nat_params)
         
         return t
-    
 
     def __call__(self, thetas):
         """
@@ -79,8 +77,7 @@ class ExponentialFamilyFactor(ABC):
         log_t = log_h + npf
         
         return log_t
-    
-    
+
     @abstractmethod
     def log_h(self, thetas):
         """
@@ -88,40 +85,47 @@ class ExponentialFamilyFactor(ABC):
         a torch.tensor of shape (N, D) where N is the batch dimension and
         D is the dimension of the distribution.
         """
-        pass
-    
-    
+        raise NotImplementedError
+
     @abstractmethod
     def npf(self, thetas):
         """
         Rearranges NPs to ν vector for this member of the exponential family.
         """
-        pass
-    
-    
+        raise NotImplementedError
+
+    def eqlogt(self, q):
+        """
+        Computes E_q[log t(θ)] = ν.T E_q[f(θ)] + E_q[log h(θ)], ignoring the
+        latter term.
+        :param q: q(θ).
+        :return: ν.T E_q[f(θ)].
+        """
+        np = self.nat_params
+        muq = q.mean_params
+
+        return np.dot(muq)
+
     @abstractmethod
     def nat_from_dist(self, q):
         """
         Takes a torch.distribution **q**, assumed to be in the EF
         and extracts its leading coefficient and natural parameters.
         """
-        pass
-    
-    
+        raise NotImplementedError
+
     @abstractmethod
     def dist_from_nat(self, np):
         """
         Takes a dictionary of natural parameters **np** and returns a
         torch.distribution defined by these natural parameters.
         """
-        pass
-    
+        raise NotImplementedError
 
 
 # =============================================================================
 # Base exponential family distribution
 # =============================================================================
-
 
 class ExponentialFamilyDistribution(ABC, nn.Module):
     
@@ -154,7 +158,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         else:
             self.std_params = std_params
             self.nat_params = nat_params
-    
         
     @property
     def std_params(self):
@@ -167,8 +170,7 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         
         else:
             return self._std_params
-        
-            
+
     @std_params.setter
     def std_params(self, std_params):
 
@@ -177,7 +179,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
 
         else:
             self._std_params = std_params
-
         
     @property
     def nat_params(self):
@@ -187,34 +188,33 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             self._nat_params = self._nat_from_std(self.std_params)
         
         return self._nat_params
-    
-    
+
     @nat_params.setter
     def nat_params(self, nat_params):
 
         self._nat_params = nat_params
 
+    @property
+    @abstractmethod
+    def mean_params(self):
+        raise NotImplementedError
 
     @abstractmethod
     def _std_from_unc(self, unc_params):
-        pass
-    
-    
+        raise NotImplementedError
+
     @abstractmethod
     def _unc_from_std(self, std_params):
-        pass
-    
-    
+        raise NotImplementedError
+
     @abstractmethod
     def _nat_from_std(self, std_params):
-        pass
-    
+        raise NotImplementedError
     
     @abstractmethod
     def _std_from_nat(self, nat_params):
-        pass
-    
-    
+        raise NotImplementedError
+
     def non_trainable_copy(self):
 
         if self.is_trainable:
@@ -237,7 +237,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         
         return type(self)(std_params, nat_params, is_trainable=False)
 
-
     def trainable_copy(self):
 
         if self.is_trainable:
@@ -259,31 +258,25 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
                 nat_params = None
 
         return type(self)(std_params, nat_params, is_trainable=True)
-    
-    
+
     @property
     def distribution(self):
         return self.torch_dist_class(**self.std_params)
-    
-    
+
     def kl_divergence(self, other):
         return torch.distributions.kl_divergence(self.distribution,
                                                  other.distribution)
     
-    
     def log_prob(self, *args, **kwargs):
         return self.distribution.log_prob(*args, **kwargs)
     
-    
     def sample(self, *args, **kwargs):
         return self.distribution.sample(*args, **kwargs)
-    
-    
+
     def rsample(self, *args, **kwargs):
         return self.distribution.rsample(*args, **kwargs)
-    
-    
+
     @property
     @abstractmethod
     def torch_dist_class(self):
-        pass
+        raise NotImplementedError
