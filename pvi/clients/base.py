@@ -66,10 +66,11 @@ class PVIClient(ABC):
         self._can_update = False
         
         # Copy the approximate posterior, make old posterior non-trainable
+        q_old = q.non_trainable_copy()
            
         # Reset optimiser
         # TODO: not optimising model parameters for now (inducing points,
-        # kernel hyperparameters, observation noise etc.).
+        #  kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, hyper["optimiser"])(
             q.parameters(), **hyper["optimiser_params"])
