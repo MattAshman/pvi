@@ -160,10 +160,13 @@ class PVIClient(ABC):
         # Compute new local contribution from old distributions
         t_new = self.t.compute_refined_factor(q, q_old)
 
+        # Create non-trainable copy to send back to server.
+        q_new = q.non_trainable_copy()
+
         # Finished optimisation, can now update.
         self._can_update = True
         
-        return q, t_new
+        return q_new, t_new
 
 
 class BayesianPVIClient(ABC):
@@ -219,7 +222,7 @@ class BayesianPVIClient(ABC):
         q_old = q.non_trainable_copy()
         qeps_old = qeps.non_trainable_copy()
 
-        parameters = list(q.parameters) + list(qeps.parameters)
+        parameters = list(q.parameters()) + qeps.parameters()
 
         # Reset optimiser.
         # TODO: not optimising model parameters for now (inducing points,
@@ -248,8 +251,9 @@ class BayesianPVIClient(ABC):
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
-        for i in range(hyper["epochs"]):
+        epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
+        # for i in range(hyper["epochs"]):
+        for i in epoch_iter:
             epoch = {
                 "elbo": 0,
                 "kl": 0,
@@ -270,26 +274,41 @@ class BayesianPVIClient(ABC):
 
                 # Compute KL divergence between q and p.
                 kl = q.kl_divergence(q_old).sum() / len(x)
-                kleps = qeps.kl_divergence(qeps_old).values().sum() / len(x)
+                kleps = sum(qeps.kl_divergence(qeps_old).values()) / len(x)
 
                 # Estimate E_q[log p(y | x, θ, ε)].
                 ll = 0
                 for _ in range(hyper["num_elbo_hyper_samples"]):
                     eps = qeps.rsample()
-                    # TODO: This assumes a .set_parameters(eps) function and
-                    #  a mean field q(θ, ε) = q(θ)q(ε).
-                    self.model.set_parameters(eps)
+                    self.model.set_eps(eps)
                     if str(type(q)) == str(self.model.conjugate_family):
                         ll += self.model.expected_log_likelihood(batch,
                                                                  q).sum()
                     else:
-                        thetas = q.rsample((hyper["num_elbo_theta_samples"],))
+                        # TODO: Implementation of likelihood_log_prob needs
+                        #  changing to be consistent for SGP.
+                        # thetas = q.rsample((hyper["num_elbo_samples"],))
+                        # ll += self.model.likelihood_log_prob(
+                        #     batch, thetas).mean(0).sum()
+                        qf = self.model.posterior(x_batch, q)
+                        fs = qf.rsample(
+                            (self.model.hyperparameters["num_elbo_samples"],))
                         ll += self.model.likelihood_log_prob(
-                            batch, thetas).mean(0).sum()
+                            batch, fs).mean(0).sum() / len(x_batch)
 
                 ll /= (hyper["num_elbo_hyper_samples"] * len(x_batch))
-                logt = self.t.eqlogt(q) / len(x)
-                logteps = self.teps.eqlogt(qeps).values().sum() / len(x)
+
+                try:
+                    logt = self.t.eqlogt(q) / len(x)
+                except NotImplementedError:
+                    thetas = q.rsample((hyper["num_elbo_samples"],))
+                    logt = self.t(thetas).mean(0) / len(x)
+
+                try:
+                    logteps = sum(self.teps.eqlogt(qeps).values()) / len(x)
+                except NotImplementedError:
+                    eps = qeps.rsample((hyper["num_elbo_samples"],))
+                    logteps = sum(self.teps(eps).values()).mean(0) / len(x)
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl + kleps - ll + logt - logteps
@@ -322,8 +341,17 @@ class BayesianPVIClient(ABC):
                              f"log teps: {epoch['logteps']: .3f},"
                              f"Epochs: {i}.")
 
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"], kleps=epoch["kleps"],
+                                   logt=epoch["logt"],
+                                   logteps=epoch["logteps"])
+
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
+
+        # Compute new local contribution from old distributions
+        t_new = self.t.compute_refined_factor(q, q_old)
+        teps_new = self.teps.compute_refined_factor(qeps, qeps_old)
 
         # Create non_trainable_copy to send back to server.
         q_new = q.non_trainable_copy()
@@ -332,14 +360,14 @@ class BayesianPVIClient(ABC):
         # Finished optimisation, can now update.
         self._can_update = True
 
-        return q_new, qeps_new
+        return q_new, qeps_new, t_new, teps_new
 
 
 class ContinualLearningClient:
 
     def __init__(self, data, model):
 
-        # Set data partition and likelihood
+        # Set data partition and likelihood.
         self.data = data
         self.model = model
 
