@@ -95,7 +95,7 @@ class BayesianSequentialServer(BayesianServer):
                 t_new, teps_new = client.fit(self.q, self.qeps)
 
                 # Compute change in natural parameters.
-                q_delta_np = {k: (t_new.nat_params[k] - t_old.nat_params[k])
+                q_delta_np = {k: t_new.nat_params[k] - t_old.nat_params[k]
                               for k in self.q.nat_params.keys()}
                 qeps_delta_np = {
                     k1: {k2: (teps_new.nat_params[k1][k2]
