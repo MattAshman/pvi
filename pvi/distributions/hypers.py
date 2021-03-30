@@ -74,6 +74,9 @@ class HyperparameterFactor:
     def npf(self, thetas):
         return {k: v.npf(thetas[k]) for k, v in self.factors.items()}
 
+    def eqlogt(self, q):
+        raise {k: v.eqlogt(q[k]) for k, v in self.factors.items()}
+
     def nat_from_dist(self, q):
         return {k: v.nat_from_dist(q[k]) for k, v in self.factors.items()}
 

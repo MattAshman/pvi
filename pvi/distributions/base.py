@@ -94,6 +94,7 @@ class ExponentialFamilyFactor(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
     def eqlogt(self, q):
         """
         Computes E_q[log t(θ)] = ν.T E_q[f(θ)] + E_q[log h(θ)], ignoring the
@@ -101,10 +102,7 @@ class ExponentialFamilyFactor(ABC):
         :param q: q(θ).
         :return: ν.T E_q[f(θ)].
         """
-        np = self.nat_params
-        muq = q.mean_params
-
-        return np.dot(muq)
+        raise NotImplementedError
 
     @abstractmethod
     def nat_from_dist(self, q):
