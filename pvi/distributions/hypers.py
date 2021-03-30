@@ -9,6 +9,10 @@ class HyperparameterDistribution:
         """
         self.distributions = distributions
 
+    @property
+    def nat_params(self):
+        return {k: v.nat_params for k, v in self.distributions.items()}
+
     def non_trainable_copy(self):
         return type(self)(
             distributions={
@@ -60,13 +64,18 @@ class HyperparameterFactor:
     def compute_refined_factor(self, q1, q2):
         return type(self)(
             factors={
-                k: v.compute_refined_factor(q1[k], q2[k])
+                k: v.compute_refined_factor(q1.distributions[k],
+                                            q2.distributions[k])
                 for k, v in self.factors.items()
             }
         )
 
     def __call__(self, thetas):
         return {k: v(thetas[k]) for k, v in self.factors.items()}
+
+    @property
+    def nat_params(self):
+        return {k: v.nat_params for k, v in self.factors.items()}
 
     def log_h(self, thetas):
         return {k: v.log_h(thetas[k]) for k, v in self.factors.items()}
@@ -75,10 +84,10 @@ class HyperparameterFactor:
         return {k: v.npf(thetas[k]) for k, v in self.factors.items()}
 
     def eqlogt(self, q):
-        raise {k: v.eqlogt(q[k]) for k, v in self.factors.items()}
+        raise {k: v.eqlogt(q.distributions[k]) for k, v in self.factors.items()}
 
     def nat_from_dist(self, q):
-        return {k: v.nat_from_dist(q[k]) for k, v in self.factors.items()}
+        return {k: v.nat_from_dist(q.distributions[k]) for k, v in self.factors.items()}
 
     def dist_from_nat(self, np):
         return {k: v.dist_from_nat(np[k]) for k, v in self.factors.items()}
