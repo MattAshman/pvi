@@ -241,12 +241,12 @@ class ContinualLearningClient:
                 }
 
                 # Compute KL divergence between q and p.
-                kl = q.kl_divergence(p).sum()
+                kl = q.kl_divergence(p).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
-                    batch, thetas).mean(0).sum()
+                    batch, thetas).mean(0).sum() / len(x_batch)
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll
