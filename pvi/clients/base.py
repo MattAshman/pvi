@@ -184,7 +184,7 @@ class ContinualLearningClient:
         # Type(q) is self.model.conjugate_family.
         if str(type(q)) == str(self.model.conjugate_family):
             # No need to make q trainable.
-            q_new, _ = self.model.conjugate_update(self.data, q, None)
+            q_new = self.model.conjugate_update(self.data, q, None)
             return q_new
         else:
             # Pass a trainable copy to optimise.
