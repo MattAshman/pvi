@@ -4,6 +4,7 @@ import torch
 from abc import ABC, abstractmethod
 from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
+from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
@@ -93,8 +94,9 @@ class PVIClient(ABC):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
-        for i in range(hyper["epochs"]):
+        epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
+        # for i in range(hyper["epochs"]):
+        for i in epoch_iter:
             epoch = {
                 "elbo" : 0,
                 "kl"   : 0,
@@ -138,6 +140,9 @@ class PVIClient(ABC):
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
             training_curve["logt"].append(epoch["logt"])
+
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"], logt=epoch["logt"])
 
             if i % hyper["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "

@@ -36,8 +36,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
                 [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
         }
 
-    @staticmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         return {
             "D": None,
             "num_inducing": 50,
@@ -60,8 +59,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         self.kernel.set_outputscale(self.eps["outputscale"])
         self.kernel.base_kernel.set_lengthscale(self.eps["lengthscale"])
 
-    @staticmethod
-    def get_default_eps():
+    def get_default_eps(self):
         """
         :return: A default set of ε for the model.
         """
@@ -114,13 +112,12 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
         self.output_sigma = nn.Parameter(self.eps["output_sigma"])
 
-    @staticmethod
-    def get_default_eps():
+    def get_default_eps(self):
         """
         :return: A default set of eps for the model.
         """
         return {
-            **SparseGaussianProcessModel.get_default_eps(),
+            **super().get_default_eps(),
             "output_sigma": 1.,
         }
 
@@ -255,10 +252,9 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
                 [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
         }
 
-    @staticmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         return {
-            **SparseGaussianProcessModel.get_default_hyperparameters(),
+            **super().get_default_hyperparameters(),
             "num_elbo_samples": 1,
             "num_predictive_samples": 1,
         }

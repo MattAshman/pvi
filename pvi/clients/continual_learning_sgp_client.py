@@ -445,9 +445,6 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                 kl = 0
                 for _ in range(hyper["num_elbo_hyper_samples"]):
                     eps = qeps.rsample()
-                    for v in eps.values():
-                        v.retain_grad()
-
                     # Set model ε.
                     self.model.set_eps(eps)
 

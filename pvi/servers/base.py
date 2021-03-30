@@ -26,15 +26,17 @@ class Server(ABC):
         # Internal iteration counter.
         self.iterations = 0
 
+        # Internal communication counter.
+        self.communications = 0
+
         self.log = defaultdict(list)
 
     def set_hyperparameters(self, hyperparameters):
         self.hyperparameters = {**self.hyperparameters, **hyperparameters}
 
-    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters():
-        raise NotImplementedError
+    def get_default_hyperparameters(self):
+        return {}
 
     @abstractmethod
     def tick(self):
@@ -84,10 +86,9 @@ class BayesianServer(Server):
         # Global posterior q(ε).
         self.qeps = qeps
 
-    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters():
-        raise NotImplementedError
+    def get_default_hyperparameters(self):
+        return {}
 
     @abstractmethod
     def tick(self):

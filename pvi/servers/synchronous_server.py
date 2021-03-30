@@ -10,10 +10,13 @@ class SynchronousServer(Server):
     def __init__(self, model, q, clients, hyperparameters=None):
         super().__init__(model, q, clients, hyperparameters)
 
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
+
     def get_default_hyperparameters(self):
         return {
             **super().get_default_hyperparameters(),
-            "max_iterations": 100,
+            "max_iterations": 5,
             "damping_factor": 1.,
         }
 
@@ -39,6 +42,7 @@ class SynchronousServer(Server):
 
                 delta_nps.append(delta_np)
                 clients_updated += 1
+                self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
 
@@ -56,8 +60,9 @@ class SynchronousServer(Server):
         self.iterations += 1
 
         # Log progress.
-        self.log["nat_params"].append(self.q.nat_params)
-        self.log["communications"].append(clients_updated)
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
+        self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.hyperparameters["max_iterations"] - 1

@@ -30,9 +30,8 @@ class Model(ABC):
     def set_hyperparameters(self, hyperparameters):
         self.hyperparameters = {**self.hyperparameters, **hyperparameters}
 
-    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters():
+    def get_default_hyperparameters(self):
         """
         :return: A default set of hyperparameters for the model.
         """
@@ -41,9 +40,8 @@ class Model(ABC):
     def set_eps(self, eps):
         self.eps = {**self.eps, **eps}
 
-    @staticmethod
     @abstractmethod
-    def get_default_eps():
+    def get_default_eps(self):
         """
         :return: A default set of parameters for the model.
         """
