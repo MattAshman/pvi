@@ -66,12 +66,12 @@ class PVIClient(ABC):
         # Cannot update during optimisation.
         self._can_update = False
         
-        # Copy the approximate posterior, make old posterior non-trainable
+        # Copy the approximate posterior, make old posterior non-trainable.
         q_old = q.non_trainable_copy()
            
         # Reset optimiser
         # TODO: not optimising model parameters for now (inducing points,
-        #  kernel hyperparameters, observation noise etc.).
+        # kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, hyper["optimiser"])(
             q.parameters(), **hyper["optimiser_params"])
@@ -93,7 +93,7 @@ class PVIClient(ABC):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
+        epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=True)
         # for i in range(hyper["epochs"]):
         for i in epoch_iter:
             epoch = {
@@ -118,7 +118,7 @@ class PVIClient(ABC):
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
                     batch, thetas).mean(0).sum() / len(x_batch)
-                ll = ll - self.t(thetas).mean(0).sum() / len(x)
+                ll = ll - self.t.eqlogt(q) / len(x)
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll
@@ -131,9 +131,6 @@ class PVIClient(ABC):
                 epoch["kl"] += kl.item()
                 epoch["ll"] += ll.item()
 
-                epoch_iter.set_postfix(elbo=-loss.item(), kl=kl.item(),
-                                       ll=ll.item())
-
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
@@ -144,6 +141,9 @@ class PVIClient(ABC):
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
                              f"Epochs: {i}.")
+
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"])
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
@@ -190,7 +190,7 @@ class ContinualLearningClient:
         # Type(q) is self.model.conjugate_family.
         if str(type(q)) == str(self.model.conjugate_family):
             # No need to make q trainable.
-            q_new = self.model.conjugate_update(self.data, q, None)
+            q_new, _ = self.model.conjugate_update(self.data, q, None)
             return q_new
         else:
             # Pass a trainable copy to optimise.
@@ -229,9 +229,8 @@ class ContinualLearningClient:
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
-        # for i in range(hyper["epochs"]):
-        for i in epoch_iter:
+        # epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
+        for i in range(hyper["epochs"]):
             epoch = {
                 "elbo": 0,
                 "kl": 0,
@@ -271,9 +270,6 @@ class ContinualLearningClient:
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"])
-
             if i % hyper["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
@@ -283,7 +279,10 @@ class ContinualLearningClient:
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
 
+        # Create non_trainable_copy to send back to server.
+        q_new = q.non_trainable_copy()
+
         # Finished optimisation, can now update.
         self._can_update = True
 
-        return q
+        return q_new

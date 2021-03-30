@@ -19,12 +19,23 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         super().__init__(std_params=std_params,
                          nat_params=nat_params,
                          is_trainable=is_trainable)
-        
-    
+
     @property
     def torch_dist_class(self):
         return torch.distributions.Normal
-        
+
+    @property
+    def mean_params(self):
+
+        loc = self.std_params["loc"]
+        scale = self.std_params["scale"]
+
+        mp = {
+            "m1": loc,
+            "m2": scale ** 2 + loc ** 2,
+        }
+
+        return mp
         
     def _std_from_unc(self, unc_params):
         
@@ -38,7 +49,6 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         
         return std
     
-    
     def _unc_from_std(self, std_params):
         
         loc = std_params["loc"].detach()
@@ -50,8 +60,7 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         }
         
         return unc
-    
-    
+
     @classmethod
     def _nat_from_std(cls, std_params):
         
@@ -64,7 +73,6 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         }
         
         return nat
-    
     
     @classmethod
     def _std_from_nat(cls, nat_params):
@@ -85,7 +93,6 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
 # =============================================================================
 
 
-
 class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
     
     def __init__(self,
@@ -96,12 +103,22 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         super().__init__(std_params=std_params,
                          nat_params=nat_params,
                          is_trainable=is_trainable)
-        
-    
+
     @property
     def torch_dist_class(self):
         return torch.distributions.MultivariateNormal
-        
+
+    @property
+    def mean_params(self):
+        loc = self.std_params["loc"]
+        covariance_matrix = self.std_params["covariance_matrix"]
+
+        mp = {
+            "m1": loc,
+            "m2": covariance_matrix + loc.outer(loc),
+        }
+
+        return mp
         
     def _std_from_unc(self, unc_params):
         
@@ -114,8 +131,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         }
         
         return std
-    
-    
+
     def _unc_from_std(self, std_params):
         
         loc = std_params["loc"].detach()
@@ -130,7 +146,6 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         
         return unc
     
-    
     @classmethod
     def _nat_from_std(cls, std_params):
         
@@ -143,7 +158,6 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         }
         
         return nat
-    
     
     @classmethod
     def _std_from_nat(cls, nat_params):
@@ -160,11 +174,10 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         
         return std
 
-    
+
 # =============================================================================
 # Dirichlet distribution
 # =============================================================================
-
 
 
 class DirichletDistribution(ExponentialFamilyDistribution):
@@ -178,11 +191,13 @@ class DirichletDistribution(ExponentialFamilyDistribution):
                          nat_params=nat_params,
                          is_trainable=is_trainable)
 
-
     @property
     def torch_dist_class(self):
         return torch.distributions.Dirichlet
-        
+
+    @property
+    def mean_params(self):
+        raise NotImplementedError
         
     def _std_from_unc(self, unc_params):
         
@@ -193,8 +208,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         }
         
         return std
-    
-    
+
     def _unc_from_std(self, std_params):
         
         conc = std_params["concentration"].detach()
@@ -206,7 +220,6 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         
         return unc
     
-    
     @classmethod
     def _nat_from_std(cls, std_params):
         
@@ -217,7 +230,6 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         }
         
         return nat
-    
     
     @classmethod
     def _std_from_nat(cls, nat_params):
@@ -236,7 +248,6 @@ class DirichletDistribution(ExponentialFamilyDistribution):
 # =============================================================================
 
 
-
 class MultinomialDistribution(ExponentialFamilyDistribution):
     
     def __init__(self,
@@ -247,8 +258,11 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         super().__init__(std_params=std_params,
                          nat_params=nat_params,
                          is_trainable=is_trainable)
-        
-    
+
+    @property
+    def mean_params(self):
+        raise NotImplementedError
+
     def _std_from_unc(self, unc_params):
         
         # First parameter is the number of trials and therefore not learnable
@@ -264,8 +278,6 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         }
         
         return std
-        
-    
     
     def _unc_from_std(self, std_params):
         
@@ -282,8 +294,7 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         }
         
         return unc
-    
-    
+
     @classmethod
     def _nat_from_std(cls, std_params):
         
@@ -299,8 +310,7 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         }
         
         return nat
-    
-    
+
     @classmethod
     def _std_from_nat(cls, nat_params):
         
@@ -316,8 +326,7 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         }
 
         return std
-        
-    
+
     @property
     def torch_dist_class(self):
         return torch.distributions.Multinomial

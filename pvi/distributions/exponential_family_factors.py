@@ -1,8 +1,5 @@
-from abc import ABC, abstractmethod
 from .base import ExponentialFamilyFactor
 from .exponential_family_distributions import *
-
-import math
 
 import torch
 
@@ -14,12 +11,10 @@ import torch
 
 class MeanFieldGaussianFactor(ExponentialFamilyFactor):
     
-    
     def __init__(self, nat_params):
         super().__init__(nat_params=nat_params)
         
         self.distribution_class = MeanFieldGaussianDistribution
-    
     
     def log_h(self, thetas):
         """
@@ -31,8 +26,7 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         distribution.
         """
         return torch.zeros(size=thetas.shape[:1])
-    
-    
+
     def npf(self, thetas):
         
         np1 = self.nat_params["np1"]
@@ -42,8 +36,19 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         npf = npf + torch.mv(thetas ** 2, np2)
         
         return npf
-    
-    
+
+    def eqlogt(self, q):
+
+        np1 = self.nat_params["np1"]
+        np2 = self.nat_params["np2"]
+
+        loc = q.std_params["loc"]
+        scale = q.std_params["scale"]
+
+        eqlogt = np1.dot(loc) + np2.dot(scale ** 2)
+
+        return eqlogt
+
     def nat_from_dist(self, q):
         
         loc = q.loc.detach()
@@ -56,7 +61,6 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         
         return self.distribution_class._nat_from_std(std)
     
-    
     def dist_from_nat(self, nat):
         
         std = self.distribution_class._std_from_nat(nat)
@@ -65,22 +69,19 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         return dist
 
     
-    
 # =============================================================================
 # Multivariate Gaussian factor
 # =============================================================================
 
 
 class MultivariateGaussianFactor(ExponentialFamilyFactor):
-    
-    
+
     def __init__(self, nat_params):
         
         super().__init__(nat_params)
         
         self.distribution_class = MultivariateGaussianDistribution
-    
-    
+
     def log_h(self, thetas):
         """
         Returns the value of log h(θ) for the MultivariateGaussian class. For
@@ -91,8 +92,7 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         distribution.
         """
         return torch.zeros(size=thetas.shape[:1])
-    
-    
+
     def npf(self, thetas):
         
         np1 = self.nat_params["np1"]
@@ -102,8 +102,22 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         npf = npf + torch.sum(thetas * torch.mm(thetas, np2), dim=1)
         
         return npf
-    
-    
+
+    def eqlogt(self, q):
+        """
+        E_q[log t(θ)] = nu.T E_q[f(θ)] + const (assumed independent of θ).
+        """
+        np1 = self.nat_params["np1"]
+        np2 = self.nat_params["np2"]
+
+        loc = q.std_params["loc"]
+        cov = q.mean_params["covariance_matrix"]
+
+        eqlogt = (np1.dot(loc)
+                  + np2.matmul(cov).trace() + loc.dot(torch.mv(np2, loc)))
+
+        return eqlogt
+
     def nat_from_dist(self, q):
         
         loc = q.loc.detach()
@@ -116,10 +130,9 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         
         return self.distribution_class._nat_from_std(std)
     
-    
     def dist_from_nat(self, nat):
         
-        std = self.dist_class._std_from_nat(nat)
+        std = self.distribution_class._std_from_nat(nat)
         dist = torch.distributions.MultivariateNormal(**std)
         
         return dist
