@@ -83,7 +83,6 @@ class GlobalVIServer(Server):
             "elbo": [],
             "kl": [],
             "ll": [],
-            "communications": [],
         }
 
         p = self.q.non_trainable_copy()

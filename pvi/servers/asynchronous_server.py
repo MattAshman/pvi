@@ -27,7 +27,7 @@ class AsynchronousServer(Server):
     def get_default_hyperparameters(self):
         return {
             **super().get_default_hyperparameters(),
-            "max_iterations": 20,
+            "max_iterations": 5,
             "damping_factor": 1.,
         }
 
