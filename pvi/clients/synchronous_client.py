@@ -1,4 +1,4 @@
-from .base import Client
+from .base import PVIClient
 
 
 # =============================================================================
@@ -6,7 +6,7 @@ from .base import Client
 # =============================================================================
 
 
-class SynchronousClient(Client):
+class SynchronousClient(PVIClient):
     
     def __init__(self, data, model, t):
         super().__init__(data=data, model=model, t=t)
