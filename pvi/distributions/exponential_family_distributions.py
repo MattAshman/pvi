@@ -330,3 +330,82 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Multinomial
+
+
+# =============================================================================
+# Gamma distribution
+# =============================================================================
+
+
+class GammaDistribution(ExponentialFamilyDistribution):
+
+    def __init__(self,
+                 std_params=None,
+                 nat_params=None,
+                 is_trainable=False):
+        super().__init__(std_params=std_params,
+                         nat_params=nat_params,
+                         is_trainable=is_trainable)
+
+    @property
+    def mean_params(self):
+        raise NotImplementedError
+
+    def _std_from_unc(self, unc_params):
+        log_concentration = unc_params["log_concentration"]
+        log_rate = unc_params["log_rate"]
+
+        concetration = log_concentration.exp()
+        rate = log_rate.exp()
+
+        std = {
+            "concentration": concetration,
+            "rate": rate
+        }
+
+        return std
+
+    def _unc_from_std(self, std_params):
+        concentration = std_params["concentration"]
+        rate = std_params["rate"]
+
+        unc = {
+            "log_concentration": concentration.log(),
+            "log_rate": rate.log()
+        }
+
+        return unc
+
+    @classmethod
+    def _nat_from_std(cls, std_params):
+        concentration = std_params["concentration"]
+        rate = std_params["rate"]
+
+        np1 = concentration - 1
+        np2 = -rate
+
+        nat = {
+            "np1": np1,
+            "np2": np2,
+        }
+
+        return nat
+
+    @classmethod
+    def _std_from_nat(cls, nat_params):
+        np1 = nat_params["np1"]
+        np2 = nat_params["np2"]
+
+        concentration = np1 + 1
+        rate = -np2
+
+        std = {
+            "concentration": concentration,
+            "rate": rate
+        }
+
+        return std
+
+    @property
+    def torch_dist_class(self):
+        return torch.distributions.Gamma
