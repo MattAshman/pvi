@@ -207,22 +207,7 @@ class StreamingSGPClient(ContinualLearningClient):
 
                     = log N(y; E_q[f], σ^2) - 0.5 / (σ ** 2) Var_q[f].
                     """
-                    kxz = self.model.kernel(x, z).evaluate()
-                    kxx = add_diagonal(self.model.kernel(x, x).evaluate(),
-                                       JITTER)
-
-                    a = kxz.matmul(ikzz)
-                    c = kxx - a.matmul(kxz.T)
-
-                    qf_loc = a.matmul(q.std_params["loc"])
-                    qf_cov = c + a.matmul(
-                        q.std_params["covariance_matrix"]).matmul(a.T)
-
-                    sigma = self.model.outputsigma
-                    dist = self.model.likelihood_forward(qf_loc)
-                    ll1 = dist.log_prob(y.squeeze())
-                    ll2 = -0.5 * sigma ** (-2) * qf_cov.diag()
-                    ll = ll1.sum() + ll2.sum()
+                    ll = self.model.expected_log_likelihood(batch, q)
                 else:
                     """
                     Cannot compute in closed form---use MC estimate instead.
