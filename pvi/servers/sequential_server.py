@@ -7,15 +7,15 @@ logger = logging.getLogger(__name__)
 
 
 class SequentialServer(Server):
-    def __init__(self, model, q, clients, hyperparameters=None):
-        super().__init__(model, q, clients, hyperparameters)
+    def __init__(self, model, q, clients, config=None):
+        super().__init__(model, q, clients, config)
 
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "max_iterations": 5,
             "damping_factor": 1.,
         }
@@ -26,7 +26,7 @@ class SequentialServer(Server):
 
         logger.debug("Getting client updates.")
 
-        damping = self.hyperparameters["damping_factor"]
+        damping = self.config["damping_factor"]
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
@@ -60,20 +60,20 @@ class SequentialServer(Server):
         self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1
 
 
 class BayesianSequentialServer(BayesianServer):
-    def __init__(self, model, q, qeps, clients, hyperparameters=None):
-        super().__init__(model, q, qeps, clients, hyperparameters)
+    def __init__(self, model, q, qeps, clients, config=None):
+        super().__init__(model, q, qeps, clients, config)
 
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["qeps"].append(self.qeps.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "max_iterations": 5,
             "damping_factor": 1.,
         }
@@ -84,7 +84,7 @@ class BayesianSequentialServer(BayesianServer):
 
         logger.debug("Getting client updates.")
 
-        damping = self.hyperparameters["damping_factor"]
+        damping = self.config["damping_factor"]
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
@@ -113,16 +113,12 @@ class BayesianSequentialServer(BayesianServer):
                          for k2, v2 in self.qeps.nat_params[k1].items()}
                     for k1 in self.qeps.nat_params.keys()}
                 qeps_new_distributions = {
-                    k: type(self.qeps.distributions[k])(
+                    k: self.qeps.distributions[k].create_new(
                         nat_params=v, is_trainable=False)
                     for k, v in qeps_new_nps.items()}
 
-                # TODO: compatability to copy inducing points as well.
-                # self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
-                self.q = type(self.q)(
-                    inducing_locations=self.q.inducing_locations,
-                    nat_params=q_new_nps, is_trainable=False,
-                    train_inducing=False)
+                self.q = self.q.create_new(nat_params=q_new_nps,
+                                           is_trainable=False)
                 self.qeps = type(self.qeps)(
                     distributions=qeps_new_distributions)
                 clients_updated += 1
@@ -141,4 +137,4 @@ class BayesianSequentialServer(BayesianServer):
         self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1

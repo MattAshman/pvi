@@ -41,7 +41,7 @@ class StreamingSGPClient(ContinualLearningClient):
         :param q: The current approximate posterior, q(a | Z_a).
         :return q_new: The new approximate posterior, q(a, b | Z_a, Z_b).
         """
-        hyper = self.model.hyperparameters
+        config = self.model.config
 
         # Cannot update during optimisation.
         self._can_update = False
@@ -52,7 +52,7 @@ class StreamingSGPClient(ContinualLearningClient):
 
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=hyper["batch_size"],
+                            batch_size=config["batch_size"],
                             shuffle=True)
 
         # Copy current approximate posterior, ensuring non-trainable.
@@ -100,8 +100,8 @@ class StreamingSGPClient(ContinualLearningClient):
 
         # Reset optimiser.
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, hyper["optimiser"])(
-            parameters, **hyper["optimiser_params"])
+        optimiser = getattr(torch.optim, config["optimiser"])(
+            parameters, **config["optimiser_params"])
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -111,7 +111,7 @@ class StreamingSGPClient(ContinualLearningClient):
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(hyper["epochs"]), "Epochs")
+        epoch_iter = tqdm(range(config["epochs"]), "Epochs")
         for i in epoch_iter:
             epoch = {
                 "elbo": 0,
@@ -231,7 +231,7 @@ class StreamingSGPClient(ContinualLearningClient):
                     qf = distributions.MultivariateNormal(
                         qf_loc, covariance_matrix=qf_cov)
                     fs = qf.rsample(
-                        (self.model.hyperparameters["num_elbo_samples"],))
+                        (self.model.config["num_elbo_samples"],))
                     ll = self.model.likelihood_log_prob(
                         batch, fs).mean(0).sum()
 
@@ -256,7 +256,7 @@ class StreamingSGPClient(ContinualLearningClient):
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % hyper["print_epochs"] == 0:
+            if i % config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "

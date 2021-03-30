@@ -21,12 +21,12 @@ class LogisticRegressionModel(Model, nn.Module):
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.]*(self.hyperparameters["D"]+1)),
+            "np1": torch.tensor([0.]*(self.config["D"]+1)),
             "np2": torch.tensor([-.5]*(
-                    self.hyperparameters["D"]+1)).diag_embed()
+                    self.config["D"]+1)).diag_embed()
         }
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
             "D": None,
             "optimiser_class": optim.Adam,
@@ -40,10 +40,7 @@ class LogisticRegressionModel(Model, nn.Module):
             "use_probit_approximation": True,
         }
 
-    def set_eps(self, eps):
-        super().set_eps(eps)
-
-    def get_default_eps(self):
+    def get_default_hyperparameters(self):
         """
         :return: A default set of ε for the model.
         """
@@ -57,7 +54,7 @@ class LogisticRegressionModel(Model, nn.Module):
         :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ ≅ (1/M) Σ_m p(y | θ_m, x) θ_m ~ q(θ).
         """
-        if self.hyperparameters["use_probit_approximation"]:
+        if self.config["use_probit_approximation"]:
             # Use Probit approximation.
             q_loc = q.std_params["loc"]
             x_ = torch.cat([x, torch.ones((len(x), 1))], dim=1).unsqueeze(-1)
@@ -76,7 +73,7 @@ class LogisticRegressionModel(Model, nn.Module):
 
         else:
             thetas = q.distribution.sample(
-                (self.hyperparameters["num_predictive_samples"],))
+                (self.config["num_predictive_samples"],))
 
             comp_ = self.likelihood_forward(x, thetas)
             comp = distributions.Bernoulli(logits=comp_.logits.T)
@@ -138,9 +135,9 @@ class LogisticRegressionModelNoBias(LogisticRegressionModel):
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.] * (self.hyperparameters["D"])),
+            "np1": torch.tensor([0.] * (self.config["D"])),
             "np2": torch.tensor([-.5] * (
-                    self.hyperparameters["D"])).diag_embed()
+                    self.config["D"])).diag_embed()
         }
 
     def forward(self, x, q):
@@ -153,7 +150,7 @@ class LogisticRegressionModelNoBias(LogisticRegressionModel):
         """
         x_ = x.unsqueeze(-1)
 
-        if self.hyperparameters["use_probit_approximation"]:
+        if self.config["use_probit_approximation"]:
             # Use Probit approximation.
             q_loc = q.std_params["loc"]
 
@@ -171,7 +168,7 @@ class LogisticRegressionModelNoBias(LogisticRegressionModel):
 
         else:
             thetas = q.distribution.sample(
-                (self.hyperparameters["num_predictive_samples"],))
+                (self.config["num_predictive_samples"],))
 
             comp_ = self.likelihood_forward(x_, thetas)
             comp = distributions.Bernoulli(logits=comp_.logits.T)

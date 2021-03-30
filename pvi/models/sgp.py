@@ -19,24 +19,24 @@ class SparseGaussianProcessModel(Model, nn.Module):
         nn.Module.__init__(self)
 
         # Construct inducing points and kernel.
-        if self.hyperparameters["kernel_class"] is not None:
-            self.kernel = self.hyperparameters["kernel_class"](
-                **self.hyperparameters["kernel_params"]
+        if self.config["kernel_class"] is not None:
+            self.kernel = self.config["kernel_class"](
+                **self.config["kernel_params"]
             )
         else:
             raise ValueError("Kernel class not specified.")
 
         # Set ε after model is constructed.
-        self.set_eps(self.eps)
+        self.hyperparameters = self.hyperparameters
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.] * self.hyperparameters["num_inducing"]),
+            "np1": torch.tensor([0.] * self.config["num_inducing"]),
             "np2": torch.tensor(
-                [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
+                [-.5] * self.config["num_inducing"]).diag_embed()
         }
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
             "D": None,
             "num_inducing": 50,
@@ -52,14 +52,21 @@ class SparseGaussianProcessModel(Model, nn.Module):
             "print_epochs": 10
         }
 
-    def set_eps(self, eps):
-        super().set_eps(eps)
+    @property
+    def hyperparameters(self):
+        return super().hyperparameters
 
-        # Inverse softplus transformation.
-        self.kernel.set_outputscale(self.eps["outputscale"])
-        self.kernel.base_kernel.set_lengthscale(self.eps["lengthscale"])
+    @hyperparameters.setter
+    def hyperparameters(self, hyperparameters):
+        self._hyperparameters = {**self._hyperparameters, **hyperparameters}
 
-    def get_default_eps(self):
+        if hasattr(self, "kernel"):
+            # Inverse softplus transformation.
+            self.kernel.set_outputscale(self.hyperparameters["outputscale"])
+            self.kernel.base_kernel.set_lengthscale(
+                self.hyperparameters["lengthscale"])
+
+    def get_default_hyperparameters(self):
         """
         :return: A default set of ε for the model.
         """
@@ -107,17 +114,22 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-    def set_eps(self, eps):
-        super().set_eps(eps)
+    @property
+    def hyperparameters(self):
+        return super().hyperparameters
 
-        self.output_sigma = nn.Parameter(self.eps["output_sigma"])
+    @hyperparameters.setter
+    def hyperparameters(self, hyperparameters):
+        super().hyperparameters = hyperparameters
 
-    def get_default_eps(self):
+        self.output_sigma = nn.Parameter(self.hyperparameters["output_sigma"])
+
+    def get_default_hyperparameters(self):
         """
-        :return: A default set of eps for the model.
+        :return: A default set of hyperparameters for the model.
         """
         return {
-            **super().get_default_eps(),
+            **super().get_default_hyperparameters(),
             "output_sigma": 1.,
         }
 
@@ -237,24 +249,9 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        # Construct inducing points and kernel.
-        if self.hyperparameters["kernel_class"] is not None:
-            self.kernel = self.hyperparameters["kernel_class"](
-                **self.hyperparameters["kernel_params"]
-            )
-        else:
-            raise ValueError("Kernel class not specified.")
-
-    def get_default_nat_params(self):
+    def get_default_config(self):
         return {
-            "np1": torch.tensor([0.] * self.hyperparameters["num_inducing"]),
-            "np2": torch.tensor(
-                [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
-        }
-
-    def get_default_hyperparameters(self):
-        return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "num_elbo_samples": 1,
             "num_predictive_samples": 1,
         }
@@ -268,7 +265,7 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
         qf = self.posterior(x, q)
-        fs = qf.sample((self.hyperparameters["num_predictive_samples"],))
+        fs = qf.sample((self.config["num_predictive_samples"],))
 
         comp = distributions.Bernoulli(logits=fs.T)
         mix = distributions.Categorical(torch.ones(len(fs),))

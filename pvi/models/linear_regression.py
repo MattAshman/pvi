@@ -22,20 +22,17 @@ class LinearRegressionModel(Model, nn.Module):
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.]*(self.hyperparameters["D"] + 1)),
+            "np1": torch.tensor([0.]*(self.config["D"] + 1)),
             "np2": torch.tensor(
-                [1.]*(self.hyperparameters["D"] + 1)).diag_embed(),
+                [1.]*(self.config["D"] + 1)).diag_embed(),
         }
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
             "D": None
         }
 
-    def set_eps(self, eps):
-        super().set_eps(eps)
-
-    def get_default_eps(self):
+    def get_default_hyperparameters(self):
         """
         :return: A default set of ε for the model.
         """
@@ -152,7 +149,7 @@ class LinearRegressionModel(Model, nn.Module):
         return ydist.log_prob(data["y"]).sum()
 
 
-class LinearRegressionModelNoBias(Model, nn.Module):
+class LinearRegressionModelNoBias(LinearRegressionModel):
     """
     Linear regression model--with no bias!---with a Gaussian prior
     distribution.
@@ -161,23 +158,13 @@ class LinearRegressionModelNoBias(Model, nn.Module):
     conjugate_family = MultivariateGaussianDistribution
 
     def __init__(self, output_sigma=1., **kwargs):
-        Model.__init__(self, **kwargs)
-        nn.Module.__init__(self)
-
-        self.register_parameter("output_sigma", nn.Parameter(
-            torch.tensor(output_sigma), requires_grad=True))
+        super().__init__(output_sigma, **kwargs)
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.] * (self.hyperparameters["D"] + 1)),
+            "np1": torch.tensor([0.] * (self.config["D"])),
             "np2": torch.tensor(
-                [1.] * (self.hyperparameters["D"] + 1)).diag_embed(),
-        }
-
-    @staticmethod
-    def get_default_hyperparameters():
-        return {
-            "D": None
+                [1.] * (self.config["D"])).diag_embed(),
         }
 
     def forward(self, x, q):

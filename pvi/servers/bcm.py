@@ -17,15 +17,15 @@ class BayesianCommitteeMachineSame(Server):
 
     q_k(θ) ≅ p(θ | D_k) = p(θ) p(D_k | θ) / p(D_k).
     """
-    def __init__(self, model, q, clients, hyperparameters=None):
-        super().__init__(model, q, clients, hyperparameters)
+    def __init__(self, model, q, clients, config=None):
+        super().__init__(model, q, clients, config)
 
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "max_iterations": 1,
         }
 
@@ -68,7 +68,7 @@ class BayesianCommitteeMachineSame(Server):
         self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1
 
 
 class BayesianCommitteeMachineSplit(Server):
@@ -82,8 +82,8 @@ class BayesianCommitteeMachineSplit(Server):
 
     q_k(θ) ≅ p(θ | D_k) = p(θ)^{N_k / N} p(D_k | θ) / p(D_k).
     """
-    def __init__(self, model, q, clients, hyperparameters=None):
-        super().__init__(model, q, clients, hyperparameters)
+    def __init__(self, model, q, clients, config=None):
+        super().__init__(model, q, clients, config)
 
         nk = [client.data["x"].shape[0] for client in clients]
         client_props = [n / sum(nk) for n in nk]
@@ -92,9 +92,9 @@ class BayesianCommitteeMachineSplit(Server):
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "max_iterations": 1,
         }
 
@@ -143,4 +143,4 @@ class BayesianCommitteeMachineSplit(Server):
         self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1

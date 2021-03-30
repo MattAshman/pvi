@@ -42,7 +42,7 @@ class ContinualLearningSGPClient(ContinualLearningClient):
         :param q: The current approximate posterior, q(a | Z_a).
         :return q_new: The new approximate posterior, q(a, b | Z_a, Z_b).
         """
-        hyper = self.model.hyperparameters
+        config = self.model.config
 
         # Cannot update during optimisation.
         self._can_update = False
@@ -53,7 +53,7 @@ class ContinualLearningSGPClient(ContinualLearningClient):
 
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=hyper["batch_size"],
+                            batch_size=config["batch_size"],
                             shuffle=True)
 
         # Copy current approximate posterior, ensuring non-trainable.
@@ -101,8 +101,8 @@ class ContinualLearningSGPClient(ContinualLearningClient):
 
         # Reset optimiser
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, hyper["optimiser"])(
-            parameters, **hyper["optimiser_params"])
+        optimiser = getattr(torch.optim, config["optimiser"])(
+            parameters, **config["optimiser_params"])
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -112,7 +112,7 @@ class ContinualLearningSGPClient(ContinualLearningClient):
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(hyper["epochs"]), "Epochs")
+        epoch_iter = tqdm(range(config["epochs"]), "Epochs")
         for i in epoch_iter:
             epoch = {
                 "elbo": 0,
@@ -215,7 +215,7 @@ class ContinualLearningSGPClient(ContinualLearningClient):
                     """
                     qf = self.model.posterior(x_batch, q)
                     fs = qf.rsample(
-                        (self.model.hyperparameters["num_elbo_samples"],))
+                        (self.model.config["num_elbo_samples"],))
                     ll = self.model.likelihood_log_prob(
                         batch, fs).mean(0).sum()
 
@@ -240,7 +240,7 @@ class ContinualLearningSGPClient(ContinualLearningClient):
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % hyper["print_epochs"] == 0:
+            if i % config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
@@ -292,7 +292,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
         :return q_new, qeps_new: The new approximate posteriors,
         q(a, b | Z_a, Z_b) and q(ε).
         """
-        hyper = self.model.hyperparameters
+        config = self.model.config
 
         # Cannot update during optimisation.
         # self._can_update = False
@@ -303,7 +303,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
 
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=hyper["batch_size"],
+                            batch_size=config["batch_size"],
                             shuffle=True)
 
         # Copy current approximate posterior, ensuring non-trainable.
@@ -355,8 +355,8 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
 
         # Reset optimiser
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, hyper["optimiser"])(
-            parameters, **hyper["optimiser_params"])
+        optimiser = getattr(torch.optim, config["optimiser"])(
+            parameters, **config["optimiser_params"])
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -367,7 +367,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(hyper["epochs"]), "Epochs")
+        epoch_iter = tqdm(range(config["epochs"]), "Epochs")
         for i in epoch_iter:
             epoch = {
                 "elbo": 0,
@@ -443,10 +443,10 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
 
                 ll = 0
                 kl = 0
-                for _ in range(hyper["num_elbo_hyper_samples"]):
+                for _ in range(config["num_elbo_hyper_samples"]):
                     eps = qeps.rsample()
-                    # Set model ε.
-                    self.model.set_eps(eps)
+                    # Set model hyperparameters.
+                    self.model.hyperparameters = eps
 
                     kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
                                        JITTER)
@@ -482,13 +482,13 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                     else:
                         qf = self.model.posterior(x_batch, q)
                         fs = qf.rsample(
-                            (self.model.hyperparameters["num_elbo_samples"],))
+                            (self.model.config["num_elbo_samples"],))
                         ll += self.model.likelihood_log_prob(
                             batch, fs).mean(0).sum() / len(x_batch)
 
                 # Normalise values.
-                kl /= hyper["num_elbo_hyper_samples"]
-                ll /= hyper["num_elbo_hyper_samples"]
+                kl /= config["num_elbo_hyper_samples"]
+                ll /= config["num_elbo_hyper_samples"]
 
                 loss = kl + kleps - ll
                 loss.backward()
@@ -509,7 +509,7 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
             training_curve["kleps"].append(epoch["kleps"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % hyper["print_epochs"] == 0:
+            if i % config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "

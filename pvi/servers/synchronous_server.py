@@ -7,15 +7,15 @@ logger = logging.getLogger(__name__)
 
 
 class SynchronousServer(Server):
-    def __init__(self, model, q, clients, hyperparameters=None):
-        super().__init__(model, q, clients, hyperparameters)
+    def __init__(self, model, q, clients, config=None):
+        super().__init__(model, q, clients, config)
 
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "max_iterations": 5,
             "damping_factor": 1.,
         }
@@ -26,7 +26,7 @@ class SynchronousServer(Server):
 
         logger.debug("Getting client updates.")
 
-        damping = self.hyperparameters["damping_factor"]
+        damping = self.config["damping_factor"]
         delta_nps = []
         clients_updated = 0
 
@@ -65,4 +65,4 @@ class SynchronousServer(Server):
         self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1

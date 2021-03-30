@@ -100,6 +100,20 @@ class MultivariateGaussianDistributionWithZ(MultivariateGaussianDistribution):
                           is_trainable=True,
                           train_inducing=self.train_inducing)
 
+    def create_new(self, **kwargs):
+        if "inducing_locations" not in kwargs:
+            kwargs = {
+                **kwargs,
+                "inducing_locations": self.inducing_locations
+            }
+        if "train_inducing" not in kwargs:
+            kwargs = {
+                **kwargs,
+                "train_inducing": self.train_inducing
+            }
+
+        return type(self)(**kwargs)
+
 
 class MultivariateGaussianFactorWithZ(MultivariateGaussianFactor):
     def __init__(self, inducing_locations=None, nat_params=None,

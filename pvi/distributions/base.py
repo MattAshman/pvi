@@ -279,3 +279,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     @abstractmethod
     def torch_dist_class(self):
         raise NotImplementedError
+
+    def create_new(self, **kwargs):
+        return type(self)(**kwargs)

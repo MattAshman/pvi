@@ -6,13 +6,13 @@ class Server(ABC):
     """
     An abstract class for the server.
     """
-    def __init__(self, model, q, clients, hyperparameters=None):
+    def __init__(self, model, q, clients, config=None):
 
-        if hyperparameters is None:
-            hyperparameters = {}
+        if config is None:
+            config = {}
 
-        self.hyperparameters = self.get_default_hyperparameters()
-        self.set_hyperparameters(hyperparameters)
+        self._config = self.get_default_config()
+        self.config = config
 
         # Shared probabilistic model.
         self.model = model
@@ -31,11 +31,16 @@ class Server(ABC):
 
         self.log = defaultdict(list)
 
-    def set_hyperparameters(self, hyperparameters):
-        self.hyperparameters = {**self.hyperparameters, **hyperparameters}
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, config):
+        self._config = {**self._config, **config}
 
     @abstractmethod
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {}
 
     @abstractmethod
@@ -80,14 +85,14 @@ class Server(ABC):
 
 
 class BayesianServer(Server):
-    def __init__(self, model, q, qeps, clients, hyperparameters=None):
-        super().__init__(model, q, clients, hyperparameters)
+    def __init__(self, model, q, qeps, clients, config=None):
+        super().__init__(model, q, clients, config)
 
         # Global posterior q(ε).
         self.qeps = qeps
 
     @abstractmethod
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {}
 
     @abstractmethod
@@ -110,11 +115,11 @@ class BayesianServer(Server):
         Returns the current models predictive posterior distribution.
         :return: ∫ p(y | x, θ, ε) q(θ)q(ε) dθ dε.
         """
-        neps = self.hyperparameters["num_eps_samples"]
+        neps = self.config["num_eps_samples"]
         dists = []
         for _ in range(neps):
             eps = self.qeps.sample()
-            self.model.set_eps(eps)
+            self.model.hyperparameters = eps
             dists.append(self.model(x, self.q))
 
         return dists

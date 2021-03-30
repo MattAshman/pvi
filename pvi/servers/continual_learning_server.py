@@ -6,20 +6,18 @@ logger = logging.getLogger(__name__)
 
 
 class ContinualLearningServer(Server):
-    def __init__(self, model, q, clients, hyperparameters=None):
-        super().__init__(model, q, clients, hyperparameters)
+    def __init__(self, model, q, clients, config=None):
+        super().__init__(model, q, clients, config)
 
         # Loop through each client just once.
-        self.set_hyperparameters({"max_iterations": len(self.clients)})
+        self.config = {"max_iterations": len(self.clients)}
 
         self.client_idx = 0
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
-        return {
-            **super().get_default_hyperparameters(),
-        }
+    def get_default_config(self):
+        return {}
 
     def tick(self):
         if self.should_stop():
@@ -45,21 +43,21 @@ class ContinualLearningServer(Server):
         self.client_idx = (self.client_idx + 1) % len(self.clients)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1
 
 
 class BayesianContinualLearningServer(BayesianServer):
-    def __init__(self, model, q, qeps, clients, hyperparameters=None):
-        super().__init__(model, q, qeps, clients, hyperparameters)
+    def __init__(self, model, q, qeps, clients, config=None):
+        super().__init__(model, q, qeps, clients, config)
 
         self.client_idx = 0
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["qeps"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "num_eps_samples": 1,
         }
 
@@ -90,4 +88,4 @@ class BayesianContinualLearningServer(BayesianServer):
         self.client_idx = (self.client_idx + 1) % len(self.clients)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1

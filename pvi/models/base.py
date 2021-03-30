@@ -6,19 +6,20 @@ class Model(ABC):
     An abstract class for probabilistic models defined by a likelihood
     p(y | θ, x) and (approximate) posterior q(θ).
     """
-    def __init__(self, eps=None, hyperparameters=None):
-        # Hyperparameters of the model.
+    def __init__(self, hyperparameters=None, config=None):
+        # Configuration of the model.
+        if config is None:
+            config = {}
+
+        self._config = self.get_default_config()
+        self.config = config
+
+        # Hyper-parameters of the model.
         if hyperparameters is None:
             hyperparameters = {}
 
-        self.hyperparameters = self.get_default_hyperparameters()
-        self.set_hyperparameters(hyperparameters)
-
-        # Parameters of the model.
-        if eps is None:
-            eps = {}
-
-        self.eps = {**eps, **self.get_default_eps()}
+        self._hyperparameters = self.get_default_hyperparameters()
+        self.hyperparameters = hyperparameters
 
     @abstractmethod
     def get_default_nat_params(self):
@@ -27,21 +28,31 @@ class Model(ABC):
         """
         raise NotImplementedError
 
-    def set_hyperparameters(self, hyperparameters):
-        self.hyperparameters = {**self.hyperparameters, **hyperparameters}
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, config):
+        self._config = {**self._config, **config}
 
     @abstractmethod
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         """
-        :return: A default set of hyperparameters for the model.
+        :return: A default set of config for the model.
         """
         raise NotImplementedError
 
-    def set_eps(self, eps):
-        self.eps = {**self.eps, **eps}
+    @property
+    def hyperparameters(self):
+        return self._hyperparameters
+
+    @hyperparameters.setter
+    def hyperparameters(self, hyperparameters):
+        self._hyperparameters = {**self._hyperparameters, **hyperparameters}
 
     @abstractmethod
-    def get_default_eps(self):
+    def get_default_hyperparameters(self):
         """
         :return: A default set of parameters for the model.
         """
