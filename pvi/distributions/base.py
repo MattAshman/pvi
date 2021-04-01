@@ -29,7 +29,7 @@ class ExponentialFamilyFactor(ABC):
         
         self.nat_params = nat_params
 
-    def compute_refined_factor(self, q1, q2):
+    def compute_refined_factor(self, q1, q2, damping=1., valid_dist=False):
         """
         Computes the log-coefficient and natural parameters of the
         approximating likelihood term **t** given by
@@ -45,16 +45,16 @@ class ExponentialFamilyFactor(ABC):
         # Convert distributions to log-coefficients and natural parameters
         np1 = q1.nat_params
         np2 = q2.nat_params
-        
-        # Log coefficient and natural parameters of refined factor
-        nat_params = {}
-        
+
         # Compute natural parameters of the new t-factor (detach gradients)
-        for name, np in self.nat_params.items():
-            nat_params[name] = (
-                    np1[name].detach().clone()
-                    - np2[name].detach().clone()
-                    + np.detach().clone())
+        delta_np = {k: (np1[k].detach().clone() - np2[k].detach().clone())
+                    for k in self.nat_params.keys()}
+        nat_params = {k: v.detach().clone() + delta_np[k] * damping
+                      for k, v in self.nat_params.items()}
+
+        if valid_dist:
+            # Constraint natural parameters to form valid distribution.
+            nat_params = self.valid_nat_from_nat(nat_params)
             
         # Create and return refined t of the same type
         t = type(self)(nat_params=nat_params)
@@ -120,6 +120,9 @@ class ExponentialFamilyFactor(ABC):
         torch.distribution defined by these natural parameters.
         """
         raise NotImplementedError
+
+    def valid_nat_from_nat(self, nat_params):
+        return nat_params
 
 
 # =============================================================================

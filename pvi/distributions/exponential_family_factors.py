@@ -3,6 +3,8 @@ from .exponential_family_distributions import *
 
 import torch
 
+MIN_PRECISION = 1e-6
+
 
 # =============================================================================
 # Mean field Gaussian factor
@@ -67,6 +69,18 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         dist = torch.distributions.Normal(**std)
         
         return dist
+
+    def valid_nat_from_nat(self, nat_params):
+        prec = -2 * nat_params["np2"]
+
+        prec[prec <= 0] = MIN_PRECISION
+        nat_params["np1"][prec <= 0] = 0
+        loc = nat_params["np1"] / prec
+
+        nat_params["np2"] = -0.5 * prec
+        nat_params["np1"] = loc * prec
+
+        return nat_params
 
     
 # =============================================================================
