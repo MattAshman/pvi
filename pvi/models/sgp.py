@@ -198,7 +198,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
             t_new = type(t)(inducing_locations=z, nat_params=t_new_nps)
             return q_new, t_new
 
-    def expected_log_likelihood(self, data, q):
+    def expected_log_likelihood(self, data, q, num_samples=None):
         # Set up data etc.
         x = data["x"]
         y = data["y"]
@@ -289,9 +289,6 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
         :return: q_new, t_new, the new global posterior and the new local
         contribution.
         """
-        raise NotImplementedError
-
-    def expected_log_likelihood(self, data, q):
         raise NotImplementedError
 
     def local_free_energy(self, data, q, t=None):

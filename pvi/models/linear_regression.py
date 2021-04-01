@@ -1,4 +1,5 @@
 import torch
+import warnings
 
 from torch import distributions, nn
 from .base import Model
@@ -121,8 +122,9 @@ class LinearRegressionModel(Model, nn.Module):
             t_new = type(t)(nat_params=t_new_nps)
             return q_new, t_new
 
-    def expected_log_likelihood(self, data, q):
-        raise NotImplementedError("Not implemented, but is possible.")
+    def expected_log_likelihood(self, data, q, num_samples=1):
+        warnings.warn("Not implemented, but is is possible")
+        return super().expected_log_likelihood(data, q, num_samples)
 
     def mll(self, data, q):
         """
@@ -244,8 +246,9 @@ class LinearRegressionModelNoBias(LinearRegressionModel):
             t_new = type(t)(nat_params=t_new_nps)
             return q_new, t_new
 
-    def expected_log_likelihood(self, data, q):
-        raise NotImplementedError("Not implemented, but is possible.")
+    def expected_log_likelihood(self, data, q, num_samples=1):
+        warnings.warn("Not implemented, but is is possible")
+        return super().expected_log_likelihood(data, q, num_samples)
 
     def mll(self, data, q):
         """

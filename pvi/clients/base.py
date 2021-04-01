@@ -142,9 +142,11 @@ class PVIClient(ABC):
                 kl = q.kl_divergence(q_old).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
-                thetas = q.rsample((self.config["num_elbo_samples"],))
-                ll = self.model.likelihood_log_prob(
-                    batch, thetas).mean(0).sum() / len(x_batch)
+                ll = self.model.expected_log_likelihood(
+                    batch, q, self.config["num_elbo_samples"]).sum()
+                ll /= len(x_batch)
+
+                # Compute E_q[log t(θ)].
                 logt = self.t.eqlogt(q) / len(x)
 
                 # Negative local Free Energy is KL minus log-probability
@@ -329,20 +331,8 @@ class BayesianPVIClient(ABC):
                 for _ in range(self.config["num_elbo_hyper_samples"]):
                     eps = qeps.rsample()
                     self.model.hyperparameters = eps
-                    if str(type(q)) == str(self.model.conjugate_family):
-                        ll += self.model.expected_log_likelihood(batch,
-                                                                 q).sum()
-                    else:
-                        # TODO: Implementation of likelihood_log_prob needs
-                        #  changing to be consistent for SGP.
-                        # thetas = q.rsample((self.config["num_elbo_samples"],))
-                        # ll += self.model.likelihood_log_prob(
-                        #     batch, thetas).mean(0).sum()
-                        qf = self.model.posterior(x_batch, q)
-                        fs = qf.rsample(
-                            (self.model.self.config["num_elbo_samples"],))
-                        ll += self.model.likelihood_log_prob(
-                            batch, fs).mean(0).sum() / len(x_batch)
+                    ll += self.model.expected_log_likelihood(
+                        batch, q, self.config["num_elbo_samples"]).sum()
 
                 ll /= (self.config["num_elbo_hyper_samples"] * len(x_batch))
 

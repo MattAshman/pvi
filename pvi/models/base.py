@@ -99,15 +99,17 @@ class Model(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def expected_log_likelihood(self, data, q):
+    def expected_log_likelihood(self, data, q, num_samples=1):
         """
         Computes the expected log likelihood of the data under q(θ).
         :param data: The data to compute the conjugate update with.
         :param q: The current global posterior q(θ).
+        :param num_samples: The number of samples to estimate the expected
+        log-likelihood with.
         :return: ∫ q(θ) log p(y | x, θ) dθ.
         """
-        raise NotImplementedError
+        thetas = q.rsample((num_samples,))
+        return self.likelihood_log_prob(data, thetas).mean(0)
 
     @property
     @abstractmethod

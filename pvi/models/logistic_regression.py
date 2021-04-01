@@ -118,9 +118,6 @@ class LogisticRegressionModel(Model, nn.Module):
         """
         raise NotImplementedError
 
-    def expected_log_likelihood(self, data, q):
-        raise NotImplementedError
-
 
 class LogisticRegressionModelNoBias(LogisticRegressionModel):
     """
@@ -209,7 +206,4 @@ class LogisticRegressionModelNoBias(LogisticRegressionModel):
         :return: q_new, t_new, the new global posterior and the new local
         contribution.
         """
-        raise NotImplementedError
-
-    def expected_log_likelihood(self, data, q):
         raise NotImplementedError
