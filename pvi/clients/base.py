@@ -170,11 +170,6 @@ class PVIClient(ABC):
                              f"log t: {epoch['logt']:.3f}, "
                              f"Epochs: {i}.")
 
-            if epoch["kl"] > 1e3:
-                import pdb
-                pdb.set_trace()
-                print("wtf")
-
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
 
