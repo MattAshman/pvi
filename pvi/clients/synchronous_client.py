@@ -8,8 +8,8 @@ from .base import PVIClient, BayesianPVIClient
 
 class SynchronousClient(PVIClient):
     
-    def __init__(self, data, model, t):
-        super().__init__(data=data, model=model, t=t)
+    def __init__(self, data, model, t, config=None):
+        super().__init__(data=data, model=model, t=t, config=config)
 
     def fit(self, q):
         """
