@@ -37,7 +37,6 @@ class AsynchronousServer(Server):
 
         logger.debug("Getting client updates.")
 
-        damping = self.config["damping_factor"]
         clients_updated = 0
 
         for i in tqdm(range(len(self.clients)), leave=False):
@@ -68,8 +67,8 @@ class AsynchronousServer(Server):
                 logger.debug(
                     "Received client updates. Updating global posterior.")
 
-                # Update global posterior with damping factor.
-                q_new_nps = {k: v + delta_np[k] * damping
+                # Update global posterior.
+                q_new_nps = {k: v + delta_np[k]
                              for k, v in self.q.nat_params.items()}
 
                 self.q = type(self.q)(nat_params=q_new_nps,
@@ -97,6 +96,82 @@ class AsynchronousServer(Server):
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
+
+
+class DPPVIAsynchronousServer(AsynchronousServer):
+    """
+    Similar to Mrinank's and Michael's implementation.
+
+    In every round, this server samples M (total number of clients) clients,
+    inversely proportional to the amount of data on each client, and updates
+    them one after another (i.e. incorporating the previous clients updates).
+    """
+    def __init__(self, model, q, clients, config=None):
+        super().__init__(model, q, clients, config)
+
+    def tick(self):
+        if self.should_stop():
+            return False
+
+        logger.debug("Getting client updates.")
+
+        clients_updated = 0
+        delta_nps = []
+
+        for i in tqdm(range(len(self.clients)), leave=False):
+
+            available_clients = [client.can_update() for client in
+                                 self.clients]
+
+            if not np.any(available_clients):
+                logger.info('All clients report to be finished. Stopping.')
+                break
+
+            client_index = int(
+                np.random.choice(len(self.clients), 1, replace=False,
+                                 p=self.client_probs))
+            logger.debug(f"Selected Client {client_index}")
+            client = self.clients[client_index]
+
+            if client.can_update():
+                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
+                t_i_old = client.t
+                t_i_new = client.fit(self.q)
+
+                # Compute change in natural parameters.
+                delta_np = {}
+                for k in self.q.nat_params.keys():
+                    delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
+
+                delta_nps.append(delta_np)
+
+                clients_updated += 1
+                self.communications += 1
+
+            else:
+                logger.debug(f"Skipping client {client_index}, client not "
+                             "avalible to update.")
+                continue
+
+        logger.debug(
+            "Received client updates. Updating global posterior.")
+
+        # Update global posterior.
+        q_new_nps = {}
+        for k, v in self.q.nat_params.items():
+            q_new_nps[k] = (v + sum([delta_np[k] for delta_np in delta_nps]))
+
+        self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
+
+        logger.debug(f"Iteration {self.iterations} complete."
+                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+
+        self.iterations += 1
+
+        # Log progress.
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
+        self.log["clients_updated"].append(clients_updated)
 
 
 class BayesianAsynchronousServer(BayesianServer):
@@ -130,7 +205,6 @@ class BayesianAsynchronousServer(BayesianServer):
 
         logger.debug("Getting client updates.")
 
-        damping = self.config["damping_factor"]
         clients_updated = 0
 
         for i in tqdm(range(len(self.clients)), leave=False):
@@ -167,11 +241,11 @@ class BayesianAsynchronousServer(BayesianServer):
                 logger.debug(
                     "Received client updates. Updating global posterior.")
 
-                # Update global posterior with damping factor.
-                q_new_nps = {k: v + q_delta_np[k] * damping
+                # Update global posterior.
+                q_new_nps = {k: v + q_delta_np[k]
                              for k, v in self.q.nat_params.items()}
                 qeps_new_nps = {
-                    k1: {k2: v2 + qeps_delta_np[k1][k2] * damping
+                    k1: {k2: v2 + qeps_delta_np[k1][k2]
                          for k2, v2 in self.qeps.nat_params[k1].items()}
                     for k1 in self.qeps.nat_params.keys()}
                 qeps_new_distributions = {
