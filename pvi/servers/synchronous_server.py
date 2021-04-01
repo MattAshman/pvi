@@ -26,7 +26,6 @@ class SynchronousServer(Server):
 
         logger.debug("Getting client updates.")
 
-        damping = self.config["damping_factor"]
         delta_nps = []
         clients_updated = 0
 
@@ -49,8 +48,7 @@ class SynchronousServer(Server):
         # Update global posterior.
         q_new_nps = {}
         for k, v in self.q.nat_params.items():
-            q_new_nps[k] = (
-                    v + sum([delta_np[k] for delta_np in delta_nps]) * damping)
+            q_new_nps[k] = (v + sum([delta_np[k] for delta_np in delta_nps]))
 
         self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
 
@@ -89,7 +87,6 @@ class BayesianSynchronousServer(BayesianServer):
 
         logger.debug("Getting client updates.")
 
-        damping = self.config["damping_factor"]
         q_delta_nps, qeps_delta_nps = [], []
         clients_updated = 0
 
@@ -118,10 +115,10 @@ class BayesianSynchronousServer(BayesianServer):
         logger.debug("Received client updates. Updating global posterior.")
 
         # Update global posterior.
-        q_new_nps = {k: v + sum([np[k] for np in q_delta_nps]) * damping
+        q_new_nps = {k: v + sum([np[k] for np in q_delta_nps])
                      for k, v in self.q.nat_params.items()}
         qeps_new_nps = {
-            k1: {k2: v2 + sum([np[k1][k2] for np in qeps_delta_nps]) * damping
+            k1: {k2: v2 + sum([np[k1][k2] for np in qeps_delta_nps])
                  for k2, v2 in self.qeps.nat_params[k1].items()}
             for k1 in self.qeps.nat_params.keys()}
         qeps_new_distributions = {

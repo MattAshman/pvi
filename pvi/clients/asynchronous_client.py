@@ -8,9 +8,9 @@ from .base import PVIClient
 
 class AsynchronousClient(PVIClient):
     
-    def __init__(self, server, client_id, data, model, t):
+    def __init__(self, server, client_id, data, model, t, config=None):
         
-        super().__init__(data=data, model=model, t=t)
+        super().__init__(data=data, model=model, t=t, config=config)
         
         # Set server and the client id
         self.server = server

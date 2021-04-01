@@ -196,7 +196,13 @@ class BayesianPVIClient(ABC):
     """
     PVI client with Bayesian treatment of model hyperparameters.
     """
-    def __init__(self, data, model, t, teps):
+    def __init__(self, data, model, t, teps, config=None):
+
+        if config is None:
+            config = {}
+
+        self._config = self.get_default_config()
+        self.config = config
 
         # Set data partition and likelihood
         self.data = data
@@ -208,6 +214,19 @@ class BayesianPVIClient(ABC):
 
         self.log = defaultdict(list)
         self._can_update = True
+
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, config):
+        self._config = {**self._config, **config}
+
+    def get_default_config(self):
+        return {
+            "damping_factor": 1.
+        }
 
     def can_update(self):
         """
@@ -388,7 +407,13 @@ class BayesianPVIClient(ABC):
 
 class ContinualLearningClient:
 
-    def __init__(self, data, model):
+    def __init__(self, data, model, config=None):
+
+        if config is None:
+            config = {}
+
+        self._config = self.get_default_config()
+        self.config = config
 
         # Set data partition and likelihood.
         self.data = data
@@ -396,6 +421,17 @@ class ContinualLearningClient:
 
         self.log = defaultdict(list)
         self._can_update = True
+
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, config):
+        self._config = {**self._config, **config}
+
+    def get_default_config(self):
+        return {}
 
     def can_update(self):
         """
@@ -521,7 +557,13 @@ class BayesianContinualLearningClient:
     """
     Continual learning client with Bayesian treatment of model hyperparameters.
     """
-    def __init__(self, data, model):
+    def __init__(self, data, model, config=None):
+
+        if config is None:
+            config = {}
+
+        self._config = self.get_default_config()
+        self.config = config
 
         # Set data partition and likelihood
         self.data = data
@@ -529,6 +571,17 @@ class BayesianContinualLearningClient:
 
         self.log = defaultdict(list)
         self._can_update = True
+
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, config):
+        self._config = {**self._config, **config}
+
+    def get_default_config(self):
+        return {}
 
     def can_update(self):
         """

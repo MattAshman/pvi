@@ -26,7 +26,6 @@ class SequentialServer(Server):
 
         logger.debug("Getting client updates.")
 
-        damping = self.config["damping_factor"]
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
@@ -41,7 +40,7 @@ class SequentialServer(Server):
                 logger.debug(
                     "Received client update. Updating global posterior.")
                 # Update global posterior.
-                q_new_nps = {k: v + delta_np[k] * damping
+                q_new_nps = {k: v + delta_np[k]
                              for k, v in self.q.nat_params.items()}
 
                 self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
@@ -84,7 +83,6 @@ class BayesianSequentialServer(BayesianServer):
 
         logger.debug("Getting client updates.")
 
-        damping = self.config["damping_factor"]
         clients_updated = 0
 
         for i, client in tqdm(enumerate(self.clients), leave=False):
@@ -106,10 +104,10 @@ class BayesianSequentialServer(BayesianServer):
                 logger.debug(
                     "Received client update. Updating global posterior.")
                 # Update global posterior.
-                q_new_nps = {k: v + q_delta_np[k] * damping
+                q_new_nps = {k: v + q_delta_np[k]
                              for k, v in self.q.nat_params.items()}
                 qeps_new_nps = {
-                    k1: {k2: v2 + qeps_delta_np[k1][k2] * damping
+                    k1: {k2: v2 + qeps_delta_np[k1][k2]
                          for k2, v2 in self.qeps.nat_params[k1].items()}
                     for k1 in self.qeps.nat_params.keys()}
                 qeps_new_distributions = {

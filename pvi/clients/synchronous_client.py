@@ -25,8 +25,8 @@ class SynchronousClient(PVIClient):
 
 class BayesianSynchronousClient(BayesianPVIClient):
 
-    def __init__(self, data, model, t, teps):
-        super().__init__(data=data, model=model, t=t, teps=teps)
+    def __init__(self, data, model, t, teps, config=None):
+        super().__init__(data=data, model=model, t=t, teps=teps, config=config)
 
     def fit(self, q, qeps):
         """

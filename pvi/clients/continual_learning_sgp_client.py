@@ -17,8 +17,8 @@ JITTER = 1e-6
 
 
 class ContinualLearningSGPClient(ContinualLearningClient):
-    def __init__(self, data, model, inducing_locations):
-        super().__init__(data, model)
+    def __init__(self, data, model, inducing_locations, config=None):
+        super().__init__(data, model, config)
 
         # Private inducing locations Z_b.
         self.inducing_locations = inducing_locations
@@ -265,8 +265,8 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
     Continual learning SGP client with Bayesian treatment of model
     hyperparameters.
     """
-    def __init__(self, data, model, inducing_locations):
-        super().__init__(data, model)
+    def __init__(self, data, model, inducing_locations, config=None):
+        super().__init__(data, model, config)
 
         # Private inducing locations Z_b.
         self.inducing_locations = inducing_locations
