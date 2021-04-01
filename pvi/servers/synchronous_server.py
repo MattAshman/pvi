@@ -16,8 +16,7 @@ class SynchronousServer(Server):
     def get_default_config(self):
         return {
             **super().get_default_config(),
-            "max_iterations": 5,
-            "damping_factor": 1.,
+            "max_iterations": 25,
         }
 
     def tick(self):
@@ -78,7 +77,6 @@ class BayesianSynchronousServer(BayesianServer):
         return {
             **super().get_default_config(),
             "max_iterations": 5,
-            "damping_factor": 1.,
         }
 
     def tick(self):

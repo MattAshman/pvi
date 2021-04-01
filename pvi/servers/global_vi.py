@@ -133,9 +133,9 @@ class GlobalVIServer(Server):
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["ll"] += ll.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                    ll=epoch["ll"])

@@ -228,9 +228,9 @@ class ContinualLearningSGPClient(ContinualLearningClient):
                 optimiser.step()
 
                 # Keep track of quantities for current batch.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["ll"] += ll.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
 
                 epoch_iter.set_postfix(elbo=-loss.item(), kl=kl.item(),
                                        ll=ll.item())
@@ -495,10 +495,10 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                 optimiser.step()
 
                 # Keep track of quantities for current batch.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["kleps"] += kleps.item()
-                epoch["ll"] += ll.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["kleps"] += kleps.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
 
                 epoch_iter.set_postfix(elbo=-loss.item(), kl=kl.item(),
                                        ll=ll.item())

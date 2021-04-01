@@ -16,7 +16,7 @@ class SequentialServer(Server):
     def get_default_config(self):
         return {
             **super().get_default_config(),
-            "max_iterations": 5,
+            "max_iterations": 25,
             "damping_factor": 1.,
         }
 

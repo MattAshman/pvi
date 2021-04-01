@@ -44,7 +44,8 @@ class PVIClient(ABC):
 
     def get_default_config(self):
         return {
-            "damping_factor": 1.
+            "damping_factor": 1.,
+            "valid_factors": False,
         }
 
     def can_update(self):
@@ -149,10 +150,10 @@ class PVIClient(ABC):
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["ll"] += ll.item()
-                epoch["logt"] += logt.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
+                epoch["logt"] += logt.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
@@ -354,12 +355,12 @@ class BayesianPVIClient(ABC):
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["kleps"] += kleps.item()
-                epoch["ll"] += ll.item()
-                epoch["logt"] += logt.item()
-                epoch["logteps"] += logteps.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["kleps"] += kleps.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
+                epoch["logt"] += logt.item() / len(loader)
+                epoch["logteps"] += logteps.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
@@ -521,9 +522,9 @@ class ContinualLearningClient:
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["ll"] += ll.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
@@ -681,10 +682,10 @@ class BayesianContinualLearningClient:
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["kleps"] += kleps.item()
-                epoch["ll"] += ll.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["kleps"] += kleps.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
