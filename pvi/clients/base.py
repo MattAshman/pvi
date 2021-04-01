@@ -433,6 +433,7 @@ class ContinualLearningClient:
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
             "num_elbo_samples": 10,
+            "print_epochs": 1,
         }
 
     def can_update(self):
@@ -494,8 +495,9 @@ class ContinualLearningClient:
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch", leave=False)
-        for i in range(self.config["epochs"]):
+        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch", leave=False)
+        # for i in range(self.config["epochs"]):
+        for i in epoch_iter:
             epoch = {
                 "elbo": 0,
                 "kl": 0,
@@ -534,6 +536,9 @@ class ContinualLearningClient:
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
+
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"])
 
             if i % self.config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
@@ -587,6 +592,7 @@ class BayesianContinualLearningClient:
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
             "num_elbo_samples": 10,
+            "print_epochs": 1
         }
 
     def can_update(self):
