@@ -51,6 +51,7 @@ class PVIClient(ABC):
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
             "num_elbo_samples": 10,
+            "print_epochs": 1
         }
 
     def can_update(self):
@@ -232,6 +233,7 @@ class BayesianPVIClient(ABC):
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
             "num_elbo_samples": 10,
+            "print_epochs": 1
         }
 
     def can_update(self):
