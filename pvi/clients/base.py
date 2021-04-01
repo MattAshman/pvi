@@ -16,7 +16,13 @@ logger = logging.getLogger(__name__)
 
 class PVIClient(ABC):
     
-    def __init__(self, data, model, t):
+    def __init__(self, data, model, t, config=None):
+
+        if config is None:
+            config = {}
+
+        self._config = self.get_default_config()
+        self.config = config
         
         # Set data partition and likelihood
         self.data = data
@@ -27,6 +33,19 @@ class PVIClient(ABC):
         
         self.log = defaultdict(list)
         self._can_update = True
+
+    @property
+    def config(self):
+        return self._config
+
+    @config.setter
+    def config(self, config):
+        self._config = {**self._config, **config}
+
+    def get_default_config(self):
+        return {
+            "damping_factor": 1.
+        }
 
     def can_update(self):
         """
@@ -61,7 +80,7 @@ class PVIClient(ABC):
             return self.gradient_based_update(q.trainable_copy())
 
     def gradient_based_update(self, q):
-        config = self.model.config
+        model_config = self.model.config
 
         # Cannot update during optimisation.
         self._can_update = False
@@ -73,8 +92,8 @@ class PVIClient(ABC):
         # TODO: not optimising model parameters for now (inducing points,
         #  kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, config["optimiser"])(
-            q.parameters(), **config["optimiser_params"])
+        optimiser = getattr(torch.optim, model_config["optimiser"])(
+            q.parameters(), **model_config["optimiser_params"])
         
         # Set up data
         x = self.data["x"]
@@ -82,7 +101,7 @@ class PVIClient(ABC):
         
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=config["batch_size"],
+                            batch_size=model_config["batch_size"],
                             shuffle=True)
 
         # Dict for logging optimisation progress
@@ -94,8 +113,9 @@ class PVIClient(ABC):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(config["epochs"]), desc="Epoch", leave=True)
-        # for i in range(config["epochs"]):
+        epoch_iter = tqdm(range(model_config["epochs"]), desc="Epoch",
+                          leave=True)
+        # for i in range(model_config["epochs"]):
         for i in epoch_iter:
             epoch = {
                 "elbo" : 0,
@@ -117,10 +137,9 @@ class PVIClient(ABC):
                 kl = q.kl_divergence(q_old).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
-                thetas = q.rsample((config["num_elbo_samples"],))
+                thetas = q.rsample((model_config["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
                     batch, thetas).mean(0).sum() / len(x_batch)
-                ll = ll
                 logt = self.t.eqlogt(q) / len(x)
 
                 # Negative local Free Energy is KL minus log-probability
@@ -144,21 +163,25 @@ class PVIClient(ABC):
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                    ll=epoch["ll"], logt=epoch["logt"])
 
-            if i % config["print_epochs"] == 0:
+            if i % model_config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
                              f"log t: {epoch['logt']:.3f}, "
                              f"Epochs: {i}.")
 
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"])
+            if epoch["kl"] > 1e3:
+                import pdb
+                pdb.set_trace()
+                print("wtf")
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
 
         # Compute new local contribution from old distributions
-        t_new = self.t.compute_refined_factor(q, q_old)
+        t_new = self.t.compute_refined_factor(
+            q, q_old, damping=self.config["damping_factor"],
+            valid_dist=self.config["valid_factors"])
 
         # Create non-trainable copy to send back to server.
         q_new = q.non_trainable_copy()
@@ -213,7 +236,7 @@ class BayesianPVIClient(ABC):
                                           qeps.trainable_copy())
 
     def gradient_based_update(self, q, qeps):
-        config = self.model.config
+        model_config = self.model.config
 
         # Cannot update during optimisation.
         self._can_update = False
@@ -228,8 +251,8 @@ class BayesianPVIClient(ABC):
         # TODO: not optimising model parameters for now (inducing points,
         #  kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, config["optimiser"])(
-            parameters, **config["optimiser_params"])
+        optimiser = getattr(torch.optim, model_config["optimiser"])(
+            parameters, **model_config["optimiser_params"])
 
         # Set up data
         x = self.data["x"]
@@ -237,7 +260,7 @@ class BayesianPVIClient(ABC):
 
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=config["batch_size"],
+                            batch_size=model_config["batch_size"],
                             shuffle=True)
 
         # Dict for logging optimisation progress
@@ -251,8 +274,8 @@ class BayesianPVIClient(ABC):
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(config["epochs"]), desc="Epoch", leave=False)
-        # for i in range(config["epochs"]):
+        epoch_iter = tqdm(range(model_config["epochs"]), desc="Epoch", leave=False)
+        # for i in range(model_config["epochs"]):
         for i in epoch_iter:
             epoch = {
                 "elbo": 0,
@@ -278,7 +301,7 @@ class BayesianPVIClient(ABC):
 
                 # Estimate E_q[log p(y | x, θ, ε)].
                 ll = 0
-                for _ in range(config["num_elbo_hyper_samples"]):
+                for _ in range(model_config["num_elbo_hyper_samples"]):
                     eps = qeps.rsample()
                     self.model.hyperparameters = eps
                     if str(type(q)) == str(self.model.conjugate_family):
@@ -287,27 +310,27 @@ class BayesianPVIClient(ABC):
                     else:
                         # TODO: Implementation of likelihood_log_prob needs
                         #  changing to be consistent for SGP.
-                        # thetas = q.rsample((config["num_elbo_samples"],))
+                        # thetas = q.rsample((model_config["num_elbo_samples"],))
                         # ll += self.model.likelihood_log_prob(
                         #     batch, thetas).mean(0).sum()
                         qf = self.model.posterior(x_batch, q)
                         fs = qf.rsample(
-                            (self.model.config["num_elbo_samples"],))
+                            (self.model.model_config["num_elbo_samples"],))
                         ll += self.model.likelihood_log_prob(
                             batch, fs).mean(0).sum() / len(x_batch)
 
-                ll /= (config["num_elbo_hyper_samples"] * len(x_batch))
+                ll /= (model_config["num_elbo_hyper_samples"] * len(x_batch))
 
                 try:
                     logt = self.t.eqlogt(q) / len(x)
                 except NotImplementedError:
-                    thetas = q.rsample((config["num_elbo_samples"],))
+                    thetas = q.rsample((model_config["num_elbo_samples"],))
                     logt = self.t(thetas).mean(0) / len(x)
 
                 try:
                     logteps = sum(self.teps.eqlogt(qeps).values()) / len(x)
                 except NotImplementedError:
-                    eps = qeps.rsample((config["num_elbo_samples"],))
+                    eps = qeps.rsample((model_config["num_elbo_samples"],))
                     logteps = sum(self.teps(eps).values()).mean(0) / len(x)
 
                 # Negative local Free Energy is KL minus log-probability
@@ -332,7 +355,7 @@ class BayesianPVIClient(ABC):
             training_curve["logt"].append(epoch["logt"])
             training_curve["logteps"].append(epoch["logteps"])
 
-            if i % config["print_epochs"] == 0:
+            if i % model_config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
@@ -403,7 +426,7 @@ class ContinualLearningClient:
             return self.gradient_based_update(q.trainable_copy())
 
     def gradient_based_update(self, q):
-        config = self.model.config
+        model_config = self.model.config
 
         # Cannot update during optimisation.
         self._can_update = False
@@ -415,8 +438,8 @@ class ContinualLearningClient:
         # TODO: not optimising model parameters for now (inducing points,
         #  kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, config["optimiser"])(
-            q.parameters(), **config["optimiser_params"])
+        optimiser = getattr(torch.optim, model_config["optimiser"])(
+            q.parameters(), **model_config["optimiser_params"])
 
         # Set up data
         x = self.data["x"]
@@ -424,7 +447,7 @@ class ContinualLearningClient:
 
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=config["batch_size"],
+                            batch_size=model_config["batch_size"],
                             shuffle=True)
 
         # Dict for logging optimisation progress
@@ -435,8 +458,8 @@ class ContinualLearningClient:
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(config["epochs"]), desc="Epoch", leave=False)
-        for i in range(config["epochs"]):
+        # epoch_iter = tqdm(range(model_config["epochs"]), desc="Epoch", leave=False)
+        for i in range(model_config["epochs"]):
             epoch = {
                 "elbo": 0,
                 "kl": 0,
@@ -456,7 +479,7 @@ class ContinualLearningClient:
                 kl = q.kl_divergence(p).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
-                thetas = q.rsample((config["num_elbo_samples"],))
+                thetas = q.rsample((model_config["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
                     batch, thetas).mean(0).sum() / len(x_batch)
 
@@ -476,7 +499,7 @@ class ContinualLearningClient:
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % config["print_epochs"] == 0:
+            if i % model_config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
@@ -529,7 +552,7 @@ class BayesianContinualLearningClient:
                                           qeps.trainable_copy())
 
     def gradient_based_update(self, q, qeps):
-        config = self.model.config
+        model_config = self.model.config
 
         # Cannot update during optimisation.
         self._can_update = False
@@ -544,8 +567,8 @@ class BayesianContinualLearningClient:
         # TODO: not optimising model parameters for now (inducing points,
         #  kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, config["optimiser"])(
-            parameters, **config["optimiser_params"])
+        optimiser = getattr(torch.optim, model_config["optimiser"])(
+            parameters, **model_config["optimiser_params"])
 
         # Set up data
         x = self.data["x"]
@@ -553,7 +576,7 @@ class BayesianContinualLearningClient:
 
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
-                            batch_size=config["batch_size"],
+                            batch_size=model_config["batch_size"],
                             shuffle=True)
 
         # Dict for logging optimisation progress
@@ -565,8 +588,8 @@ class BayesianContinualLearningClient:
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(config["epochs"]), desc="Epoch", leave=False)
-        for i in range(config["epochs"]):
+        # epoch_iter = tqdm(range(model_config["epochs"]), desc="Epoch", leave=False)
+        for i in range(model_config["epochs"]):
             epoch = {
                 "elbo": 0,
                 "kl": 0,
@@ -589,7 +612,7 @@ class BayesianContinualLearningClient:
 
                 # Estimate E_q[log p(y | x, θ, ε)].
                 ll = 0
-                for _ in range(config["num_elbo_hyper_samples"]):
+                for _ in range(model_config["num_elbo_hyper_samples"]):
                     eps = qeps.rsample()
                     # TODO: This assumes a .set_parameters(eps) function and
                     #  a mean field q(θ, ε) = q(θ)q(ε).
@@ -597,11 +620,11 @@ class BayesianContinualLearningClient:
                     if str(type(q)) == str(self.model.conjugate_family):
                         ll += self.model.expected_log_likelihood(batch, q).sum()
                     else:
-                        thetas = q.rsample((config["num_elbo_theta_samples"],))
+                        thetas = q.rsample((model_config["num_elbo_theta_samples"],))
                         ll += self.model.likelihood_log_prob(
                             batch, thetas).mean(0).sum()
 
-                ll /= (config["num_elbo_hyper_samples"] * len(x_batch))
+                ll /= (model_config["num_elbo_hyper_samples"] * len(x_batch))
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl + kleps - ll
@@ -621,7 +644,7 @@ class BayesianContinualLearningClient:
             training_curve["kleps"].append(epoch["kleps"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % config["print_epochs"] == 0:
+            if i % model_config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
