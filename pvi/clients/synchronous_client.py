@@ -1,4 +1,4 @@
-from .base import PVIClient, BayesianPVIClient
+from .base import PVIClient, PVIClientBayesianHypers
 
 
 # =============================================================================
@@ -23,7 +23,7 @@ class SynchronousClient(PVIClient):
         return self.t
 
 
-class BayesianSynchronousClient(BayesianPVIClient):
+class SynchronousClientBayesianHypers(PVIClientBayesianHypers):
 
     def __init__(self, data, model, t, teps, config=None):
         super().__init__(data=data, model=model, t=t, teps=teps, config=config)

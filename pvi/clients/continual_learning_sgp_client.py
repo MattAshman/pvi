@@ -2,12 +2,10 @@ import logging
 import torch
 
 from tqdm.auto import tqdm
-from torch import distributions, nn
+from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
-from pvi.clients.base import ContinualLearningClient, \
-    BayesianContinualLearningClient
+from pvi.clients.base import VIClient, VIClientBayesianHypers
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
-from pvi.models.sgp import SparseGaussianProcessRegression
 from pvi.distributions.gp_distributions import \
     MultivariateGaussianDistributionWithZ
 
@@ -16,7 +14,7 @@ logger = logging.getLogger(__name__)
 JITTER = 1e-6
 
 
-class ContinualLearningSGPClient(ContinualLearningClient):
+class ContinualLearningSGPClient(VIClient):
     def __init__(self, data, model, inducing_locations, config=None):
         super().__init__(data, model, config)
 
@@ -198,24 +196,8 @@ class ContinualLearningSGPClient(ContinualLearningClient):
                 kl = q.kl_divergence(p).sum()
 
                 # Compute E_q[log p(y | f)].
-                if (str(type(self.model))
-                        == str(SparseGaussianProcessRegression)):
-                    """
-                    Can compute E_q[log p(y | f)] in closed form:
-
-                    = log N(y; E_q[f], σ^2) - 0.5 / (σ ** 2) Var_q[f].
-                    """
-                    ll = self.model.expected_log_likelihood(batch, q).sum()
-
-                else:
-                    """
-                    Cannot compute in closed form---use MC estimate instead.
-                    """
-                    qf = self.model.posterior(x_batch, q)
-                    fs = qf.rsample(
-                        (self.model.self.config["num_elbo_samples"],))
-                    ll = self.model.likelihood_log_prob(
-                        batch, fs).mean(0).sum()
+                ll = self.model.expected_log_likelihood(
+                    batch, q, self.config["num_elbo_samples"]).sum()
 
                 # Normalise values w.r.t. batch size.
                 kl /= len(x)
@@ -258,7 +240,7 @@ class ContinualLearningSGPClient(ContinualLearningClient):
         return q_new
 
 
-class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
+class ContinualLearningSGPClientBayesianHypers(VIClientBayesianHypers):
     """
     Continual learning SGP client with Bayesian treatment of model
     hyperparameters.
@@ -472,19 +454,12 @@ class BayesianContinualLearningSGPClient(BayesianContinualLearningClient):
                         kl -= qa.kl_divergence(pa).sum() / len(x)
 
                     # Compute E_q(f | ε)[log p(y | f, ε)].
-                    if str(type(q)) == str(self.model.conjugate_family):
-                        ll += self.model.expected_log_likelihood(
-                            batch, q).sum() / len(x_batch)
-                    else:
-                        qf = self.model.posterior(x_batch, q)
-                        fs = qf.rsample(
-                            (self.model.self.config["num_elbo_samples"],))
-                        ll += self.model.likelihood_log_prob(
-                            batch, fs).mean(0).sum() / len(x_batch)
+                    ll += self.model.expected_log_likelihood(
+                        batch, q, self.config["num_elbo_samples"]).sum()
 
                 # Normalise values.
                 kl /= self.config["num_elbo_hyper_samples"]
-                ll /= self.config["num_elbo_hyper_samples"]
+                ll /= (self.config["num_elbo_hyper_samples"] * len(x_batch))
 
                 loss = kl + kleps - ll
                 loss.backward()

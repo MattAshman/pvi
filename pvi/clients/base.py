@@ -93,9 +93,7 @@ class PVIClient(ABC):
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = q.non_trainable_copy()
            
-        # Reset optimiser
-        # TODO: not optimising model parameters for now (inducing points,
-        #  kernel hyperparameters, observation noise etc.).
+        # Reset optimiser. Only parameters are those of q(θ).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             q.parameters(), **self.config["optimiser_params"])
@@ -194,7 +192,7 @@ class PVIClient(ABC):
         return q_new, t_new
 
 
-class BayesianPVIClient(ABC):
+class PVIClientBayesianHypers(ABC):
     """
     PVI client with Bayesian treatment of model hyperparameters.
     """
@@ -227,7 +225,6 @@ class BayesianPVIClient(ABC):
 
     def get_default_config(self):
         return {
-            "damping_factor": 1.,
             "damping_factor": 1.,
             "valid_factors": False,
             "epochs": 1,
@@ -274,9 +271,7 @@ class BayesianPVIClient(ABC):
 
         parameters = list(q.parameters()) + qeps.parameters()
 
-        # Reset optimiser.
-        # TODO: not optimising model parameters for now (inducing points,
-        #  kernel hyperparameters, observation noise etc.).
+        # Reset optimiser. Parameters are those of q(θ) and q(ε).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -301,7 +296,7 @@ class BayesianPVIClient(ABC):
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch", leave=False)
+        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch")
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = {
@@ -401,8 +396,14 @@ class BayesianPVIClient(ABC):
         return q_new, qeps_new, t_new, teps_new
 
 
-class ContinualLearningClient:
+class VIClient:
+    """
+    Standard VI client which, when provided with a prior distribution,
+    returns an an approximate posterior based on it's local data shard.
 
+    Note: this is different to the PVIClient in the sense that a local factor
+    t(θ) is not maintained.
+    """
     def __init__(self, data, model, config=None):
 
         if config is None:
@@ -432,6 +433,7 @@ class ContinualLearningClient:
             "batch_size": 100,
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
+            "num_elbo_hyper_samples": 1,
             "num_elbo_samples": 10,
             "print_epochs": 1,
         }
@@ -471,9 +473,7 @@ class ContinualLearningClient:
         # Old posterior = prior, make non-trainable.
         p = q.non_trainable_copy()
 
-        # Reset optimiser.
-        # TODO: not optimising model parameters for now (inducing points,
-        #  kernel hyperparameters, observation noise etc.).
+        # Reset optimiser. Parameters to be optimised are those of q(θ).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             q.parameters(), **self.config["optimiser_params"])
@@ -495,7 +495,7 @@ class ContinualLearningClient:
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch", leave=False)
+        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch")
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = {
@@ -558,9 +558,9 @@ class ContinualLearningClient:
         return q_new
 
 
-class BayesianContinualLearningClient:
+class VIClientBayesianHypers:
     """
-    Continual learning client with Bayesian treatment of model hyperparameters.
+    Standard VI client with Bayesian treatment of model hyperparameters.
     """
     def __init__(self, data, model, config=None):
 
@@ -627,8 +627,6 @@ class BayesianContinualLearningClient:
         parameters = list(q.parameters) + list(qeps.parameters)
 
         # Reset optimiser.
-        # TODO: not optimising model parameters for now (inducing points,
-        #  kernel hyperparameters, observation noise etc.).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -651,7 +649,7 @@ class BayesianContinualLearningClient:
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch", leave=False)
+        # epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch")
         for i in range(self.config["epochs"]):
             epoch = {
                 "elbo": 0,
@@ -680,12 +678,8 @@ class BayesianContinualLearningClient:
                     # TODO: This assumes a .set_parameters(eps) function and
                     #  a mean field q(θ, ε) = q(θ)q(ε).
                     self.model.hyperparameters = eps
-                    if str(type(q)) == str(self.model.conjugate_family):
-                        ll += self.model.expected_log_likelihood(batch, q).sum()
-                    else:
-                        thetas = q.rsample((self.config["num_elbo_theta_samples"],))
-                        ll += self.model.likelihood_log_prob(
-                            batch, thetas).mean(0).sum()
+                    ll += self.model.expected_log_likelihood(
+                        batch, q, self.config["num_elbo_samples"]).sum()
 
                 ll /= (self.config["num_elbo_hyper_samples"] * len(x_batch))
 
