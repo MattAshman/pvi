@@ -37,6 +37,12 @@ class GlobalVIServer(Server):
         return {
             **super().get_default_config(),
             "max_iterations": 1,
+            "epochs": 1,
+            "batch_size": 100,
+            "optimiser": "Adam",
+            "optimiser_params": {"lr": 0.05},
+            "num_elbo_samples": 10,
+            "print_epochs": 1
         }
 
     def tick(self):
