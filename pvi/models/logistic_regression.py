@@ -21,9 +21,9 @@ class LogisticRegressionModel(Model, nn.Module):
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.]*(self.config["D"]+1)),
-            "np2": torch.tensor([-.5]*(
-                    self.config["D"]+1)).diag_embed()
+            "np1": torch.tensor([0.] * (self.config["D"] + 1)),
+            "np2": torch.tensor([-.5] * (
+                    self.config["D"] + 1)).diag_embed()
         }
 
     def get_default_config(self):
@@ -127,8 +127,8 @@ class LogisticRegressionModelNoBias(LogisticRegressionModel):
 
     conjugate_family = None
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
 
     def get_default_nat_params(self):
         return {

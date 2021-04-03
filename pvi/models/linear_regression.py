@@ -14,12 +14,18 @@ class LinearRegressionModel(Model, nn.Module):
     
     conjugate_family = MultivariateGaussianDistribution
 
-    def __init__(self, output_sigma=1., **kwargs):
+    def __init__(self, train_hypers=True, **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
         self.register_parameter("output_sigma", nn.Parameter(
-            torch.tensor(output_sigma), requires_grad=True))
+            torch.tensor(self.hyperparameters["output_sigma"]),
+            requires_grad=True))
+
+        if train_hypers:
+            # Set ε after model is constructed. This removes them as parameters
+            # enabling them to be either fixed or set manually (by a q(ε)).
+            self.hyperparameters = self.hyperparameters
 
     def get_default_nat_params(self):
         return {
@@ -33,11 +39,24 @@ class LinearRegressionModel(Model, nn.Module):
             "D": None
         }
 
+    @property
+    def hyperparameters(self):
+        return self._hyperparameters
+
+    @hyperparameters.setter
+    def hyperparameters(self, hyperparameters):
+        self._hyperparameters = {**self._hyperparameters, **hyperparameters}
+
+        if hasattr(self, "output_sigma"):
+            self.output_sigma = self.hyperparameters["output_sigma"]
+
     def get_default_hyperparameters(self):
         """
         :return: A default set of ε for the model.
         """
-        return {}
+        return {
+            "output_sigma": torch.tensor(1.),
+        }
 
     def forward(self, x, q):
         """
@@ -95,15 +114,16 @@ class LinearRegressionModel(Model, nn.Module):
         contribution.
         """
         # Append 1 to end of x.
-        x_ = torch.cat((data["x"], torch.ones(len(data["x"])).unsqueeze(-1)),
-                       dim=1)
+        x = data["x"]
+        x_ = torch.cat((x, torch.ones(len(data["x"])).unsqueeze(-1)), dim=1)
+        y = data["y"]
 
         with torch.no_grad():
             sigma = self.output_sigma
 
             # Closed-form solution.
             t_new_np2 = (-0.5 * sigma ** (-2) * x_.T.matmul(x_))
-            t_new_np1 = (sigma ** (-2) * x_.T.matmul(data["y"])).squeeze(-1)
+            t_new_np1 = (sigma ** (-2) * x_.T.matmul(y)).squeeze(-1)
             t_new_nps = {"np1": t_new_np1, "np2": t_new_np2}
 
         if t is None:
@@ -123,8 +143,26 @@ class LinearRegressionModel(Model, nn.Module):
             return q_new, t_new
 
     def expected_log_likelihood(self, data, q, num_samples=1):
-        warnings.warn("Not implemented, but is is possible")
-        return super().expected_log_likelihood(data, q, num_samples)
+        n = data["x"].shape[0]
+        sigma = self.output_sigma
+        qmu = q.distribution.mean
+        qcov = q.distribution.covariance_matrix
+
+        # Append 1 to end of x.
+        x = data["x"]
+        x_ = torch.cat((x, torch.ones(len(data["x"])).unsqueeze(-1)), dim=1)
+        y = data["y"]
+
+        mu = x_.matmul(qmu)
+        cov = sigma ** 2 * torch.eye(n)
+        dist = distributions.MultivariateNormal(mu, covariance_matrix=cov)
+
+        dist_term = dist.log_prob(y).sum()
+        trace_term = 0.5 * sigma ** (-2) * torch.trace(
+            x_.matmul(qcov).matmul(x_.T))
+        ell = dist_term - trace_term
+
+        return ell
 
     def mll(self, data, q):
         """
@@ -140,15 +178,16 @@ class LinearRegressionModel(Model, nn.Module):
         qcov = q.distribution.covariance_matrix
 
         # Append 1 to end of x.
-        x_ = torch.cat((data["x"], torch.ones(len(data["x"])).unsqueeze(-1)),
-                       dim=1)
+        x = data["x"]
+        x_ = torch.cat((x, torch.ones(len(data["x"])).unsqueeze(-1)), dim=1)
+        y = data["y"]
 
         # Compute mean and covariance.
         ymu = x_.matmul(qmu)
         ycov = x_.matmul(qcov).matmul(x_.T) + sigma ** 2 * torch.eye(n)
         ydist = distributions.MultivariateNormal(ymu, covariance_matrix=ycov)
 
-        return ydist.log_prob(data["y"]).sum()
+        return ydist.log_prob(y).sum()
 
 
 class LinearRegressionModelNoBias(LinearRegressionModel):
@@ -159,8 +198,8 @@ class LinearRegressionModelNoBias(LinearRegressionModel):
 
     conjugate_family = MultivariateGaussianDistribution
 
-    def __init__(self, output_sigma=1., **kwargs):
-        super().__init__(output_sigma, **kwargs)
+    def __init__(self, train_hypers=True, **kwargs):
+        super().__init__(train_hypers, **kwargs)
 
     def get_default_nat_params(self):
         return {
@@ -221,13 +260,14 @@ class LinearRegressionModelNoBias(LinearRegressionModel):
         contribution.
         """
         x = data["x"]
+        y = data["y"]
 
         with torch.no_grad():
             sigma = self.output_sigma
 
             # Closed-form solution.
             t_new_np2 = (-0.5 * sigma ** (-2) * x.T.matmul(x))
-            t_new_np1 = (sigma ** (-2) * x.T.matmul(data["y"])).squeeze(-1)
+            t_new_np1 = (sigma ** (-2) * x.T.matmul(y)).squeeze(-1)
             t_new_nps = {"np1": t_new_np1, "np2": t_new_np2}
 
         if t is None:
@@ -247,8 +287,24 @@ class LinearRegressionModelNoBias(LinearRegressionModel):
             return q_new, t_new
 
     def expected_log_likelihood(self, data, q, num_samples=1):
-        warnings.warn("Not implemented, but is is possible")
-        return super().expected_log_likelihood(data, q, num_samples)
+        n = data["x"].shape[0]
+        sigma = self.output_sigma
+        qmu = q.distribution.mean
+        qcov = q.distribution.covariance_matrix
+
+        x = data["x"]
+        y = data["y"]
+
+        mu = x.matmul(qmu)
+        cov = sigma ** 2 * torch.eye(n)
+        dist = distributions.MultivariateNormal(mu, covariance_matrix=cov)
+
+        dist_term = dist.log_prob(y).sum()
+        trace_term = 0.5 * sigma ** (-2) * torch.trace(
+            x.matmul(qcov).matmul(x.T))
+        ell = dist_term - trace_term
+
+        return ell
 
     def mll(self, data, q):
         """
@@ -264,10 +320,11 @@ class LinearRegressionModelNoBias(LinearRegressionModel):
         qcov = q.distribution.covariance_matrix
 
         x = data["x"]
+        y = data["y"]
 
         # Compute mean and covariance.
         ymu = x.matmul(qmu)
         ycov = x.matmul(qcov).matmul(x.T) + sigma ** 2 * torch.eye(n)
         ydist = distributions.MultivariateNormal(ymu, covariance_matrix=ycov)
 
-        return ydist.log_prob(data["y"]).sum()
+        return ydist.log_prob(y).sum()

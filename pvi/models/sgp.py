@@ -14,7 +14,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
     """
     Sparse Gaussian process model.
     """
-    def __init__(self, **kwargs):
+    def __init__(self, train_hypers=True, **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
@@ -26,8 +26,12 @@ class SparseGaussianProcessModel(Model, nn.Module):
         else:
             raise ValueError("Kernel class not specified.")
 
-        # Set ε after model is constructed.
-        self.hyperparameters = self.hyperparameters
+        if train_hypers:
+            # Set ε after model is constructed. This removes them as parameters
+            # enabling them to be either fixed or set manually (by a q(ε)).
+            # TODO: with current default_hyperparameters, this assumes
+            #  kernel_class is ScaleKernel(RBFKernel(**kwargs)).
+            self.hyperparameters = self.hyperparameters
 
     def get_default_nat_params(self):
         return {
@@ -54,7 +58,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
     @property
     def hyperparameters(self):
-        return super().hyperparameters
+        return self._hyperparameters
 
     @hyperparameters.setter
     def hyperparameters(self, hyperparameters):
