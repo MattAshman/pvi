@@ -191,7 +191,6 @@ class GammaFactor(ExponentialFamilyFactor):
 
         raise NotImplementedError
 
-
     def nat_from_dist(self, q):
         concentration = q.concentration.detach()
         rate = q.rate.detach()

@@ -46,7 +46,8 @@ class HyperparameterDistribution:
                 for k, v in self.distributions.items()}
 
     def parameters(self):
-        parameters = [list(v.parameters()) for v in self.distributions.values()]
+        parameters = [list(v.parameters())
+                      for v in self.distributions.values()]
         return [item for sublist in parameters for item in sublist]
 
 
@@ -84,10 +85,12 @@ class HyperparameterFactor:
         return {k: v.npf(thetas[k]) for k, v in self.factors.items()}
 
     def eqlogt(self, q):
-        raise {k: v.eqlogt(q.distributions[k]) for k, v in self.factors.items()}
+        raise {k: v.eqlogt(q.distributions[k])
+               for k, v in self.factors.items()}
 
     def nat_from_dist(self, q):
-        return {k: v.nat_from_dist(q.distributions[k]) for k, v in self.factors.items()}
+        return {k: v.nat_from_dist(q.distributions[k])
+                for k, v in self.factors.items()}
 
     def dist_from_nat(self, np):
         return {k: v.dist_from_nat(np[k]) for k, v in self.factors.items()}
