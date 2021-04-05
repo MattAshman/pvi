@@ -52,8 +52,6 @@ class GlobalVIServer(Server):
         if self.should_stop():
             return False
 
-        model_config = self.model.config
-
         # Set up data: global VI server can access the entire dataset.
 
         # TODO: current only supports homogenous minibatches.
@@ -64,11 +62,11 @@ class GlobalVIServer(Server):
             # Shuffle data.
             tensor_dataset = TensorDataset(x, y)
             loader = DataLoader(tensor_dataset,
-                                batch_size=model_config["batch_size"],
+                                batch_size=self.config["batch_size"],
                                 shuffle=True)
         else:
             # Inhomogenous split: order matters.
-            m = model_config["batch_size"]
+            m = self.config["batch_size"]
             data = defaultdict(list)
             for client in self.clients:
                 # Chunk clients data into batch size.
@@ -95,12 +93,12 @@ class GlobalVIServer(Server):
         q = self.q.trainable_copy()
 
         logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, model_config["optimiser"])(
-            q.parameters(), **model_config["optimiser_params"])
+        optimiser = getattr(torch.optim, self.config["optimiser"])(
+            q.parameters(), **self.config["optimiser_params"])
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(model_config["epochs"]), desc="Epochs")
-        # for i in range(model_config["epochs"]):
+        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
+        # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = {
                 "elbo": 0,
@@ -126,7 +124,7 @@ class GlobalVIServer(Server):
                     ll = self.model.expected_log_likelihood(batch, q).sum()
                 else:
                     thetas = q.rsample(
-                        (model_config["num_elbo_samples"],))
+                        (self.config["num_elbo_samples"],))
                     ll = self.model.likelihood_log_prob(
                         batch, thetas).mean(0).sum()
 
@@ -151,7 +149,7 @@ class GlobalVIServer(Server):
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % model_config["print_epochs"] == 0:
+            if i % self.config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
