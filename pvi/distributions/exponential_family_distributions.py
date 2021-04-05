@@ -23,19 +23,6 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Normal
-
-    @property
-    def mean_params(self):
-
-        loc = self.std_params["loc"]
-        scale = self.std_params["scale"]
-
-        mp = {
-            "m1": loc,
-            "m2": scale ** 2 + loc ** 2,
-        }
-
-        return mp
         
     def _std_from_unc(self, unc_params):
         
@@ -87,6 +74,18 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         
         return std
 
+    @classmethod
+    def _mean_from_std(cls, std_params):
+        loc = std_params["loc"]
+        scale = std_params["scale"]
+
+        mp = {
+            "m1": loc,
+            "m2": scale ** 2 + loc ** 2,
+        }
+
+        return mp
+
     
 # =============================================================================
 # Multivariate gaussian distribution
@@ -107,18 +106,6 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.MultivariateNormal
-
-    @property
-    def mean_params(self):
-        loc = self.std_params["loc"]
-        covariance_matrix = self.std_params["covariance_matrix"]
-
-        mp = {
-            "m1": loc,
-            "m2": covariance_matrix + loc.outer(loc),
-        }
-
-        return mp
         
     def _std_from_unc(self, unc_params):
         
@@ -173,6 +160,18 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         }
         
         return std
+
+    @classmethod
+    def _mean_from_std(cls, std_params):
+        loc = std_params["loc"]
+        covariance_matrix = std_params["covariance_matrix"]
+
+        mp = {
+            "m1": loc,
+            "m2": covariance_matrix + loc.outer(loc),
+        }
+
+        return mp
 
 
 # =============================================================================
@@ -241,6 +240,10 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         }
         
         return std
+
+    @classmethod
+    def _mean_from_std(cls, std_params):
+        raise NotImplementedError
 
     
 # =============================================================================
@@ -327,6 +330,10 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
 
         return std
 
+    @classmethod
+    def _mean_from_std(cls, std_params):
+        raise NotImplementedError
+
     @property
     def torch_dist_class(self):
         return torch.distributions.Multinomial
@@ -405,6 +412,10 @@ class GammaDistribution(ExponentialFamilyDistribution):
         }
 
         return std
+
+    @classmethod
+    def _mean_from_std(cls, std_params):
+        raise NotImplementedError
 
     @property
     def torch_dist_class(self):

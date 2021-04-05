@@ -95,15 +95,17 @@ class ExponentialFamilyFactor(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def eqlogt(self, q):
+    def eqlogt(self, q, num_samples=1):
         """
         Computes E_q[log t(θ)] = ν.T E_q[f(θ)] + E_q[log h(θ)], ignoring the
         latter term.
         :param q: q(θ).
+        :param num_samples: Number of samples to form MC estimate with, if
+        closed-form solution not specified.
         :return: ν.T E_q[f(θ)].
         """
-        raise NotImplementedError
+        thetas = q.rsample((num_samples,))
+        return self(thetas).mean(0)
 
     @abstractmethod
     def nat_from_dist(self, q):
@@ -197,9 +199,8 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         self._nat_params = nat_params
 
     @property
-    @abstractmethod
     def mean_params(self):
-        raise NotImplementedError
+        return self._mean_from_std(self.std_params)
 
     @abstractmethod
     def _std_from_unc(self, unc_params):
@@ -215,6 +216,10 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     
     @abstractmethod
     def _std_from_nat(self, nat_params):
+        raise NotImplementedError
+
+    @abstractmethod
+    def _mean_from_std(self, std_params):
         raise NotImplementedError
 
     def non_trainable_copy(self):

@@ -116,18 +116,23 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         
         return npf
 
-    def eqlogt(self, q):
+    def eqlogt(self, q, num_samples=1):
         """
         E_q[log t(θ)] = nu.T E_q[f(θ)] + const (assumed independent of θ).
         """
         np1 = self.nat_params["np1"]
-        np2 = self.nat_params["np2"]
+        np2 = self.nat_params["np2"].flatten()
 
         loc = q.std_params["loc"]
         cov = q.std_params["covariance_matrix"]
 
-        eqlogt = (np1.dot(loc)
-                  + np2.matmul(cov).trace() + loc.dot(torch.mv(np2, loc)))
+        m1 = loc
+        m2 = (cov + loc.matmul(loc.T)).flatten()
+
+        eqlogt = np1.dot(m1) + np2.dot(m2)
+
+        # eqlogt = (np1.dot(loc)
+        #           + np2.matmul(cov).trace() + loc.dot(torch.mv(np2, loc)))
 
         return eqlogt
 
@@ -183,13 +188,6 @@ class GammaFactor(ExponentialFamilyFactor):
         npf = npf + thetas * np2
 
         return npf
-
-    def eqlogt(self, q):
-
-        alpha = q.std_params["concentration"]
-        beta = 1 / q.std_params["rate"]
-
-        raise NotImplementedError
 
     def nat_from_dist(self, q):
         concentration = q.concentration.detach()
