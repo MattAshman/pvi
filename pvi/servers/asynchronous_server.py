@@ -90,6 +90,11 @@ class AsynchronousServer(Server):
 
         self.iterations += 1
 
+        # Update hyperparameters.
+        if self.config["train_model"] is not None and \
+                self.iterations % self.config["model_update_freq"] == 0:
+            self.update_hyperparameters()
+
         # Log progress.
         self.log["clients_updated"].append(clients_updated)
 
@@ -167,13 +172,18 @@ class DPPVIAsynchronousServer(AsynchronousServer):
 
         self.iterations += 1
 
+        # Update hyperparameters.
+        if self.config["train_model"] is not None and \
+                self.iterations % self.config["model_update_freq"] == 0:
+            self.update_hyperparameters()
+
         # Log progress.
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
         self.log["clients_updated"].append(clients_updated)
 
 
-class BayesianAsynchronousServer(BayesianServer):
+class AsynchronousServerBayesianHypers(ServerBayesianHypers):
     """
     Similar to Mrinank's and Michael's implementation.
 
