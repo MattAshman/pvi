@@ -1,11 +1,12 @@
 import torch
+import numpy as np
 
 from torch import distributions, nn, optim
 from gpytorch.kernels import ScaleKernel, RBFKernel
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
-from pvi.distributions.gp_distributions import \
-    MultivariateGaussianDistributionWithZ
+from pvi.distributions import MultivariateGaussianDistributionWithZ, \
+    MultivariateGaussianDistribution
 
 JITTER = 1e-6
 
@@ -20,7 +21,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
         # Construct inducing points and kernel.
         if self.config["kernel_class"] is not None:
-            self.kernel = self.config["kernel_class"]()
+            self.kernel = self.config["kernel_class"](
+                **self.config["kernel_params"])
         else:
             raise ValueError("Kernel class not specified.")
 
@@ -72,11 +74,38 @@ class SparseGaussianProcessModel(Model, nn.Module):
             "lengthscale": torch.tensor(1.),
         }
 
-    def posterior(self, x, q):
+    def prior(self, q=None, z=None, detach=False):
+        """
+        Returns the prior distribution p(u | z) at locations z.
+        :param q: q(u), containing z = q.inducing_locations if not specified.
+        :param z: Input locations to evaluate the prior.
+        :param detach: Detach gradients before constructing q(u).
+        :return: The prior p(u) = N(z; 0, Kzz).
+        """
+        assert not (q is not None and z is not None), "Must specify either " \
+                                                      "q or z."
+        if z is None:
+            z = q.inducing_locations
+
+        kzz = add_diagonal(self.kernel(z, z).evaluate(), JITTER)
+        std = {
+            "loc": torch.zeros(z.shape[0]),
+            "covariance_matrix": kzz,
+        }
+
+        if detach:
+            std = {k: v.detach() for k, v in std.items()}
+
+        return MultivariateGaussianDistributionWithZ(
+            std_params=std, inducing_locations=z, is_trainable=False,
+            train_inducing=False)
+
+    def posterior(self, x, q, diag=True):
         """
         Returns the  posterior distribution q(f) at locations x.
         :param x: The input locations to make predictions at.
         :param q: The approximate posterior distribution q(u).
+        :param diag: Whether to return marginal posterior distribution.
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
         qu_loc = q.std_params["loc"]
@@ -87,17 +116,30 @@ class SparseGaussianProcessModel(Model, nn.Module):
         kxz = self.kernel(x, z).evaluate()
         kzx = kxz.T
         kzz = add_diagonal(self.kernel(z, z).evaluate(), JITTER)
-        kxx = add_diagonal(self.kernel(x, x).evaluate(), JITTER)
-
         ikzz = psd_inverse(kzz)
 
-        # Predictive posterior.
-        qf_mu = kxz.matmul(ikzz).matmul(qu_loc)
-        qf_cov = kxx + kxz.matmul(
-            ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx)
+        if diag:
+            kxx = self.kernel(x, x, diag=diag)
 
-        return distributions.MultivariateNormal(
-            qf_mu, covariance_matrix=qf_cov)
+            # Predictive marginal posterior.
+            kxz = kxz.unsqueeze(1)
+            kzx = kxz.transpose(-1, -2)
+            qf_mu = kxz.matmul(ikzz).matmul(qu_loc).reshape(-1)
+            qf_cov = kxx + kxz.matmul(
+                ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx).reshape(-1)
+
+            return distributions.Normal(qf_mu, qf_cov ** 0.5)
+
+        else:
+            kxx = add_diagonal(self.kernel(x, x, diag=diag).evaluate(), JITTER)
+
+            # Predictive posterior.
+            qf_mu = kxz.matmul(ikzz).matmul(qu_loc)
+            qf_cov = kxx + kxz.matmul(
+                ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx)
+
+            return distributions.MultivariateNormal(
+                qf_mu, covariance_matrix=qf_cov)
 
 
 class SparseGaussianProcessRegression(SparseGaussianProcessModel):
@@ -251,6 +293,7 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
             **super().get_default_config(),
             "num_elbo_samples": 1,
             "num_predictive_samples": 1,
+            "use_probit_approximation": True,
         }
 
     def forward(self, x, q):
@@ -262,12 +305,27 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
         qf = self.posterior(x, q)
-        fs = qf.sample((self.config["num_predictive_samples"],))
 
-        comp = distributions.Bernoulli(logits=fs.T)
-        mix = distributions.Categorical(torch.ones(len(fs),))
+        if self.config["use_probit_approximation"]:
+            # Use Probit approximation.
+            qf_loc = qf.loc
 
-        return distributions.MixtureSameFamily(mix, comp)
+            if str(type(qf)) == str(MultivariateGaussianDistribution):
+                qf_scale = qf.covariance_matrix.diag() ** 0.5
+            else:
+                qf_scale = qf.scale
+
+            denom = (1 + np.pi * qf_scale ** 2 / 8) ** 0.5
+            logits = qf_loc / denom
+
+            return distributions.Bernoulli(logits=logits)
+        else:
+            fs = qf.sample((self.config["num_predictive_samples"],))
+
+            comp = distributions.Bernoulli(logits=fs.T)
+            mix = distributions.Categorical(torch.ones(len(fs),))
+
+            return distributions.MixtureSameFamily(mix, comp)
 
     def likelihood_forward(self, x, theta):
         """
