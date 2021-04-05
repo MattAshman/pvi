@@ -1,4 +1,5 @@
 import logging
+import copy
 
 from .base import *
 
@@ -15,6 +16,21 @@ class ContinualLearningServer(Server):
         self.client_idx = 0
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
+
+        if self.config["train_model"]:
+            self.log["model_parameters"].append(
+                {k: v.detach().clone()
+                 for k, v in self.model.named_parameters()})
+            self.log["model"].append(copy.deepcopy(self.model))
+
+            for client in self.clients:
+                client.config["train_model"] = True
+                client.config["model_optimiser_params"] = \
+                    self.config["model_optimiser_params"]
+
+                # TODO: causes issues when each client has it's own inducing
+                #  locations...
+                client.model = self.model
 
     def get_default_config(self):
         return {}
@@ -36,6 +52,12 @@ class ContinualLearningServer(Server):
             self.log["q"].append(self.q.non_trainable_copy())
             self.log["communications"].append(self.communications)
 
+            if self.config["train_model"]:
+                self.log["model_parameters"].append(
+                    {k: v.detach().clone()
+                     for k, v in self.model.named_parameters()})
+                self.log["model"].append(copy.deepcopy(self.model))
+
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
 
@@ -46,19 +68,18 @@ class ContinualLearningServer(Server):
         return self.iterations > self.config["max_iterations"] - 1
 
 
-class BayesianContinualLearningServer(BayesianServer):
+class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
     def __init__(self, model, q, qeps, clients, config=None):
         super().__init__(model, q, qeps, clients, config)
 
         self.client_idx = 0
         self.log["q"].append(self.q.non_trainable_copy())
-        self.log["qeps"].append(self.q.non_trainable_copy())
+        self.log["qeps"].append(self.qeps.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
     def get_default_config(self):
         return {
             **super().get_default_config(),
-            "num_eps_samples": 1,
         }
 
     def tick(self):

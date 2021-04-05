@@ -43,7 +43,8 @@ class SequentialServer(Server):
                 q_new_nps = {k: v + delta_np[k]
                              for k, v in self.q.nat_params.items()}
 
-                self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
+                self.q = self.q.create_new(nat_params=q_new_nps,
+                                           is_trainable=False)
                 clients_updated += 1
                 self.communications += 1
 
@@ -56,13 +57,18 @@ class SequentialServer(Server):
 
         self.iterations += 1
 
+        # Update hyperparameters.
+        if self.config["train_model"] is not None and \
+                self.iterations % self.config["model_update_freq"] == 0:
+            self.update_hyperparameters()
+
         self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
 
 
-class BayesianSequentialServer(BayesianServer):
+class SequentialServerBayesianHypers(ServerBayesianHypers):
     def __init__(self, model, q, qeps, clients, config=None):
         super().__init__(model, q, qeps, clients, config)
 

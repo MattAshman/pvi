@@ -56,6 +56,11 @@ class SynchronousServer(Server):
 
         self.iterations += 1
 
+        # Update hyperparameters.
+        if self.config["train_model"] is not None and \
+                self.iterations % self.config["model_update_freq"] == 0:
+            self.update_hyperparameters()
+
         # Log progress.
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
@@ -65,7 +70,7 @@ class SynchronousServer(Server):
         return self.iterations > self.config["max_iterations"] - 1
 
 
-class BayesianSynchronousServer(BayesianServer):
+class SynchronousServerBayesianHypers(ServerBayesianHypers):
     def __init__(self, model, q, qeps, clients, config=None):
         super().__init__(model, q, qeps, clients, config)
 
