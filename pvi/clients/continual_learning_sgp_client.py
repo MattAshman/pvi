@@ -88,12 +88,14 @@ class ContinualLearningSGPClient(VIClient):
         sb_chol = nn.Parameter(sb_chol, requires_grad=True)
         variational_parameters = [zb, mb, sb_chol]
 
-        # Model parameters. Includes kernel hyperparameters and observation
-        # noise.
-        model_parameters = list(self.model.parameters())
-
-        # Optimise both variational and model parameters.
-        parameters = variational_parameters + model_parameters
+        if self.config["train_model"]:
+            parameters = [
+                {"params": variational_parameters},
+                {"params": self.model.parameters(),
+                 **self.config["model_optimiser_params"]}
+            ]
+        else:
+            parameters = variational_parameters
 
         # Reset optimiser
         logging.info("Resetting optimiser")
@@ -212,9 +214,6 @@ class ContinualLearningSGPClient(VIClient):
                 epoch["kl"] += kl.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
 
-                epoch_iter.set_postfix(elbo=-loss.item(), kl=kl.item(),
-                                       ll=ll.item())
-
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
@@ -225,6 +224,10 @@ class ContinualLearningSGPClient(VIClient):
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
                              f"Epochs: {i}.")
+
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"],
+                                   outputscale=self.model.kernel.outputscale.item())
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
@@ -471,9 +474,6 @@ class ContinualLearningSGPClientBayesianHypers(VIClientBayesianHypers):
                 epoch["kleps"] += kleps.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
 
-                epoch_iter.set_postfix(elbo=-loss.item(), kl=kl.item(),
-                                       ll=ll.item())
-
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
@@ -486,6 +486,9 @@ class ContinualLearningSGPClientBayesianHypers(VIClientBayesianHypers):
                              f"KL: {epoch['kl']:.3f}, "
                              f"KL eps: {epoch['kleps']:.3f}, "
                              f"Epochs: {i}.")
+
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"])
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)

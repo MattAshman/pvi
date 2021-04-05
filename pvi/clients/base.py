@@ -42,8 +42,11 @@ class PVIClient(ABC):
     def config(self, config):
         self._config = {**self._config, **config}
 
-    def get_default_config(self):
+    @classmethod
+    def get_default_config(cls):
         return {
+            "train_model": False,
+            "model_optimiser_params": {"lr": 1e-2},
             "damping_factor": 1.,
             "valid_factors": False,
             "epochs": 1,
@@ -92,11 +95,26 @@ class PVIClient(ABC):
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = q.non_trainable_copy()
-           
-        # Reset optimiser. Only parameters are those of q(θ).
+
+        # TODO: remove this, but check if prevents divergence.
+        q_cav = q.non_trainable_copy()
+        q_cav.nat_params = {k: v - self.t.nat_params[k]
+                            for k, v in q_cav.nat_params.items()}
+
+        # Parameters are those of q(θ) and self.model.
+        if self.config["train_model"]:
+            parameters = [
+                {"params": q.parameters()},
+                {"params": self.model.parameters(),
+                 **self.config["model_optimiser_params"]}
+            ]
+        else:
+            parameters = q.parameters()
+
+        # Reset optimiser.
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
-            q.parameters(), **self.config["optimiser_params"])
+            parameters, **self.config["optimiser_params"])
         
         # Set up data
         x = self.data["x"]
@@ -137,7 +155,11 @@ class PVIClient(ABC):
                 }
                 
                 # Compute KL divergence between q and q_old.
-                kl = q.kl_divergence(q_old).sum() / len(x)
+                # kl = q.kl_divergence(q_old).sum() / len(x)
+
+                # Compute KL divergence between q and q_cav.
+                # TODO: q_cav is potentially an invalid distribution.
+                kl = q.kl_divergence(q_cav).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
@@ -145,10 +167,12 @@ class PVIClient(ABC):
                 ll /= len(x_batch)
 
                 # Compute E_q[log t(θ)].
-                logt = self.t.eqlogt(q) / len(x)
+                logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                logt /= len(x)
 
                 # Negative local Free Energy is KL minus log-probability
-                loss = kl - ll + logt
+                # loss = kl - ll + logt
+                loss = kl - ll
                 loss.backward()
                 optimiser.step()
 
@@ -223,7 +247,8 @@ class PVIClientBayesianHypers(ABC):
     def config(self, config):
         self._config = {**self._config, **config}
 
-    def get_default_config(self):
+    @classmethod
+    def get_default_config(cls):
         return {
             "damping_factor": 1.,
             "valid_factors": False,
@@ -427,12 +452,15 @@ class VIClient:
     def config(self, config):
         self._config = {**self._config, **config}
 
-    def get_default_config(self):
+    @classmethod
+    def get_default_config(cls):
         return {
+            "train_model": False,
+            "model_optimiser_params": {"lr": 1e-2},
             "epochs": 1,
             "batch_size": 100,
             "optimiser": "Adam",
-            "optimiser_params": {"lr": 0.05},
+            "optimiser_params": {"lr": 5e-2},
             "num_elbo_hyper_samples": 1,
             "num_elbo_samples": 10,
             "print_epochs": 1,
@@ -470,13 +498,23 @@ class VIClient:
         # Cannot update during optimisation.
         self._can_update = False
 
-        # Old posterior = prior, make non-trainable.
+        # Prior = old posterior, make non-trainable.
         p = q.non_trainable_copy()
 
-        # Reset optimiser. Parameters to be optimised are those of q(θ).
+        # Parameters are those of q(θ) and self.model.
+        if self.config["train_model"]:
+            parameters = [
+                {"params": q.parameters()},
+                {"params": self.model.parameters(),
+                 **self.config["model_optimiser_params"]}
+            ]
+        else:
+            parameters = q.parameters()
+
+        # Reset optimiser.
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
-            q.parameters(), **self.config["optimiser_params"])
+            parameters, **self.config["optimiser_params"])
 
         # Set up data
         x = self.data["x"]
@@ -585,7 +623,8 @@ class VIClientBayesianHypers:
     def config(self, config):
         self._config = {**self._config, **config}
 
-    def get_default_config(self):
+    @classmethod
+    def get_default_config(cls):
         return {
             "epochs": 1,
             "batch_size": 100,
