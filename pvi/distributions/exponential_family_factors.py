@@ -47,7 +47,7 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         loc = q.std_params["loc"]
         scale = q.std_params["scale"]
 
-        eqlogt = np1.dot(loc) + np2.dot(scale ** 2)
+        eqlogt = np1.dot(loc) + np2.dot(scale ** 2 + loc ** 2)
 
         return eqlogt
 
