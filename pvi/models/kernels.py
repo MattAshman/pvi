@@ -78,9 +78,9 @@ class BayesianKernel(GPyTorchKernel):
 
     @lengthscale.setter
     def lengthscale(self, value):
-        self.set_lengthscale(value)
+        self._set_lengthscale(value)
 
-    def set_lengthscale(self, value):
+    def _set_lengthscale(self, value):
         if not self.has_manual_lengthscale:
             raise RuntimeError("Kernel has no lengthscale.")
 
@@ -168,9 +168,9 @@ class BayesianScaleKernel(BayesianKernel):
 
     @outputscale.setter
     def outputscale(self, value):
-        self.set_outputscale(value)
+        self._set_outputscale(value)
 
-    def set_outputscale(self, value):
+    def _set_outputscale(self, value):
         if not torch.is_tensor(value):
             value = torch.as_tensor(value).to(self.raw_outputscale)
 

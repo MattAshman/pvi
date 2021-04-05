@@ -14,18 +14,16 @@ class LinearRegressionModel(Model, nn.Module):
     
     conjugate_family = MultivariateGaussianDistribution
 
-    def __init__(self, train_hypers=True, **kwargs):
+    def __init__(self, train_sigma=True, **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
         self.register_parameter("output_sigma", nn.Parameter(
             torch.tensor(self.hyperparameters["output_sigma"]),
-            requires_grad=True))
+            requires_grad=train_sigma))
 
-        if train_hypers:
-            # Set ε after model is constructed. This removes them as parameters
-            # enabling them to be either fixed or set manually (by a q(ε)).
-            self.hyperparameters = self.hyperparameters
+        # Set ε after model is constructed.
+        self.hyperparameters = self.hyperparameters
 
     def get_default_nat_params(self):
         return {
@@ -48,7 +46,7 @@ class LinearRegressionModel(Model, nn.Module):
         self._hyperparameters = {**self._hyperparameters, **hyperparameters}
 
         if hasattr(self, "output_sigma"):
-            self.output_sigma = self.hyperparameters["output_sigma"]
+            self.output_sigma.data = self.hyperparameters["output_sigma"]
 
     def get_default_hyperparameters(self):
         """

@@ -14,24 +14,17 @@ class SparseGaussianProcessModel(Model, nn.Module):
     """
     Sparse Gaussian process model.
     """
-    def __init__(self, train_hypers=True, **kwargs):
+    def __init__(self, **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
         # Construct inducing points and kernel.
         if self.config["kernel_class"] is not None:
-            self.kernel = self.config["kernel_class"](
-                **self.config["kernel_params"]
-            )
+            self.kernel = self.config["kernel_class"]()
         else:
             raise ValueError("Kernel class not specified.")
 
-        if train_hypers:
-            # Set ε after model is constructed. This removes them as parameters
-            # enabling them to be either fixed or set manually (by a q(ε)).
-            # TODO: with current default_hyperparameters, this assumes
-            #  kernel_class is ScaleKernel(RBFKernel(**kwargs)).
-            self.hyperparameters = self.hyperparameters
+        self.hyperparameters = self.hyperparameters
 
     def get_default_nat_params(self):
         return {
@@ -66,8 +59,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
         if hasattr(self, "kernel"):
             # Inverse softplus transformation.
-            self.kernel.set_outputscale(self.hyperparameters["outputscale"])
-            self.kernel.base_kernel.set_lengthscale(
+            self.kernel._set_outputscale(self.hyperparameters["outputscale"])
+            self.kernel.base_kernel._set_lengthscale(
                 self.hyperparameters["lengthscale"])
 
     def get_default_hyperparameters(self):
@@ -294,6 +287,13 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
         contribution.
         """
         raise NotImplementedError
+
+    def expected_log_likelihood(self, data, q, num_samples=1):
+        x = data["x"]
+
+        qf = self.posterior(x, q)
+        fs = qf.rsample((num_samples,))
+        return self.likelihood_log_prob(data, fs).mean(0)
 
     def local_free_energy(self, data, q, t=None):
         """
