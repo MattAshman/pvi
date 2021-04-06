@@ -57,7 +57,7 @@ class SynchronousServer(Server):
         self.iterations += 1
 
         # Update hyperparameters.
-        if self.config["train_model"] is not None and \
+        if self.config["train_model"] and \
                 self.iterations % self.config["model_update_freq"] == 0:
             self.update_hyperparameters()
 

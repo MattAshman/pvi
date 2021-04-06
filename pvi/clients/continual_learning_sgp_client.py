@@ -488,7 +488,7 @@ class ContinualLearningSGPClientBayesianHypers(VIClientBayesianHypers):
                              f"Epochs: {i}.")
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"])
+                                   kleps=epoch["kleps"], ll=epoch["ll"])
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)

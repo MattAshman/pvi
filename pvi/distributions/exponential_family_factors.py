@@ -39,7 +39,7 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         
         return npf
 
-    def eqlogt(self, q):
+    def eqlogt(self, q, num_samples=1):
 
         np1 = self.nat_params["np1"]
         np2 = self.nat_params["np2"]

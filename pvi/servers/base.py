@@ -104,7 +104,7 @@ class Server(ABC):
         vfe.backward()
 
         # Update model parameters, and pass to clients.
-        for name, param in self.model.named_parameters():
+        for param in self.model.parameters():
             param.data += self.config["hyper_lr"] * param.grad
 
         for client in self.clients:
@@ -122,10 +122,10 @@ class Server(ABC):
                                        is_trainable=False)
 
         parameters = {k: v.data for k, v in self.model.named_parameters()}
-        # logger.debug(f"Updated model hyperparameters."
-        #              f"\nNew model hyperparameters:\n{parameters}\n.")
-        print(f"Updated model hyperparameters."
-              f"\nNew model hyperparameters:\n{parameters}\n.")
+        logger.debug(f"Updated model hyperparameters."
+                     f"\nNew model hyperparameters:\n{parameters}\n.")
+        # print(f"Updated model hyperparameters."
+        #       f"\nNew model hyperparameters:\n{parameters}\n.")
 
         return
 

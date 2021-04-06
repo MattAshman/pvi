@@ -18,18 +18,15 @@ class ContinualLearningServer(Server):
         self.log["communications"].append(self.communications)
 
         if self.config["train_model"]:
-            self.log["model_parameters"].append(
-                {k: v.detach().clone()
-                 for k, v in self.model.named_parameters()})
-            self.log["model"].append(copy.deepcopy(self.model))
+            self.log["model_state_dict"].append(self.model.state_dict())
 
             for client in self.clients:
+                # Ensure clients know to train the model.
                 client.config["train_model"] = True
                 client.config["model_optimiser_params"] = \
                     self.config["model_optimiser_params"]
 
-                # TODO: causes issues when each client has it's own inducing
-                #  locations...
+                # Tie model hyperparameters together.
                 client.model = self.model
 
     def get_default_config(self):
@@ -53,10 +50,7 @@ class ContinualLearningServer(Server):
             self.log["communications"].append(self.communications)
 
             if self.config["train_model"]:
-                self.log["model_parameters"].append(
-                    {k: v.detach().clone()
-                     for k, v in self.model.named_parameters()})
-                self.log["model"].append(copy.deepcopy(self.model))
+                self.log["model_state_dict"].append(self.model.state_dict())
 
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
