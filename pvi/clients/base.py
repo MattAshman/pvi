@@ -80,6 +80,8 @@ class Client(ABC):
         x = self.data["x"]
         y = self.data["y"]
         
+        num_data = self.data["x"].shape[0]
+        
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
                             batch_size=hyper["batch_size"],
@@ -116,11 +118,12 @@ class Client(ABC):
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
                 ll = self.model.likelihood_log_prob(
-                    batch, thetas).mean(0).sum()
-                ll = ll - self.t(thetas).mean(0).sum()
+                    batch, thetas).mean(0).mean()
+                ll = num_data * ll - self.t(thetas).mean(0).sum()
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll
+                loss = loss / num_data
                 loss.backward()
                 optimiser.step()
 
