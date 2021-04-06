@@ -97,7 +97,7 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         
         np1 = self.nat_params["np1"]
         np2 = self.nat_params["np2"]
-        
+
         npf = torch.mv(thetas, np1)
         npf = npf + torch.sum(thetas * torch.mm(thetas, np2), dim=1)
         
@@ -123,4 +123,3 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         dist = torch.distributions.MultivariateNormal(**std)
         
         return dist
-        

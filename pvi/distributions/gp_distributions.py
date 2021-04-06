@@ -1,3 +1,9 @@
+"""
+Identical to the multivariate Gaussian distributions in exponential_family_*.py
+files, except they maintain their own inducing locations at which they are
+defined.
+"""
+
 from pvi.distributions.exponential_family_distributions import \
     MultivariateGaussianDistribution
 from pvi.distributions.exponential_family_factors import \
@@ -36,26 +42,22 @@ class MultivariateGaussianDistributionWithZ(MultivariateGaussianDistribution):
             self._inducing_locations = value
 
     def non_trainable_copy(self):
-        # Prevents unecessary computation of std_params or nat_params when
-        # creating a copy.
+
         if self.is_trainable:
             nat_params = None
-            std_params = self._std_from_unc(self._unc_params)
-            for k, v in std_params.items():
-                std_params[k] = v.detach().clone()
+            std_params = {k: v.detach().clone()
+                          for k, v in self.std_params.items()}
 
         else:
             if self._std_params is not None:
-                std_params = {}
-                for k, v in self.std_params.items():
-                    std_params[k] = v.detach().clone()
+                std_params = {k: v.detach().clone()
+                              for k, v in self.std_params.items()}
             else:
                 std_params = None
 
             if self._nat_params is not None:
-                nat_params = {}
-                for k, v in self.nat_params.items():
-                    nat_params[k] = v.detach().clone()
+                nat_params = {k: v.detach().clone()
+                              for k, v in self.nat_params.items()}
             else:
                 nat_params = None
 
@@ -68,26 +70,22 @@ class MultivariateGaussianDistributionWithZ(MultivariateGaussianDistribution):
                           is_trainable=False)
 
     def trainable_copy(self):
-        # Prevents unecessary computation of std_params or nat_params when
-        # creating a copy.
+
         if self.is_trainable:
             nat_params = None
-            std_params = self._std_from_unc(self._unc_params)
-            for k, v in std_params.items():
-                std_params[k] = v.detach().clone()
+            std_params = {k: v.detach().clone()
+                          for k, v in self.std_params.items()}
 
         else:
             if self._std_params is not None:
-                std_params = {}
-                for k, v in self.std_params.items():
-                    std_params[k] = v.detach().clone()
+                std_params = {k: v.detach().clone()
+                              for k, v in self.std_params.items()}
             else:
                 std_params = None
 
             if self._nat_params is not None:
-                nat_params = {}
-                for k, v in self.nat_params.items():
-                    nat_params[k] = v.detach().clone()
+                nat_params = {k: v.detach().clone()
+                              for k, v in self.nat_params.items()}
             else:
                 nat_params = None
 

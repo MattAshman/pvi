@@ -2,33 +2,45 @@ import logging
 import torch
 
 from tqdm.auto import tqdm
-from torch import distributions
+from torch import distributions, nn
 from torch.utils.data import TensorDataset, DataLoader
-from pvi.clients.base import Client
-from pvi.utils.psd_utils import psd_inverse, add_diagonal, safe_cholesky
-from pvi.models.private_sgp import PrivateSparseGaussianProcessRegression
+from pvi.clients.base import ContinualLearningClient
+from pvi.utils.psd_utils import psd_inverse, add_diagonal
+from pvi.models.sgp import SparseGaussianProcessRegression
+from pvi.distributions.gp_distributions import \
+    MultivariateGaussianDistributionWithZ
 
 logger = logging.getLogger(__name__)
 
-JITTER = 1e-4
+JITTER = 1e-6
 
 
-class StreamingSGPClient(Client):
-    def __init__(self, data, model, t):
-        super().__init__(data, model, t)
+class StreamingSGPClient(ContinualLearningClient):
+    def __init__(self, data, model, inducing_locations):
+        super().__init__(data, model)
+
+        # Private inducing locations Z_b.
+        self.inducing_locations = inducing_locations
 
     def fit(self, q):
         """
         Computes a refined posterior and its associated approximating
         likelihood term. This method is called directly by the server.
         """
-
         # Compute new posterior (ignored) and approximating likelihood term
-        q, self.t = self.gradient_based_update(q)
+        q = self.gradient_based_update(q)
 
         return q
 
     def gradient_based_update(self, q):
+        """
+        The gradient based update in the streaming SGP setting involves
+        completely overhalling the current approximate posterior q with new
+        inducing points, hence we override the default gradient_based_update
+        function.
+        :param q: The current approximate posterior, q(a | Z_a).
+        :return q_new: The new approximate posterior, q(a, b | Z_a, Z_b).
+        """
         hyper = self.model.hyperparameters
 
         # Cannot update during optimisation.
@@ -43,28 +55,14 @@ class StreamingSGPClient(Client):
                             batch_size=hyper["batch_size"],
                             shuffle=True)
 
-        # TODO: How do we constrain these such that q(a, b) is a valid
-        #  distribution? For now just ensure t(b) is a valid distribution,
-        #  although note that it does not have to be.
-        t = type(q)(
-            inducing_locations=self.t.inducing_locations.clone(),
-            nat_params={
-                "np1": self.t.nat_params["np1"].clone(),
-                "np2": self.t.nat_params["np2"].clone(),
-            },
-            is_trainable=True,
-            train_inducing=self.t.train_inducing,
-        )
-        zb = t.inducing_locations
-
-        # Reset optimiser
-        logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, hyper["optimiser"])(
-            t.parameters(), **hyper["optimiser_params"])
-
         # Copy current approximate posterior, ensuring non-trainable.
         qa = q.non_trainable_copy()
         za = qa.inducing_locations
+
+        # Parameterise as q(b | a) N(b; mb + Aa, Sb), initialised as
+        # q(b | a) = p(b | a).
+        zb = self.inducing_locations
+        mb = torch.zeros(len(zb))
 
         if za is not None:
             # Fixed during optimisation.
@@ -74,6 +72,36 @@ class StreamingSGPClient(Client):
             kaa = add_diagonal(self.model.kernel(za, za).evaluate().detach(),
                                JITTER)
             ikaa = psd_inverse(kaa)
+            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
+                               JITTER)
+            kba = self.model.kernel(zb, za).evaluate().detach()
+            # Initialise Sb = Kbb - Kba Kaa^{-1} Kab.
+            sb = kbb - kba.matmul(ikaa).matmul(kba.T)
+            sb_chol = torch.cholesky(sb)
+        else:
+            # Initialise Sb = Kbb.
+            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
+                               JITTER)
+            sb = kbb
+            sb_chol = torch.cholesky(sb)
+
+        # Variational parameters.
+        zb = nn.Parameter(zb, requires_grad=True)
+        mb = nn.Parameter(mb, requires_grad=True)
+        sb_chol = nn.Parameter(sb_chol, requires_grad=True)
+        variational_parameters = [zb, mb, sb_chol]
+
+        # Model parameters. Includes kernel hyperparameters and observation
+        # noise.
+        model_parameters = list(self.model.parameters())
+
+        # Optimise both variational and model parameters.
+        parameters = variational_parameters + model_parameters
+
+        # Reset optimiser.
+        logging.info("Resetting optimiser")
+        optimiser = getattr(torch.optim, hyper["optimiser"])(
+            parameters, **hyper["optimiser_params"])
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -106,9 +134,15 @@ class StreamingSGPClient(Client):
 
                     F(q(u)) = -KL(q(u) || p(u)) + E_q(u)[log p(y | f)].
 
-                    Just set q(u) = t(b) and Z = Z_b.
+                    Just set q(u) = q(b) and Z = Z_b.
                     """
-                    q = t
+                    q = MultivariateGaussianDistributionWithZ(
+                        inducing_locations=zb,
+                        std_params={
+                            "loc": mb,
+                            "covariance_matrix": sb_chol.matmul(sb_chol.T)
+                        }
+                    )
                     z = zb
 
                 else:
@@ -117,57 +151,36 @@ class StreamingSGPClient(Client):
 
                     q(a, b) ⍺ q(a) p(b | a) t(b)
 
-                    F(q(f)) = -KL(q(a, b) || p(a, b)) + E_q(a, b)[log p(y | f)]    
+                    F(q(f)) = -KL(q(a, b) || p(a, b)) + E_q(a, b)[log p(y | 
+                    f)]    
                                 + terms not depending on t(b) or ε.
 
-                    Just set q(a, b) ⍺ q(a) p(b | a) t(b) and Z = {Z_a, Z_b}
+                    Just set q(a, b) ⍺ q(a) q(b | a) and Z = {Z_a, Z_b}
                     and ignore the terms not depending on t(b) or ε.
                     """
                     z = torch.cat([za, zb], axis=0)
 
-                    # Compute qcav(a, b) = q(a) p(b | a).
-                    qcav_cov = torch.empty(len(z), len(z))
-                    qcav_loc = torch.empty(len(z))
-
-                    kbb = add_diagonal(self.model.kernel(zb, zb).evaluate(),
-                                       JITTER)
-                    kba = self.model.kernel(zb, za).evaluate()
-
+                    kba = self.model.kernel(zb, za).evaluate().detach()
                     a = kba.matmul(ikaa)
-                    qcav_bcov = (kbb - a.matmul(kba.T)
-                                 + a.matmul(qa_cov).matmul(a.T))
-                    qcav_bloc = a.matmul(qa_loc)
 
-                    # Covariance between a and b.
-                    qcav_acovb = qa_cov.matmul(ikaa).matmul(kba.T)
+                    q_loc = torch.empty(len(z))
+                    q_cov = torch.empty(len(z), len(z))
 
-                    # Compute qcav(a, b) = q(a)p(b|a).
-                    qcav_cov[:len(za), :len(za)] = qa_cov
-                    qcav_cov[len(za):, len(za):] = qcav_bcov
-                    qcav_cov[:len(za), len(za):] = qcav_acovb
-                    qcav_cov[len(za):, :len(za)] = qcav_acovb.T
-                    qcav_loc[:len(za)] = qa_loc
-                    qcav_loc[len(za):] = qcav_bloc
+                    q_loc[:len(za)] = qa_loc
+                    q_loc[len(za):] = mb + a.matmul(qa_loc)
 
-                    qcav = type(q)(
-                        inducing_locations=z,
-                        std_params={
-                            "loc": qcav_loc,
-                            "covariance_matrix": qcav_cov,
-                        }
-                    )
-
-                    # Resize natural parameters of t(b).
-                    t_np1 = torch.zeros(len(z))
-                    t_np1[len(za):] = t.nat_params["np1"]
-                    t_np2 = torch.zeros(len(z), len(z))
-                    t_np2[len(za):, len(za):] = t.nat_params["np2"]
+                    q_cov[:len(za), :len(za)] = qa_cov
+                    q_cov[len(za):, len(za):] = (
+                            sb_chol.matmul(sb_chol.T)
+                            + a.matmul(qa_cov).matmul(a.T))
+                    q_cov[len(za):, :len(za)] = a.matmul(qa_cov)
+                    q_cov[:len(za), len(za):] = qa_cov.matmul(a.T)
 
                     q = type(q)(
                         inducing_locations=z,
-                        nat_params={
-                            "np1": t_np1 + qcav.nat_params["np1"],
-                            "np2": t_np2 + qcav.nat_params["np2"]
+                        std_params={
+                            "loc": q_loc,
+                            "covariance_matrix": q_cov
                         },
                     )
 
@@ -188,35 +201,19 @@ class StreamingSGPClient(Client):
 
                 # Compute E_q[log p(y | f)].
                 if (str(type(self.model))
-                        == str(PrivateSparseGaussianProcessRegression)):
+                        == str(SparseGaussianProcessRegression)):
                     """
                     Can compute E_q[log p(y | f)] in closed form:
-                    
+
                     = log N(y; E_q[f], σ^2) - 0.5 / (σ ** 2) Var_q[f].
                     """
-                    kxz = self.model.kernel(x, z).evaluate()
-                    kxx = add_diagonal(self.model.kernel(x, x).evaluate(),
-                                       JITTER)
-
-                    a = kxz.matmul(ikzz)
-                    b = kxx - a.matmul(kxz.T)
-
-                    qf_loc = a.matmul(q.std_params["loc"])
-                    qf_cov = b + a.matmul(
-                        q.std_params["covariance_matrix"]).matmul(a.T)
-
-                    sigma = self.model.outputsigma
-                    dist = self.model.likelihood_forward(qf_loc)
-                    ll1 = dist.log_prob(y.squeeze())
-                    ll2 = -0.5 * sigma ** (-2) * qf_cov.diag()
-                    ll = ll1.sum() + ll2.sum()
+                    ll = self.model.expected_log_likelihood(batch, q)
                 else:
                     """
                     Cannot compute in closed form---use MC estimate instead.
                     """
                     # Parameters of prior.
                     kxz = self.model.kernel(x_batch, z).evaluate()
-                    kzx = kxz.T
                     kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
                                        JITTER)
                     kxx = add_diagonal(
@@ -224,22 +221,17 @@ class StreamingSGPClient(Client):
                         JITTER)
                     ikzz = psd_inverse(kzz)
 
-                    # Predictive posterior.
-                    qu_loc = q.std_params["loc"]
-                    qu_cov = q.std_params["covariance_matrix"]
+                    a = kxz.matmul(ikzz)
+                    c = kxx - a.matmul(kxz.T)
 
-                    qf_loc = kxz.matmul(ikzz).matmul(qu_loc)
-                    qf_cov = kxx + kxz.matmul(
-                        ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx)
-
-                    qf_chol = safe_cholesky(qf_cov, min_eps=1e-8, max_eps=1e-3)
+                    qf_loc = a.matmul(q.std_params["loc"])
+                    qf_cov = c + a.matmul(
+                        q.std_params["covariance_matrix"]).matmul(a.T)
 
                     qf = distributions.MultivariateNormal(
-                        qf_loc, scale_tril=qf_chol)
-
+                        qf_loc, covariance_matrix=qf_cov)
                     fs = qf.rsample(
                         (self.model.hyperparameters["num_elbo_samples"],))
-
                     ll = self.model.likelihood_log_prob(
                         batch, fs).mean(0).sum()
 
@@ -273,17 +265,12 @@ class StreamingSGPClient(Client):
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
 
-        # Put back into factor form.
-        t_new = type(self.t)(
-            inducing_locations=t.inducing_locations.detach().clone(),
-            nat_params={
-                "np1": t.nat_params["np1"].detach().clone(),
-                "np2": t.nat_params["np2"].detach().clone()
-            },
-            train_inducing=self.t.train_inducing,
-        )
+        # Update clients inducing points.
+        self.inducing_locations = zb.detach()
+
+        # Create non_trainable_copy to send back to server.
         q_new = q.non_trainable_copy()
 
         self._can_update = True
 
-        return q_new, t_new
+        return q_new
