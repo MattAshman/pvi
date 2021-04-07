@@ -224,13 +224,13 @@ datasets = {
                         'drop-header'    : True,
                         'remove-missing' : False},
     
-    #'power'          : {'base_url'       : f'{ROOT_URL}/00294/',
-    #                    'zipped'         : True,
-    #                    'zipfile'        : 'CCPP.zip',
-    #                    'files'          : ['CCPP/CCPP/Folds5x2_pp.xlsx'],
-    #                    'delimiter'      : ',',
-    #                    'drop-header'    : True,
-    #                    'remove-missing' : False}
+    'power'          : {'base_url'       : f'{ROOT_URL}/00294/',
+                        'zipped'         : True,
+                        'zipfile'        : 'CCPP.zip',
+                        'files'          : ['CCPP/CCPP/Folds5x2_pp.xlsx'],
+                        'delimiter'      : ',',
+                        'drop-header'    : True,
+                        'remove-missing' : False}
 }
     
     

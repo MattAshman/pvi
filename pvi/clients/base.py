@@ -123,6 +123,8 @@ class Client(ABC):
         x = self.data["x"]
         y = self.data["y"]
         
+        num_data = self.data["x"].shape[0]
+        
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
                             batch_size=self.config["batch_size"],

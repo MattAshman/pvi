@@ -28,7 +28,7 @@ class SequentialServer(Server):
 
         clients_updated = 0
 
-        for i, client in tqdm(enumerate(self.clients), leave=False):
+        for i, client in enumerate(self.clients):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
