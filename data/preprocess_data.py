@@ -26,64 +26,9 @@ from sklearn.preprocessing import OneHotEncoder,  \
 from sklearn.utils import as_float_array
 from sklearn.pipeline import Pipeline
 
-ROOT_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases'
-
-datasets = {
-    
-    'abalone'        : {'base_url'    : f'{ROOT_URL}/abalone/',
-                        'zipped'      : False,
-                        'files'       : ['abalone.data'],
-                        'delimiter'   : ',',
-                        'drop-header' : False},
-    
-    'adult'          : {'base_url'    : f'{ROOT_URL}/adult/',
-                        'zipped'      : False,
-                        'files'       : ['adult.data'],
-                        'delimiter'   : ',',
-                        'drop-header' : False},
-    
-    'mushroom'       : {'base_url'    : f'{ROOT_URL}/mushroom/',
-                        'zipped'      : False,
-                        'files'       : ['agaricus-lepiota.data'],
-                        'delimiter'   : ',',
-                        'drop-header' : False},
-    
-    'credit'         : {'base_url'    : f'{ROOT_URL}/credit-screening/',
-                        'zipped'      : False,
-                        'files'       : ['crx.data'],
-                        'delimiter'   : ',',
-                        'drop-header' : False},
-    
-    'bank'           : {'base_url'    : f'{ROOT_URL}/00222/',
-                        'zipped'      : True,
-                        'zipfile'     : 'bank.zip', 
-                        'files'       : ['bank/bank-full.csv'],
-                        'delimiter'   : ';',
-                        'drop-header' : True},
-    
-    'superconductor' : {'base_url'    : f'{ROOT_URL}/00464/',
-                        'zipped'      : True,
-                        'zipfile'     : 'superconduct.zip', 
-                        'files'       : ['superconduct/train.csv'],
-                        'delimiter'   : ',',
-                        'drop-header' : True},
-    
-    'protein'        : {'base_url'    : f'{ROOT_URL}/00265/',
-                        'zipped'      : False,
-                        'files'       : ['CASP.csv'],
-                        'delimiter'   : ',',
-                        'drop-header' : True},
-    
-    'power'          : {'base_url'    : f'{ROOT_URL}/00294/',
-                        'zipped'      : True,
-                        'zipfile'     : 'CCPP.zip',
-                        'files'       : ['CCPP/CCPP/Folds5x2_pp.xlsx'],
-                        'delimiter'   : ',',
-                        'drop-header' : True}
-}
-
 argparser = argparse.ArgumentParser()
 argparser.add_argument("--dir", dest="dir", required=True, type=str)
+argparser.add_argument("--no-download", dest='no_download', action="store_true")
 args = argparser.parse_args()
 
 
@@ -123,7 +68,7 @@ def download_datasets(root_dir, datasets):
                 zip_handle.extractall(save_location[:-4])
 
         data = []
-        for file_name in info['files']:
+        for i, file_name in enumerate(info['files']):
             
             save_location = f'{data_dir}/{dataset_name}/{file_name}'
 
@@ -131,6 +76,10 @@ def download_datasets(root_dir, datasets):
                 
                 url = f"{base_url}/{file_name}"
                 urllib.request.urlretrieve(url, save_location)
+                
+                if ('post-download' in info) and           \
+                   (info['post-download'][i] is not None):
+                    info['post-download'][i](save_location)
 
             _data = None
             
@@ -145,7 +94,13 @@ def download_datasets(root_dir, datasets):
             _data = _data[1:] if info['drop-header'] else _data
 
             rows_with_missing = np.any(_data == '?', axis=1)
-            data.append(_data[~rows_with_missing, :])
+            print(f'{np.sum(rows_with_missing)}/{rows_with_missing.shape[0]} '
+                  f'rows had missing data\n')
+                
+            if info['remove-missing']:
+                _data = _data[~rows_with_missing, :]
+                
+            data.append(_data)
 
         data = np.concatenate(data, axis=0)
         np.save(f'{data_dir}/{dataset_name}/data.npy', data)
@@ -198,6 +153,85 @@ def process_dataset(data_dir, config):
     
     print(f'Input  shape: {x.shape}')
     print(f'Output shape: {y.shape}')
+
+    
+def adult_preprocess_test_file(file_location):
+    
+    fhandle = open('./data/adult/adult.test', 'r')
+    content_minus_first_line = '\n'.join(fhandle.read().split('\n')[1:])
+    fhandle.close()
+    
+    fhandle = open('./data/adult/adult.test', 'w')
+    fhandle.write(content_minus_first_line)
+    fhandle.close()
+    
+    return
+
+
+ROOT_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases'
+
+datasets = {
+    
+    'abalone'        : {'base_url'       : f'{ROOT_URL}/abalone/',
+                        'zipped'         : False,
+                        'files'          : ['abalone.data'],
+                        'delimiter'      : ',',
+                        'drop-header'    : False,
+                        'remove-missing' : False},
+    
+    'adult'          : {'base_url'       : f'{ROOT_URL}/adult/',
+                        'zipped'         : False,
+                        'files'          : ['adult.data', 'adult.test'],
+                        'delimiter'      : ',',
+                        'drop-header'    : False,
+                        'remove-missing' : False,
+                        'post-download'  : [None, adult_preprocess_test_file]},
+    
+    'mushroom'       : {'base_url'       : f'{ROOT_URL}/mushroom/',
+                        'zipped'         : False,
+                        'files'          : ['agaricus-lepiota.data'],
+                        'delimiter'      : ',',
+                        'drop-header'    : False,
+                        'remove-missing' : False},
+    
+    'credit'         : {'base_url'       : f'{ROOT_URL}/credit-screening/',
+                        'zipped'         : False,
+                        'files'          : ['crx.data'],
+                        'delimiter'      : ',',
+                        'drop-header'    : False,
+                        'remove-missing' : True},
+    
+    'bank'           : {'base_url'       : f'{ROOT_URL}/00222/',
+                        'zipped'         : True,
+                        'zipfile'        : 'bank.zip', 
+                        'files'          : ['bank/bank-full.csv'],
+                        'delimiter'      : ';',
+                        'drop-header'    : True,
+                        'remove-missing' : False},
+    
+    'superconductor' : {'base_url'       : f'{ROOT_URL}/00464/',
+                        'zipped'         : True,
+                        'zipfile'        : 'superconduct.zip', 
+                        'files'          : ['superconduct/train.csv'],
+                        'delimiter'      : ',',
+                        'drop-header'    : True,
+                        'remove-missing' : False},
+    
+    'protein'        : {'base_url'       : f'{ROOT_URL}/00265/',
+                        'zipped'         : False,
+                        'files'          : ['CASP.csv'],
+                        'delimiter'      : ',',
+                        'drop-header'    : True,
+                        'remove-missing' : False},
+    
+    #'power'          : {'base_url'       : f'{ROOT_URL}/00294/',
+    #                    'zipped'         : True,
+    #                    'zipfile'        : 'CCPP.zip',
+    #                    'files'          : ['CCPP/CCPP/Folds5x2_pp.xlsx'],
+    #                    'delimiter'      : ',',
+    #                    'drop-header'    : True,
+    #                    'remove-missing' : False}
+}
     
     
     
@@ -266,6 +300,8 @@ power_config = {
 # Adult dataset
 def adult_output_generator(y):
     oe = OrdinalEncoder()
+    y[y == " <=50K."] = " <=50K"
+    y[y == " >50K."] = " >50K"
     return oe.fit_transform(y)
 
 adult_config = {
@@ -320,7 +356,8 @@ bank_config = {
 # Download and preprocess data
 # =========================================================================
 
-download_datasets(f"{args.dir}/", datasets)
+if not args.no_download:
+    download_datasets(f"{args.dir}/", datasets)
 
 
 print("Processing abalone dataset")
