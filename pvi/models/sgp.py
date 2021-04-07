@@ -225,7 +225,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
             q_new = type(q)(inducing_locations=z, nat_params=q_new_nps,
                             is_trainable=False)
-            return q_new
+            return q_new, None
 
         else:
             # New model parameters.

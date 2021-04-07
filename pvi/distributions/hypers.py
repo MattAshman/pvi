@@ -62,11 +62,12 @@ class HyperparameterFactor:
         """
         self.factors = factors
 
-    def compute_refined_factor(self, q1, q2):
+    def compute_refined_factor(self, q1, q2, damping=1., valid_dist=False):
         return type(self)(
             factors={
-                k: v.compute_refined_factor(q1.distributions[k],
-                                            q2.distributions[k])
+                k: v.compute_refined_factor(
+                    q1.distributions[k], q2.distributions[k], damping=damping,
+                    valid_dist=valid_dist)
                 for k, v in self.factors.items()
             }
         )
@@ -84,9 +85,9 @@ class HyperparameterFactor:
     def npf(self, thetas):
         return {k: v.npf(thetas[k]) for k, v in self.factors.items()}
 
-    def eqlogt(self, q):
-        raise {k: v.eqlogt(q.distributions[k])
-               for k, v in self.factors.items()}
+    def eqlogt(self, q, num_samples=1):
+        return {k: v.eqlogt(q.distributions[k], num_samples)
+                for k, v in self.factors.items()}
 
     def nat_from_dist(self, q):
         return {k: v.nat_from_dist(q.distributions[k])
