@@ -30,20 +30,23 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
     
     
     @abstractmethod
-    def pred_dist_from_tensor(self, tensor):
+    def pred_dist_from_tensor(self, tensor, samples_first):
         pass
     
         
     @property
     def sizes(self):
         return [np.prod(shape) for shape in self.shapes]
+    
+    @property
+    def num_parameters(self):
+        return sum(self.sizes)
 
     
     @staticmethod
     def get_default_hyperparameters():
         
         default_hyperparameters = {
-            "D"                        : None,
             "optimiser_class"          : torch.optim.Adam,
             "optimiser_params"         : {"lr": 1e-3},
             "reset_optimiser"          : True,
@@ -58,33 +61,33 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         
     def get_default_nat_params(self):
         
-        num_params = sum(self.sizes)
-        
         default_nat_params = {
-            "np1" : torch.zeros(size=(num_params,)),
-            "np2" : -0.5 * 1e6 * torch.ones(size=(num_params,))
+            "np1" : torch.zeros(size=(self.num_parameters,)),
+            "np2" : -0.5 * 1e6 * torch.ones(size=(self.num_parameters,))
         }
         
         return default_nat_params
     
 
-    def forward(self, x, q):
+    def forward(self, x, q, model_predict=False):
         
         # Number of θ samples to draw
         num_pred_samples = self.hyperparameters["num_predictive_samples"]
         theta = q.distribution.sample((num_pred_samples,))
 
         # Collection of output distributions, one for each θ, x pair
-        pred_dist = self.likelihood_forward(x, theta)
+        # Distribution assumed to be of shape (S, N, D)
+        pred_dist = self.likelihood_forward(x, theta, samples_first=False)
         
         # Predictive is a mixture of predictive distributions with equal weights
-        mix_prop = torch.distributions.Categorical(torch.ones(size=(len(theta),)))
+        equal_logits = torch.ones(size=(pred_dist.logits.shape[:2]))
+        mix_prop = torch.distributions.Categorical(logits=equal_logits)
         pred_dist = torch.distributions.MixtureSameFamily(mix_prop, pred_dist)
 
         return pred_dist
     
 
-    def likelihood_forward(self, x, theta):
+    def likelihood_forward(self, x, theta, samples_first=True):
         
         assert len(x.shape) in [1, 2], "x must be (N, D)."
         assert len(theta.shape) in [1, 2], "theta must be (S, K)."
@@ -103,14 +106,13 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         
         for i, (W, b) in enumerate(theta):
             
-            print(tensor.shape, W.shape)
             tensor = torch.einsum('sni, sij -> snj', tensor, W)
             tensor = tensor + b[:, None, :]
             
-            if i < len(theta) - 2:
+            if i < len(theta) - 1:
                 tensor = torch.nn.ReLU()(tensor)
 
-        return self.pred_dist_from_tensor(tensor)
+        return self.pred_dist_from_tensor(tensor, samples_first=samples_first)
     
     
     def reshape_theta(self, theta):
@@ -119,7 +121,7 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         S = theta.shape[0]
         
         # Check total number of parameters in network equals size of theta
-        assert sum(self.sizes) == theta.shape[-1]
+        assert self.num_parameters == theta.shape[-1]
         
         # Indices to slice the theta tensor at
         slices = np.cumsum([0] + self.sizes)
@@ -143,14 +145,9 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
 # =============================================================================
 # Two layer regression BNN
 # =============================================================================
-
-
-# =============================================================================
-# Two layer classification BNN
-# =============================================================================
         
         
-class TwoLayerClassificationBNN(FullyConnectedBNN):
+class TwoLayerRegressionBNN(FullyConnectedBNN):
     
     
     def __init__(self, **kwargs):
@@ -181,4 +178,42 @@ class TwoLayerClassificationBNN(FullyConnectedBNN):
         scale = torch.exp(tensor[:, :, self.output_dim:])
         
         return torch.distributions.normal.Normal(loc=loc, scale=scale)
+
+
+# =============================================================================
+# Two layer classification BNN
+# =============================================================================
+        
+        
+class TwoLayerClassificationBNN(FullyConnectedBNN):
+    
+    
+    def __init__(self, **kwargs):
+        
+        super().__init__(**kwargs)
+        
+        self.input_dim = self.hyperparameters['D']
+        self.latent_dim = self.hyperparameters['latent_dim']
+        self.output_dim = self.hyperparameters['output_dim']
+        
+        
+    @property
+    def shapes(self):
+        
+        shapes = [(self.input_dim, self.latent_dim),
+                  (self.latent_dim,),
+                  (self.latent_dim, self.latent_dim),
+                  (self.latent_dim,),
+                  (self.latent_dim, self.output_dim),
+                  (self.output_dim,)]
+        
+        return shapes
+    
+    
+    def pred_dist_from_tensor(self, tensor, samples_first=True):
+        
+        if not samples_first:
+            tensor = torch.transpose(tensor, 0, 1)
+        
+        return torch.distributions.Categorical(logits=tensor)
     
