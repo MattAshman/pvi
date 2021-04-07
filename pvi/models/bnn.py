@@ -3,41 +3,7 @@ import torch
 from torch import nn
 
 from pvi.models.base import Model
-
-
-
-class FullyConnectedNetwork(nn.Module):
-    
-    def __init__(self,
-                 input_dim,
-                 output_dim,
-                 hidden_dims,
-                 nonlinearity):
-        
-        super().__init__()
-        
-        shapes = [input_dim] + hidden_dims + [output_dim]
-        shapes = [(s1, s2) for s1, s2 in zip(shapes[:-1], shapes[1:])]
-        
-        self.W = []
-        self.b = []
-        self.num_linear = len(hidden_dims) + 1
-        
-        for shape in shapes:
-
-            W = nn.Parameter(torch.randn(size=shape) / shape[0] ** 0.5)
-            b = nn.Parameter(torch.randn(size=shape[1:]))
-
-            self.W.append(W)
-            self.b.append(b)
-            
-        self.W = torch.nn.ParameterList(self.W)
-        self.b = torch.nn.ParameterList(self.b)
-        
-        self.nonlinearity = getattr(nn, nonlinearity)()
-
-
-
+from abstractbaseclass import ABC
 
 
 # =============================================================================
