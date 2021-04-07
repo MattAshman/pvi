@@ -3,6 +3,7 @@ import torch
 from torch import nn
 
 from pvi.models.base import Model
+
 from abc import ABC, abstractmethod, abstractproperty
 
 
@@ -104,7 +105,7 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
             tensor = tensor + b[:, None, :]
             
             if i < len(thetas) - 2:
-                tensor = self.nonlinearity(tensor)
+                tensor = torch.nn.ReLU(tensor)
 
         return self.pred_dist_from_tensor(tensor)
     
@@ -156,12 +157,16 @@ class TwoLayerClassificationBNN(FullyConnectedBNN):
         
     def shapes(self):
         
-        shapes = [(self.input_dim, self.latent_dim),
-                  (self.latent_dim),
-                  (self.latent_dim, self.latent_dim),
-                  (self.latent_dim),
-                  (self.latent_dim, 2 * self.output_dim),
-                  (2 * self.output_dim)]
+        input_dim = self.hyperparameters['D']
+        latent_dim = self.hyperparameters['latent_dim']
+        output_dim = self.hyperparameters['latent_dim']
+        
+        shapes = [(input_dim, latent_dim),
+                  (latent_dim,),
+                  (latent_dim, latent_dim),
+                  (latent_dim,),
+                  (latent_dim, 2 * output_dim),
+                  (2 * output_dim,)]
         
         return shapes
     
