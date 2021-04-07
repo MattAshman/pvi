@@ -3,7 +3,7 @@ import torch
 from torch import nn
 
 from pvi.models.base import Model
-from abstractbaseclass import ABC
+from abc import ABC, abstractmethod, abstractproperty
 
 
 # =============================================================================
@@ -154,7 +154,6 @@ class TwoLayerClassificationBNN(FullyConnectedBNN):
         super().__init__(**kwargs)
         
         
-    @abstractproperty
     def shapes(self):
         
         shapes = [(self.input_dim, self.latent_dim),
@@ -167,7 +166,6 @@ class TwoLayerClassificationBNN(FullyConnectedBNN):
         return shapes
     
     
-    @abstractmethod
     def pred_dist_from_tensor(self, tensor):
         
         loc = tensor[:, :, :self.output_dim]
