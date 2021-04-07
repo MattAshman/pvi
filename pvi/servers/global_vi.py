@@ -15,9 +15,9 @@ logger = logging.getLogger(__name__)
 
 
 class GlobalVIServer(Server):
-    def __init__(self, model, q, clients, hyperparameters=None,
+    def __init__(self, model, q, clients, config=None,
                  homogenous_split=False):
-        super().__init__(model, q, clients, hyperparameters)
+        super().__init__(model, q, clients, config)
 
         # Global VI server has access to the entire dataset.
         self.data = {k: torch.cat([client.data[k] for client in self.clients],
@@ -33,10 +33,18 @@ class GlobalVIServer(Server):
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
-    def get_default_hyperparameters(self):
+    def get_default_config(self):
         return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
+            "train_model": False,
+            "model_optimiser_params": {"lr": 1e-2},
             "max_iterations": 1,
+            "epochs": 1,
+            "batch_size": 100,
+            "optimiser": "Adam",
+            "optimiser_params": {"lr": 0.05},
+            "num_elbo_samples": 10,
+            "print_epochs": 1
         }
 
     def tick(self):
@@ -46,7 +54,22 @@ class GlobalVIServer(Server):
         if self.should_stop():
             return False
 
-        model_hypers = self.model.hyperparameters
+        p = self.q.non_trainable_copy()
+        q = self.q.trainable_copy()
+
+        # Parameters are those of q(θ) and self.model.
+        if self.config["train_model"]:
+            parameters = [
+                {"params": q.parameters()},
+                {"params": self.model.parameters(),
+                 **self.config["model_optimiser_params"]}
+            ]
+        else:
+            parameters = q.parameters()
+
+        logging.info("Resetting optimiser")
+        optimiser = getattr(torch.optim, self.config["optimiser"])(
+            parameters, **self.config["optimiser_params"])
 
         # Set up data: global VI server can access the entire dataset.
 
@@ -58,15 +81,15 @@ class GlobalVIServer(Server):
             # Shuffle data.
             tensor_dataset = TensorDataset(x, y)
             loader = DataLoader(tensor_dataset,
-                                batch_size=model_hypers["batch_size"],
+                                batch_size=self.config["batch_size"],
                                 shuffle=True)
         else:
             # Inhomogenous split: order matters.
-            m = model_hypers["batch_size"]
+            m = self.config["batch_size"]
             data = defaultdict(list)
             for client in self.clients:
                 # Chunk clients data into batch size.
-                data = {k: data[k] + [v[i:i+m] for i in range(
+                data = {k: data[k] + [v[i:i + m] for i in range(
                     0, len(client.data["x"]), m)]
                         for k, v in client.data.items()}
 
@@ -83,19 +106,11 @@ class GlobalVIServer(Server):
             "elbo": [],
             "kl": [],
             "ll": [],
-            "communications": [],
         }
 
-        p = self.q.non_trainable_copy()
-        q = self.q.trainable_copy()
-
-        logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, model_hypers["optimiser"])(
-            q.parameters(), **model_hypers["optimiser_params"])
-
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(model_hypers["epochs"]), desc="Epochs")
-        # for i in range(model_hypers["epochs"]):
+        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
+        # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = {
                 "elbo": 0,
@@ -117,14 +132,8 @@ class GlobalVIServer(Server):
                 kl = q.kl_divergence(p).sum() / len(self.data["x"])
 
                 # Compute E_q[log p(y | x, θ)].
-                if str(type(q)) == str(self.model.conjugate_family):
-                    ll = self.model.expected_log_likelihood(batch, q).sum()
-                else:
-                    thetas = q.rsample(
-                        (model_hypers["num_elbo_samples"],))
-                    ll = self.model.likelihood_log_prob(
-                        batch, thetas).mean(0).sum()
-
+                ll = self.model.expected_log_likelihood(
+                    batch, q, self.config["num_elbo_samples"]).sum()
                 ll /= len(x_batch)
 
                 # Negative local Free Energy is KL minus log-probability
@@ -134,9 +143,9 @@ class GlobalVIServer(Server):
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item()
-                epoch["kl"] += kl.item()
-                epoch["ll"] += ll.item()
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                    ll=epoch["ll"])
@@ -146,7 +155,7 @@ class GlobalVIServer(Server):
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % model_hypers["print_epochs"] == 0:
+            if i % self.config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
@@ -166,4 +175,4 @@ class GlobalVIServer(Server):
         self.log["training_curves"].append(training_curve)
 
     def should_stop(self):
-        return self.iterations > self.hyperparameters["max_iterations"] - 1
+        return self.iterations > self.config["max_iterations"] - 1

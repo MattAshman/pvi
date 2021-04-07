@@ -1,10 +1,12 @@
 import torch
+import numpy as np
 
 from torch import distributions, nn, optim
+from gpytorch.kernels import ScaleKernel, RBFKernel
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
-from pvi.distributions.gp_distributions import \
-    MultivariateGaussianDistributionWithZ
+from pvi.distributions import MultivariateGaussianDistributionWithZ, \
+    MultivariateGaussianDistribution
 
 JITTER = 1e-6
 
@@ -18,25 +20,30 @@ class SparseGaussianProcessModel(Model, nn.Module):
         nn.Module.__init__(self)
 
         # Construct inducing points and kernel.
-        if self.hyperparameters["kernel_class"] is not None:
-            self.kernel = self.hyperparameters["kernel_class"](
-                **self.hyperparameters["kernel_params"]
-            )
+        if self.config["kernel_class"] is not None:
+            self.kernel = self.config["kernel_class"](
+                **self.config["kernel_params"])
         else:
             raise ValueError("Kernel class not specified.")
 
+        self.hyperparameters = self.hyperparameters
+
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.] * self.hyperparameters["num_inducing"]),
+            "np1": torch.tensor([0.] * self.config["num_inducing"]),
             "np2": torch.tensor(
-                [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
+                [-.5] * self.config["num_inducing"]).diag_embed()
         }
 
-    @staticmethod
-    def get_default_hyperparameters():
+    def get_default_config(self):
         return {
             "D": None,
             "num_inducing": 50,
+            "kernel_class": lambda **kwargs: ScaleKernel(RBFKernel(**kwargs)),
+            "kernel_params": {
+                "outputscale": 1.,
+                "lengthscale": 1.
+            },
             "optimiser_class": optim.Adam,
             "optimiser_params": {"lr": 1e-3},
             "reset_optimiser": True,
@@ -44,11 +51,61 @@ class SparseGaussianProcessModel(Model, nn.Module):
             "print_epochs": 10
         }
 
-    def posterior(self, x, q):
+    @property
+    def hyperparameters(self):
+        return self._hyperparameters
+
+    @hyperparameters.setter
+    def hyperparameters(self, hyperparameters):
+        self._hyperparameters = {**self._hyperparameters, **hyperparameters}
+
+        if hasattr(self, "kernel"):
+            # Inverse softplus transformation.
+            self.kernel._set_outputscale(self.hyperparameters["outputscale"])
+            self.kernel.base_kernel._set_lengthscale(
+                self.hyperparameters["lengthscale"])
+
+    def get_default_hyperparameters(self):
+        """
+        :return: A default set of ε for the model.
+        """
+        return {
+            "outputscale": torch.tensor(1.),
+            "lengthscale": torch.tensor(1.),
+        }
+
+    def prior(self, q=None, z=None, detach=False):
+        """
+        Returns the prior distribution p(u | z) at locations z.
+        :param q: q(u), containing z = q.inducing_locations if not specified.
+        :param z: Input locations to evaluate the prior.
+        :param detach: Detach gradients before constructing q(u).
+        :return: The prior p(u) = N(z; 0, Kzz).
+        """
+        assert not (q is not None and z is not None), "Must specify either " \
+                                                      "q or z."
+        if z is None:
+            z = q.inducing_locations
+
+        kzz = add_diagonal(self.kernel(z, z).evaluate(), JITTER)
+        std = {
+            "loc": torch.zeros(z.shape[0]),
+            "covariance_matrix": kzz,
+        }
+
+        if detach:
+            std = {k: v.detach() for k, v in std.items()}
+
+        return MultivariateGaussianDistributionWithZ(
+            std_params=std, inducing_locations=z, is_trainable=False,
+            train_inducing=False)
+
+    def posterior(self, x, q, diag=True):
         """
         Returns the  posterior distribution q(f) at locations x.
         :param x: The input locations to make predictions at.
         :param q: The approximate posterior distribution q(u).
+        :param diag: Whether to return marginal posterior distribution.
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
         qu_loc = q.std_params["loc"]
@@ -59,17 +116,30 @@ class SparseGaussianProcessModel(Model, nn.Module):
         kxz = self.kernel(x, z).evaluate()
         kzx = kxz.T
         kzz = add_diagonal(self.kernel(z, z).evaluate(), JITTER)
-        kxx = add_diagonal(self.kernel(x, x).evaluate(), JITTER)
-
         ikzz = psd_inverse(kzz)
 
-        # Predictive posterior.
-        qf_mu = kxz.matmul(ikzz).matmul(qu_loc)
-        qf_cov = kxx + kxz.matmul(
-            ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx)
+        if diag:
+            kxx = self.kernel(x, x, diag=diag)
 
-        return distributions.MultivariateNormal(
-            qf_mu, covariance_matrix=qf_cov)
+            # Predictive marginal posterior.
+            kxz = kxz.unsqueeze(1)
+            kzx = kxz.transpose(-1, -2)
+            qf_mu = kxz.matmul(ikzz).matmul(qu_loc).reshape(-1)
+            qf_cov = kxx + kxz.matmul(
+                ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx).reshape(-1)
+
+            return distributions.Normal(qf_mu, qf_cov ** 0.5)
+
+        else:
+            kxx = add_diagonal(self.kernel(x, x, diag=diag).evaluate(), JITTER)
+
+            # Predictive posterior.
+            qf_mu = kxz.matmul(ikzz).matmul(qu_loc)
+            qf_cov = kxx + kxz.matmul(
+                ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx)
+
+            return distributions.MultivariateNormal(
+                qf_mu, covariance_matrix=qf_cov)
 
 
 class SparseGaussianProcessRegression(SparseGaussianProcessModel):
@@ -80,11 +150,27 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
     conjugate_family = MultivariateGaussianDistributionWithZ
 
-    def __init__(self, output_sigma=1., **kwargs):
+    def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        self.register_parameter("output_sigma", nn.Parameter(
-            torch.tensor(output_sigma), requires_grad=True))
+    @property
+    def hyperparameters(self):
+        return super().hyperparameters
+
+    @hyperparameters.setter
+    def hyperparameters(self, hyperparameters):
+        super().hyperparameters = hyperparameters
+
+        self.output_sigma = nn.Parameter(self.hyperparameters["output_sigma"])
+
+    def get_default_hyperparameters(self):
+        """
+        :return: A default set of hyperparameters for the model.
+        """
+        return {
+            **super().get_default_hyperparameters(),
+            "output_sigma": 1.,
+        }
 
     def forward(self, x, q):
         return self.posterior(x, q)
@@ -139,7 +225,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
             q_new = type(q)(inducing_locations=z, nat_params=q_new_nps,
                             is_trainable=False)
-            return q_new
+            return q_new, None
 
         else:
             # New model parameters.
@@ -151,7 +237,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
             t_new = type(t)(inducing_locations=z, nat_params=t_new_nps)
             return q_new, t_new
 
-    def expected_log_likelihood(self, data, q):
+    def expected_log_likelihood(self, data, q, num_samples=None):
         # Set up data etc.
         x = data["x"]
         y = data["y"]
@@ -202,27 +288,12 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
-        # Construct inducing points and kernel.
-        if self.hyperparameters["kernel_class"] is not None:
-            self.kernel = self.hyperparameters["kernel_class"](
-                **self.hyperparameters["kernel_params"]
-            )
-        else:
-            raise ValueError("Kernel class not specified.")
-
-    def get_default_nat_params(self):
+    def get_default_config(self):
         return {
-            "np1": torch.tensor([0.] * self.hyperparameters["num_inducing"]),
-            "np2": torch.tensor(
-                [-.5] * self.hyperparameters["num_inducing"]).diag_embed()
-        }
-
-    @staticmethod
-    def get_default_hyperparameters():
-        return {
-            **super().get_default_hyperparameters(),
+            **super().get_default_config(),
             "num_elbo_samples": 1,
             "num_predictive_samples": 1,
+            "use_probit_approximation": True,
         }
 
     def forward(self, x, q):
@@ -234,12 +305,27 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
         qf = self.posterior(x, q)
-        fs = qf.sample((self.hyperparameters["num_predictive_samples"],))
 
-        comp = distributions.Bernoulli(logits=fs.T)
-        mix = distributions.Categorical(torch.ones(len(fs),))
+        if self.config["use_probit_approximation"]:
+            # Use Probit approximation.
+            qf_loc = qf.loc
 
-        return distributions.MixtureSameFamily(mix, comp)
+            if str(type(qf)) == str(MultivariateGaussianDistribution):
+                qf_scale = qf.covariance_matrix.diag() ** 0.5
+            else:
+                qf_scale = qf.scale
+
+            denom = (1 + np.pi * qf_scale ** 2 / 8) ** 0.5
+            logits = qf_loc / denom
+
+            return distributions.Bernoulli(logits=logits)
+        else:
+            fs = qf.sample((self.config["num_predictive_samples"],))
+
+            comp = distributions.Bernoulli(logits=fs.T)
+            mix = distributions.Categorical(torch.ones(len(fs),))
+
+            return distributions.MixtureSameFamily(mix, comp)
 
     def likelihood_forward(self, x, theta):
         """
@@ -260,8 +346,12 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
         """
         raise NotImplementedError
 
-    def expected_log_likelihood(self, data, q):
-        raise NotImplementedError
+    def expected_log_likelihood(self, data, q, num_samples=1):
+        x = data["x"]
+
+        qf = self.posterior(x, q)
+        fs = qf.rsample((num_samples,))
+        return self.likelihood_log_prob(data, fs).mean(0)
 
     def local_free_energy(self, data, q, t=None):
         """
