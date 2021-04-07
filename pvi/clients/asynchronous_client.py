@@ -1,4 +1,4 @@
-from .base import PVIClient
+from .base import Client
 
 
 # =============================================================================
@@ -6,7 +6,7 @@ from .base import PVIClient
 # =============================================================================
 
 
-class AsynchronousClient(PVIClient):
+class AsynchronousClient(Client):
     
     def __init__(self, server, client_id, data, model, t, config=None):
         

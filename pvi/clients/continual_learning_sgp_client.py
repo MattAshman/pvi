@@ -4,32 +4,28 @@ import torch
 from tqdm.auto import tqdm
 from torch import nn
 from torch.utils.data import TensorDataset, DataLoader
-from pvi.clients.base import VIClient, VIClientBayesianHypers
+from pvi.clients.base import Client, ClientBayesianHypers
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions.gp_distributions import \
     MultivariateGaussianDistributionWithZ
 
 logger = logging.getLogger(__name__)
 
-JITTER = 1e-6
+JITTER = 1e-4
 
 
-class ContinualLearningSGPClient(VIClient):
+class ContinualLearningSGPClient(Client):
     def __init__(self, data, model, inducing_locations, config=None):
-        super().__init__(data, model, config)
+        super().__init__(data, model, config=config)
 
         # Private inducing locations Z_b.
         self.inducing_locations = inducing_locations
 
-    def fit(self, q):
+    def update_q(self, q):
         """
-        Computes a refined posterior and its associated approximating
-        likelihood term. This method is called directly by the server.
+        Computes a refined approximate posterior.
         """
-        # Compute new posterior (ignored) and approximating likelihood term
-        q = self.gradient_based_update(q)
-
-        return q
+        return self.gradient_based_update(q)
 
     def gradient_based_update(self, q):
         """
@@ -240,29 +236,25 @@ class ContinualLearningSGPClient(VIClient):
 
         self._can_update = True
 
-        return q_new
+        return q_new, None
 
 
-class ContinualLearningSGPClientBayesianHypers(VIClientBayesianHypers):
+class ContinualLearningSGPClientBayesianHypers(ClientBayesianHypers):
     """
     Continual learning SGP client with Bayesian treatment of model
     hyperparameters.
     """
     def __init__(self, data, model, inducing_locations, config=None):
-        super().__init__(data, model, config)
+        super().__init__(data, model, config=config)
 
         # Private inducing locations Z_b.
         self.inducing_locations = inducing_locations
 
-    def fit(self, q, qeps):
+    def update_q(self, q, qeps):
         """
-        Computes a refined posterior and its associated approximating
-        likelihood term. This method is called directly by the server.
+        Computes a refined approximate posterior.
         """
-        # Compute new posterior (ignored) and approximating likelihood term
-        q, qeps = self.gradient_based_update(q, qeps.trainable_copy())
-
-        return q, qeps
+        return self.gradient_based_update(q, qeps.trainable_copy())
 
     def gradient_based_update(self, q, qeps):
         """
@@ -502,4 +494,4 @@ class ContinualLearningSGPClientBayesianHypers(VIClientBayesianHypers):
 
         self._can_update = True
 
-        return q_new, qeps_new
+        return q_new, qeps_new, None, None

@@ -1,7 +1,7 @@
 import logging
 import torch
 
-from abc import ABC, abstractmethod
+from abc import ABC
 from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm.auto import tqdm
@@ -10,13 +10,13 @@ logger = logging.getLogger(__name__)
 
 
 # =============================================================================
-# Base client class
+# Client class
 # =============================================================================
 
 
-class PVIClient(ABC):
+class Client(ABC):
     
-    def __init__(self, data, model, t, config=None):
+    def __init__(self, data, model, t=None, config=None):
 
         if config is None:
             config = {}
@@ -61,18 +61,16 @@ class PVIClient(ABC):
         """
         A check to see if this client can indeed update. Examples of reasons
         one may not be is that they haven't finished optimisation.
-        :return:
         """
         return self._can_update
     
-    @abstractmethod
     def fit(self, q):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
         client, but in all cases it calls Client.q_update internally.
         """
-        pass
+        return self.update_q(q)
 
     def update_q(self, q):
         """
@@ -83,11 +81,12 @@ class PVIClient(ABC):
         # Type(q) is self.model.conjugate_family.
         if str(type(q)) == str(self.model.conjugate_family):
             # No need to make q trainable.
-            return self.model.conjugate_update(self.data, q, self.t)
-            
+            q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
             # Pass a trainable copy to optimise.
-            return self.gradient_based_update(q.trainable_copy())
+            q_new, self.t = self.gradient_based_update(q.trainable_copy())
+
+        return q_new, self.t
 
     def gradient_based_update(self, q):
         # Cannot update during optimisation.
@@ -96,10 +95,14 @@ class PVIClient(ABC):
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = q.non_trainable_copy()
 
-        # TODO: remove this, but check if prevents divergence.
-        q_cav = q.non_trainable_copy()
-        q_cav.nat_params = {k: v - self.t.nat_params[k]
-                            for k, v in q_cav.nat_params.items()}
+        if self.t is None:
+            # Standard VI: prior = old posterior.
+            q_cav = q.non_trainable_copy()
+        else:
+            # TODO: check if valid distribution.
+            q_cav = q.non_trainable_copy()
+            q_cav.nat_params = {k: v - self.t.nat_params[k]
+                                for k, v in q_cav.nat_params.items()}
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
@@ -158,7 +161,6 @@ class PVIClient(ABC):
                 # kl = q.kl_divergence(q_old).sum() / len(x)
 
                 # Compute KL divergence between q and q_cav.
-                # TODO: q_cav is potentially an invalid distribution.
                 kl = q.kl_divergence(q_cav).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
@@ -166,11 +168,12 @@ class PVIClient(ABC):
                     batch, q, self.config["num_elbo_samples"]).sum()
                 ll /= len(x_batch)
 
-                # Compute E_q[log t(θ)].
-                logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                logt /= len(x)
+                if self.t is not None:
+                    # Compute E_q[log t(θ)].
+                    logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                    logt /= len(x)
 
-                # Negative local Free Energy is KL minus log-probability
+                # Negative local free energy is KL minus log-probability.
                 # loss = kl - ll + logt
                 loss = kl - ll
                 loss.backward()
@@ -181,16 +184,17 @@ class PVIClient(ABC):
                 epoch["elbo"] += -loss.item() / len(loader)
                 epoch["kl"] += kl.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
-                epoch["logt"] += logt.item() / len(loader)
+
+                if self.t is not None:
+                    epoch["logt"] += logt.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
-            training_curve["logt"].append(epoch["logt"])
 
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], logt=epoch["logt"])
+            if self.t is not None:
+                training_curve["logt"].append(epoch["logt"])
 
             if i % self.config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
@@ -199,28 +203,35 @@ class PVIClient(ABC):
                              f"log t: {epoch['logt']:.3f}, "
                              f"Epochs: {i}.")
 
+            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                   ll=epoch["ll"], logt=epoch["logt"])
+
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
-
-        # Compute new local contribution from old distributions
-        t_new = self.t.compute_refined_factor(
-            q, q_old, damping=self.config["damping_factor"],
-            valid_dist=self.config["valid_factors"])
 
         # Create non-trainable copy to send back to server.
         q_new = q.non_trainable_copy()
 
         # Finished optimisation, can now update.
         self._can_update = True
-        
-        return q_new, t_new
+
+        if self.t is not None:
+            # Compute new local contribution from old distributions
+            t_new = self.t.compute_refined_factor(
+                q, q_old, damping=self.config["damping_factor"],
+                valid_dist=self.config["valid_factors"])
+
+            return q_new, t_new
+
+        else:
+            return q_new, None
 
 
-class PVIClientBayesianHypers(ABC):
+class ClientBayesianHypers(ABC):
     """
     PVI client with Bayesian treatment of model hyperparameters.
     """
-    def __init__(self, data, model, t, teps, config=None):
+    def __init__(self, data, model, t=None, teps=None, config=None):
 
         if config is None:
             config = {}
@@ -257,6 +268,7 @@ class PVIClientBayesianHypers(ABC):
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
             "num_elbo_samples": 10,
+            "num_elbo_hyper_samples": 1,
             "print_epochs": 1
         }
 
@@ -268,14 +280,13 @@ class PVIClientBayesianHypers(ABC):
         """
         return self._can_update
 
-    @abstractmethod
     def fit(self, q, qeps):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
         client, but in all cases it calls Client.q_update internally.
         """
-        pass
+        return self.update_q(q, qeps)
 
     def update_q(self, q, qeps):
         """
@@ -283,16 +294,29 @@ class PVIClientBayesianHypers(ABC):
         approximating likelihood term.
         """
         # Pass a trainable copy to optimise.
-        return self.gradient_based_update(q.trainable_copy(),
-                                          qeps.trainable_copy())
+        q_new, qeps_new, self.t, self.teps = self.gradient_based_update(
+            q.trainable_copy(), qeps.trainable_copy())
+
+        return q_new, qeps_new, self.t, self.teps
 
     def gradient_based_update(self, q, qeps):
         # Cannot update during optimisation.
         self._can_update = False
 
-        # Old posterior = prior, make non-trainable.
-        q_old = q.non_trainable_copy()
-        qeps_old = qeps.non_trainable_copy()
+        if self.t is None:
+            # Old posterior = prior, make non-trainable.
+            q_cav = q.non_trainable_copy()
+            qeps_cav = qeps.non_trainable_copy()
+        else:
+            q_cav = q.non_trainable_copy()
+            q_cav.nat_params = {k: v - self.t.nat_params[k]
+                                for k, v in q_cav.nat_params.items()}
+
+            qeps_cav = qeps.non_trainable_copy()
+            for k1, v1 in qeps.distributions.items():
+                qeps.distributions[k1].nat_params = {
+                    k2: v2 - self.teps.factors[k1].nat_params[k2]
+                    for k2, v2 in v1.nat_params.items()}
 
         parameters = list(q.parameters()) + qeps.parameters()
 
@@ -343,8 +367,8 @@ class PVIClientBayesianHypers(ABC):
                 }
 
                 # Compute KL divergence between q and p.
-                kl = q.kl_divergence(q_old).sum() / len(x)
-                kleps = sum(qeps.kl_divergence(qeps_old).values()) / len(x)
+                kl = q.kl_divergence(q_cav).sum() / len(x)
+                kleps = sum(qeps.kl_divergence(qeps_cav).values()) / len(x)
 
                 # Estimate E_q[log p(y | x, θ, ε)].
                 ll = 0
@@ -356,20 +380,16 @@ class PVIClientBayesianHypers(ABC):
 
                 ll /= (self.config["num_elbo_hyper_samples"] * len(x_batch))
 
-                try:
-                    logt = self.t.eqlogt(q) / len(x)
-                except NotImplementedError:
-                    thetas = q.rsample((self.config["num_elbo_samples"],))
-                    logt = self.t(thetas).mean(0) / len(x)
+                if self.t is not None:
+                    logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                    logteps = sum(self.teps.eqlogt(
+                        qeps, self.config["num_elbo_samples"]).values())
+                    logt /= len(x)
+                    logteps /= len(x)
 
-                try:
-                    logteps = sum(self.teps.eqlogt(qeps).values()) / len(x)
-                except NotImplementedError:
-                    eps = qeps.rsample((self.config["num_elbo_samples"],))
-                    logteps = sum(self.teps(eps).values()).mean(0) / len(x)
+                    # loss = kl + kleps - ll + logt - logteps
 
-                # Negative local Free Energy is KL minus log-probability
-                loss = kl + kleps - ll + logt - logteps
+                loss = kl + kleps - ll
                 loss.backward()
                 optimiser.step()
 
@@ -379,16 +399,20 @@ class PVIClientBayesianHypers(ABC):
                 epoch["kl"] += kl.item() / len(loader)
                 epoch["kleps"] += kleps.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
-                epoch["logt"] += logt.item() / len(loader)
-                epoch["logteps"] += logteps.item() / len(loader)
+
+                if self.t is not None:
+                    epoch["logt"] += logt.item() / len(loader)
+                    epoch["logteps"] += logteps.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
             training_curve["kleps"].append(epoch["kleps"])
             training_curve["ll"].append(epoch["ll"])
-            training_curve["logt"].append(epoch["logt"])
-            training_curve["logteps"].append(epoch["logteps"])
+
+            if self.t is not None:
+                training_curve["logt"].append(epoch["logt"])
+                training_curve["logteps"].append(epoch["logteps"])
 
             if i % self.config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
@@ -407,10 +431,6 @@ class PVIClientBayesianHypers(ABC):
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
 
-        # Compute new local contribution from old distributions
-        t_new = self.t.compute_refined_factor(q, q_old)
-        teps_new = self.teps.compute_refined_factor(qeps, qeps_old)
-
         # Create non_trainable_copy to send back to server.
         q_new = q.non_trainable_copy()
         qeps_new = qeps.non_trainable_copy()
@@ -418,343 +438,16 @@ class PVIClientBayesianHypers(ABC):
         # Finished optimisation, can now update.
         self._can_update = True
 
-        return q_new, qeps_new, t_new, teps_new
+        if self.t is not None:
+            # Compute new local contribution from old distributions
+            t_new = self.t.compute_refined_factor(
+                q, q_cav, damping=self.config["damping_factor"],
+                valid_dist=self.config["valid_factors"])
+            teps_new = self.teps.compute_refined_factor(
+                qeps, qeps_cav, damping=self.config["damping_factor"],
+                valid_dist=self.config["valid_factors"])
 
+            return q_new, qeps_new, t_new, teps_new
 
-class VIClient:
-    """
-    Standard VI client which, when provided with a prior distribution,
-    returns an an approximate posterior based on it's local data shard.
-
-    Note: this is different to the PVIClient in the sense that a local factor
-    t(θ) is not maintained.
-    """
-    def __init__(self, data, model, config=None):
-
-        if config is None:
-            config = {}
-
-        self._config = self.get_default_config()
-        self.config = config
-
-        # Set data partition and likelihood.
-        self.data = data
-        self.model = model
-
-        self.log = defaultdict(list)
-        self._can_update = True
-
-    @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config):
-        self._config = {**self._config, **config}
-
-    @classmethod
-    def get_default_config(cls):
-        return {
-            "train_model": False,
-            "model_optimiser_params": {"lr": 1e-2},
-            "epochs": 1,
-            "batch_size": 100,
-            "optimiser": "Adam",
-            "optimiser_params": {"lr": 5e-2},
-            "num_elbo_hyper_samples": 1,
-            "num_elbo_samples": 10,
-            "print_epochs": 1,
-        }
-
-    def can_update(self):
-        """
-        A check to see if this client can indeed update. Examples of reasons
-        one may not be is that they haven't finished optimisation.
-        :return:
-        """
-        return self._can_update
-
-    def fit(self, q):
-        """
-        Computes the refined approximating posterior (q).
-        """
-        return self.update_q(q)
-
-    def update_q(self, q):
-        """
-        Computes a refined approximate posterior.
-        """
-
-        # Type(q) is self.model.conjugate_family.
-        if str(type(q)) == str(self.model.conjugate_family):
-            # No need to make q trainable.
-            q_new, _ = self.model.conjugate_update(self.data, q, None)
-            return q_new
         else:
-            # Pass a trainable copy to optimise.
-            return self.gradient_based_update(q.trainable_copy())
-
-    def gradient_based_update(self, q):
-        # Cannot update during optimisation.
-        self._can_update = False
-
-        # Prior = old posterior, make non-trainable.
-        p = q.non_trainable_copy()
-
-        # Parameters are those of q(θ) and self.model.
-        if self.config["train_model"]:
-            parameters = [
-                {"params": q.parameters()},
-                {"params": self.model.parameters(),
-                 **self.config["model_optimiser_params"]}
-            ]
-        else:
-            parameters = q.parameters()
-
-        # Reset optimiser.
-        logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, self.config["optimiser"])(
-            parameters, **self.config["optimiser_params"])
-
-        # Set up data
-        x = self.data["x"]
-        y = self.data["y"]
-
-        tensor_dataset = TensorDataset(x, y)
-        loader = DataLoader(tensor_dataset,
-                            batch_size=self.config["batch_size"],
-                            shuffle=True)
-
-        # Dict for logging optimisation progress
-        training_curve = {
-            "elbo": [],
-            "kl": [],
-            "ll": [],
-        }
-
-        # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch")
-        # for i in range(self.config["epochs"]):
-        for i in epoch_iter:
-            epoch = {
-                "elbo": 0,
-                "kl": 0,
-                "ll": 0,
-            }
-
-            # Loop over batches in current epoch
-            for (x_batch, y_batch) in iter(loader):
-                optimiser.zero_grad()
-
-                batch = {
-                    "x": x_batch,
-                    "y": y_batch,
-                }
-
-                # Compute KL divergence between q and p.
-                kl = q.kl_divergence(p).sum() / len(x)
-
-                # Sample θ from q and compute p(y | θ, x) for each θ
-                thetas = q.rsample((self.config["num_elbo_samples"],))
-                ll = self.model.likelihood_log_prob(
-                    batch, thetas).mean(0).sum() / len(x_batch)
-
-                # Negative local Free Energy is KL minus log-probability
-                loss = kl - ll
-                loss.backward()
-                optimiser.step()
-
-                # Keep track of quantities for current batch
-                # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item() / len(loader)
-                epoch["kl"] += kl.item() / len(loader)
-                epoch["ll"] += ll.item() / len(loader)
-
-            # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["ll"].append(epoch["ll"])
-
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"])
-
-            if i % self.config["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"Epochs: {i}.")
-
-        # Log the training curves for this update
-        self.log["training_curves"].append(training_curve)
-
-        # Create non_trainable_copy to send back to server.
-        q_new = q.non_trainable_copy()
-
-        # Finished optimisation, can now update.
-        self._can_update = True
-
-        return q_new
-
-
-class VIClientBayesianHypers:
-    """
-    Standard VI client with Bayesian treatment of model hyperparameters.
-    """
-    def __init__(self, data, model, config=None):
-
-        if config is None:
-            config = {}
-
-        self._config = self.get_default_config()
-        self.config = config
-
-        # Set data partition and likelihood
-        self.data = data
-        self.model = model
-
-        self.log = defaultdict(list)
-        self._can_update = True
-
-    @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config):
-        self._config = {**self._config, **config}
-
-    @classmethod
-    def get_default_config(cls):
-        return {
-            "epochs": 1,
-            "batch_size": 100,
-            "optimiser": "Adam",
-            "optimiser_params": {"lr": 0.05},
-            "num_elbo_samples": 10,
-            "print_epochs": 1
-        }
-
-    def can_update(self):
-        """
-        A check to see if this client can indeed update. Examples of reasons
-        one may not be is that they haven't finished optimisation.
-        :return:
-        """
-        return self._can_update
-
-    def fit(self, q, qeps):
-        """
-        Computes the refined approximating posterior q(θ) and q(ε).
-        """
-        return self.update_q(q, qeps)
-
-    def update_q(self, q, qeps):
-        """
-        Computes a refined approximate posterior.
-        """
-        return self.gradient_based_update(q.trainable_copy(),
-                                          qeps.trainable_copy())
-
-    def gradient_based_update(self, q, qeps):
-        # Cannot update during optimisation.
-        self._can_update = False
-
-        # Old posterior = prior, make non-trainable.
-        p = q.non_trainable_copy()
-        peps = qeps.non_trainable_copy()
-
-        parameters = list(q.parameters) + list(qeps.parameters)
-
-        # Reset optimiser.
-        logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, self.config["optimiser"])(
-            parameters, **self.config["optimiser_params"])
-
-        # Set up data
-        x = self.data["x"]
-        y = self.data["y"]
-
-        tensor_dataset = TensorDataset(x, y)
-        loader = DataLoader(tensor_dataset,
-                            batch_size=self.config["batch_size"],
-                            shuffle=True)
-
-        # Dict for logging optimisation progress
-        training_curve = {
-            "elbo": [],
-            "kl": [],
-            "kleps": [],
-            "ll": [],
-        }
-
-        # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch")
-        for i in range(self.config["epochs"]):
-            epoch = {
-                "elbo": 0,
-                "kl": 0,
-                "kleps": 0,
-                "ll": 0,
-            }
-
-            # Loop over batches in current epoch
-            for (x_batch, y_batch) in iter(loader):
-                optimiser.zero_grad()
-
-                batch = {
-                    "x": x_batch,
-                    "y": y_batch,
-                }
-
-                # Compute KL divergence between q and p.
-                kl = q.kl_divergence(p).sum() / len(x)
-                kleps = qeps.kl_divergence(peps).values().sum() / len(x)
-
-                # Estimate E_q[log p(y | x, θ, ε)].
-                ll = 0
-                for _ in range(self.config["num_elbo_hyper_samples"]):
-                    eps = qeps.rsample()
-                    # TODO: This assumes a .set_parameters(eps) function and
-                    #  a mean field q(θ, ε) = q(θ)q(ε).
-                    self.model.hyperparameters = eps
-                    ll += self.model.expected_log_likelihood(
-                        batch, q, self.config["num_elbo_samples"]).sum()
-
-                ll /= (self.config["num_elbo_hyper_samples"] * len(x_batch))
-
-                # Negative local Free Energy is KL minus log-probability
-                loss = kl + kleps - ll
-                loss.backward()
-                optimiser.step()
-
-                # Keep track of quantities for current batch
-                # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item() / len(loader)
-                epoch["kl"] += kl.item() / len(loader)
-                epoch["kleps"] += kleps.item() / len(loader)
-                epoch["ll"] += ll.item() / len(loader)
-
-            # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["kleps"].append(epoch["kleps"])
-            training_curve["ll"].append(epoch["ll"])
-
-            if i % self.config["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"KL eps: {epoch['kleps']:.3f}, "
-                             f"Epochs: {i}.")
-
-        # Log the training curves for this update
-        self.log["training_curves"].append(training_curve)
-
-        # Create non_trainable_copy to send back to server.
-        q_new = q.non_trainable_copy()
-        qeps_new = qeps.non_trainable_copy()
-
-        # Finished optimisation, can now update.
-        self._can_update = True
-
-        return q_new, qeps_new
+            return q_new, qeps_new, None, None
