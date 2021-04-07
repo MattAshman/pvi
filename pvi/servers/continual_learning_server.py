@@ -1,5 +1,4 @@
 import logging
-import copy
 
 from .base import *
 
@@ -30,7 +29,9 @@ class ContinualLearningServer(Server):
                 client.model = self.model
 
     def get_default_config(self):
-        return {}
+        return {
+            **super().get_default_config(),
+        }
 
     def tick(self):
         if self.should_stop():
@@ -41,7 +42,7 @@ class ContinualLearningServer(Server):
         client = self.clients[self.client_idx]
 
         if client.can_update():
-            q_new = client.fit(self.q)
+            q_new, _ = client.fit(self.q)
             self.q = q_new.non_trainable_copy()
 
             self.communications += 1
@@ -86,7 +87,7 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
 
         if client.can_update():
             # TODO: ensure that client.fit returns non-trainable copy?
-            q_new, qeps_new = client.fit(self.q, self.qeps)
+            q_new, qeps_new, _, _ = client.fit(self.q, self.qeps)
             self.q = q_new.non_trainable_copy()
             self.qeps = qeps_new.non_trainable_copy()
 

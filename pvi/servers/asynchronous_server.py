@@ -56,7 +56,7 @@ class AsynchronousServer(Server):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
-                t_i_new = client.fit(self.q)
+                _, t_i_new = client.fit(self.q)
 
                 # Compute change in natural parameters.
                 delta_np = {}
@@ -70,8 +70,8 @@ class AsynchronousServer(Server):
                 q_new_nps = {k: v + delta_np[k]
                              for k, v in self.q.nat_params.items()}
 
-                self.q = type(self.q)(nat_params=q_new_nps,
-                                      is_trainable=False)
+                self.q = self.q.create_new(nat_params=q_new_nps,
+                                           is_trainable=False)
 
                 clients_updated += 1
                 self.communications += 1
@@ -100,87 +100,6 @@ class AsynchronousServer(Server):
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
-
-
-class DPPVIAsynchronousServer(AsynchronousServer):
-    """
-    Similar to Mrinank's and Michael's implementation.
-
-    In every round, this server samples M (total number of clients) clients,
-    inversely proportional to the amount of data on each client, and updates
-    them one after another (i.e. incorporating the previous clients updates).
-    """
-    def __init__(self, model, q, clients, config=None):
-        super().__init__(model, q, clients, config)
-
-    def tick(self):
-        if self.should_stop():
-            return False
-
-        logger.debug("Getting client updates.")
-
-        clients_updated = 0
-        delta_nps = []
-
-        for i in tqdm(range(len(self.clients)), leave=False):
-
-            available_clients = [client.can_update() for client in
-                                 self.clients]
-
-            if not np.any(available_clients):
-                logger.info('All clients report to be finished. Stopping.')
-                break
-
-            client_index = int(
-                np.random.choice(len(self.clients), 1, replace=False,
-                                 p=self.client_probs))
-            logger.debug(f"Selected Client {client_index}")
-            client = self.clients[client_index]
-
-            if client.can_update():
-                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_i_old = client.t
-                t_i_new = client.fit(self.q)
-
-                # Compute change in natural parameters.
-                delta_np = {}
-                for k in self.q.nat_params.keys():
-                    delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
-
-                delta_nps.append(delta_np)
-
-                clients_updated += 1
-                self.communications += 1
-
-            else:
-                logger.debug(f"Skipping client {client_index}, client not "
-                             "avalible to update.")
-                continue
-
-        logger.debug(
-            "Received client updates. Updating global posterior.")
-
-        # Update global posterior.
-        q_new_nps = {}
-        for k, v in self.q.nat_params.items():
-            q_new_nps[k] = (v + sum([delta_np[k] for delta_np in delta_nps]))
-
-        self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
-
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
-
-        self.iterations += 1
-
-        # Update hyperparameters.
-        if self.config["train_model"] is not None and \
-                self.iterations % self.config["model_update_freq"] == 0:
-            self.update_hyperparameters()
-
-        # Log progress.
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].append(self.communications)
-        self.log["clients_updated"].append(clients_updated)
 
 
 class AsynchronousServerBayesianHypers(ServerBayesianHypers):
@@ -234,7 +153,7 @@ class AsynchronousServerBayesianHypers(ServerBayesianHypers):
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
                 teps_i_old = client.teps
-                t_i_new, teps_i_new = client.fit(self.q, self.qeps)
+                _, _, t_i_new, teps_i_new = client.fit(self.q, self.qeps)
 
                 # TODO: check parameter update results in valid distribution.
                 # Compute change in natural parameters.

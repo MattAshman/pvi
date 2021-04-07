@@ -32,7 +32,7 @@ class SequentialServer(Server):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
-                t_i_new = client.fit(self.q)
+                _, t_i_new = client.fit(self.q)
                 # Compute change in natural parameters.
                 delta_np = {k: (t_i_new.nat_params[k] - t_i_old.nat_params[k])
                             for k in self.q.nat_params.keys()}
@@ -96,7 +96,7 @@ class SequentialServerBayesianHypers(ServerBayesianHypers):
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_old = client.t
                 teps_old = client.teps
-                t_new, teps_new = client.fit(self.q, self.qeps)
+                _, _, t_new, teps_new = client.fit(self.q, self.qeps)
 
                 # Compute change in natural parameters.
                 q_delta_np = {k: t_new.nat_params[k] - t_old.nat_params[k]

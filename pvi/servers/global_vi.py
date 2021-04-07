@@ -36,6 +36,8 @@ class GlobalVIServer(Server):
     def get_default_config(self):
         return {
             **super().get_default_config(),
+            "train_model": False,
+            "model_optimiser_params": {"lr": 1e-2},
             "max_iterations": 1,
             "epochs": 1,
             "batch_size": 100,
@@ -51,6 +53,23 @@ class GlobalVIServer(Server):
         """
         if self.should_stop():
             return False
+
+        p = self.q.non_trainable_copy()
+        q = self.q.trainable_copy()
+
+        # Parameters are those of q(θ) and self.model.
+        if self.config["train_model"]:
+            parameters = [
+                {"params": q.parameters()},
+                {"params": self.model.parameters(),
+                 **self.config["model_optimiser_params"]}
+            ]
+        else:
+            parameters = q.parameters()
+
+        logging.info("Resetting optimiser")
+        optimiser = getattr(torch.optim, self.config["optimiser"])(
+            parameters, **self.config["optimiser_params"])
 
         # Set up data: global VI server can access the entire dataset.
 
@@ -70,7 +89,7 @@ class GlobalVIServer(Server):
             data = defaultdict(list)
             for client in self.clients:
                 # Chunk clients data into batch size.
-                data = {k: data[k] + [v[i:i+m] for i in range(
+                data = {k: data[k] + [v[i:i + m] for i in range(
                     0, len(client.data["x"]), m)]
                         for k, v in client.data.items()}
 
@@ -88,13 +107,6 @@ class GlobalVIServer(Server):
             "kl": [],
             "ll": [],
         }
-
-        p = self.q.non_trainable_copy()
-        q = self.q.trainable_copy()
-
-        logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, self.config["optimiser"])(
-            q.parameters(), **self.config["optimiser_params"])
 
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
@@ -120,14 +132,8 @@ class GlobalVIServer(Server):
                 kl = q.kl_divergence(p).sum() / len(self.data["x"])
 
                 # Compute E_q[log p(y | x, θ)].
-                if str(type(q)) == str(self.model.conjugate_family):
-                    ll = self.model.expected_log_likelihood(batch, q).sum()
-                else:
-                    thetas = q.rsample(
-                        (self.config["num_elbo_samples"],))
-                    ll = self.model.likelihood_log_prob(
-                        batch, thetas).mean(0).sum()
-
+                ll = self.model.expected_log_likelihood(
+                    batch, q, self.config["num_elbo_samples"]).sum()
                 ll /= len(x_batch)
 
                 # Negative local Free Energy is KL minus log-probability
