@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 from torch import distributions, nn, optim
-from gpytorch.kernels import ScaleKernel, RBFKernel
+from .kernels import RBFKernel
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions import MultivariateGaussianDistributionWithZ, \
@@ -39,8 +39,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
         return {
             "D": None,
             "num_inducing": 50,
-            "kernel_class": lambda **kwargs: ScaleKernel(RBFKernel(**kwargs)),
+            "kernel_class": lambda **kwargs: RBFKernel(**kwargs),
             "kernel_params": {
+                "ard_num_dims": None,   # No ARD.
                 "outputscale": 1.,
                 "lengthscale": 1.
             },
@@ -60,10 +61,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
         self._hyperparameters = {**self._hyperparameters, **hyperparameters}
 
         if hasattr(self, "kernel"):
-            # Inverse softplus transformation.
-            self.kernel._set_outputscale(self.hyperparameters["outputscale"])
-            self.kernel.base_kernel._set_lengthscale(
-                self.hyperparameters["lengthscale"])
+            self.kernel.outputscale = self.hyperparameters["outputscale"]
+            self.kernel.lentthscale = self.hyperparameters["lengthscale"]
 
     def get_default_hyperparameters(self):
         """
@@ -87,7 +86,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         if z is None:
             z = q.inducing_locations
 
-        kzz = add_diagonal(self.kernel(z, z).evaluate(), JITTER)
+        kzz = add_diagonal(self.kernel(z, z), JITTER)
         std = {
             "loc": torch.zeros(z.shape[0]),
             "covariance_matrix": kzz,
@@ -113,9 +112,9 @@ class SparseGaussianProcessModel(Model, nn.Module):
         z = q.inducing_locations
 
         # Parameters of prior.
-        kxz = self.kernel(x, z).evaluate()
+        kxz = self.kernel(x, z)
         kzx = kxz.T
-        kzz = add_diagonal(self.kernel(z, z).evaluate(), JITTER)
+        kzz = add_diagonal(self.kernel(z, z), JITTER)
         ikzz = psd_inverse(kzz)
 
         if diag:
@@ -131,7 +130,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
             return distributions.Normal(qf_mu, qf_cov ** 0.5)
 
         else:
-            kxx = add_diagonal(self.kernel(x, x, diag=diag).evaluate(), JITTER)
+            kxx = add_diagonal(self.kernel(x, x, diag=diag), JITTER)
 
             # Predictive posterior.
             qf_mu = kxz.matmul(ikzz).matmul(qu_loc)
@@ -204,8 +203,8 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
         with torch.no_grad():
             # Parameters of prior.
-            kxz = self.kernel(x, z).evaluate()
-            kzz = add_diagonal(self.kernel(z, z).evaluate(), JITTER)
+            kxz = self.kernel(x, z)
+            kzz = add_diagonal(self.kernel(z, z), JITTER)
 
             lzz = kzz.cholesky()
             ikzz = psd_inverse(chol=lzz)
@@ -243,12 +242,10 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         y = data["y"]
         z = q.inducing_locations
 
-        kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
-                           JITTER)
+        kzz = add_diagonal(self.model.kernel(z, z), JITTER)
         ikzz = psd_inverse(kzz)
-        kxz = self.model.kernel(x, z).evaluate()
-        kxx = add_diagonal(self.model.kernel(x, x).evaluate(),
-                           JITTER)
+        kxz = self.model.kernel(x, z)
+        kxx = add_diagonal(self.model.kernel(x, x), JITTER)
 
         a = kxz.matmul(ikzz)
         c = kxx - a.matmul(kxz.T)
