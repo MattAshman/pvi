@@ -1,198 +1,232 @@
 import torch
+import torch.nn as nn
 
-from gpytorch.kernels import Kernel as GPyTorchKernel
-from gpytorch.settings import trace_mode
-from gpytorch.functions import RBFCovariance
-from gpytorch.lazy import delazify
-from gpytorch.constraints import Positive
+from abc import abstractmethod
+
+
+def _mul_broadcast_shape(*shapes, error_msg=None):
+    """
+    Compute dimension suggested by multiple tensor indices (supports
+    broadcasting).
+    """
+
+    # Pad each shape so they have the same number of dimensions.
+    num_dims = max(len(shape) for shape in shapes)
+    shapes = tuple([1] * (num_dims - len(shape)) + list(shape)
+                   for shape in shapes)
+
+    # Make sure that each dimension agrees in size.
+    final_size = []
+    for size_by_dim in zip(*shapes):
+        non_singleton_sizes = tuple(size for size in size_by_dim if size != 1)
+        if len(non_singleton_sizes):
+            if any(size != non_singleton_sizes[0]
+                   for size in non_singleton_sizes):
+                if error_msg is None:
+                    raise RuntimeError("Shapes are not broadcastable for mul "
+                                       "operation")
+                else:
+                    raise RuntimeError(error_msg)
+            final_size.append(non_singleton_sizes[0])
+        # In this case - all dimensions are singleton sizes.
+        else:
+            final_size.append(1)
+
+    return torch.Size(final_size)
+
+
+def default_postprocess_script(x):
+    return x
 
 
 def postprocess_rbf(dist_mat):
     return dist_mat.div_(-2).exp_()
 
 
-class BayesianKernel(GPyTorchKernel):
-    """
-    A wrapper for the GPyTorch RBFKernel, which allows a lengthscale to be set
-    manually (to retain gradients when learning q(ε)).
-    """
+class Distance(torch.nn.Module):
+    def __init__(self, postprocess_script=default_postprocess_script):
+        super().__init__()
+        self._postprocess = postprocess_script
 
-    has_manual_lengthscale = False
+    def _sq_dist(self, x1, x2, postprocess, x1_eq_x2=False):
+        adjustment = x1.mean(-2, keepdim=True)
+        x1 = x1 - adjustment
+        x2 = x2 - adjustment
 
-    def __init__(
-        self,
-        ard_num_dims=None,
-        batch_shape=torch.Size([]),
-        active_dims=None,
-        lengthscale_prior=None,
-        lengthscale_constraint=None,
-        eps=1e-6,
-        **kwargs,
-    ):
-        super().__init__(
-            ard_num_dims, batch_shape, active_dims, lengthscale_prior,
-            lengthscale_constraint, eps=eps, **kwargs)
-
-        if lengthscale_constraint is None:
-            lengthscale_constraint = Positive()
-
-        if self.has_manual_lengthscale:
-            lengthscale_num_dims = 1 if ard_num_dims is None else ard_num_dims
-            self.register_buffer(
-                "raw_lengthscale",
-                torch.zeros(*self.batch_shape, 1, lengthscale_num_dims),
-            )
-            if lengthscale_prior is not None:
-                self.register_prior(
-                    "lengthscale_prior",
-                    lengthscale_prior,
-                    lambda: self.lengthscale,
-                    lambda v: self._set_lengthscale(v)
-                )
-
-            self.raw_lengthscale_constraint = lengthscale_constraint
-
-    @property
-    def dtype(self):
-        if self.has_manual_lengthscale:
-            return self.lengthscale.dtype
+        # Compute squared distance matrix using quadratic expansion.
+        x1_norm = x1.pow(2).sum(dim=-1, keepdim=True)
+        x1_pad = torch.ones_like(x1_norm)
+        if x1_eq_x2 and not x1.requires_grad and not x2.requires_grad:
+            x2_norm, x2_pad = x1_norm, x1_pad
         else:
-            for param in self.parameters():
-                return param.dtype
-            return torch.get_default_dtype()
+            x2_norm = x2.pow(2).sum(dim=-1, keepdim=True)
+            x2_pad = torch.ones_like(x2_norm)
+
+        x1_ = torch.cat([-2.0 * x1, x1_norm, x1_pad], dim=-1)
+        x2_ = torch.cat([x2, x2_pad, x2_norm], dim=-1)
+        res = x1_.matmul(x2_.transpose(-2, -1))
+
+        if x1_eq_x2 and not x1.requires_grad and not x2.requires_grad:
+            res.diagonal(dim1=-2, dim2=-1).fill_(0)
+
+        # Zero out negative values.
+        res.clamp_min_(0)
+        return self._postprocess(res) if postprocess else res
+
+    def _dist(self, x1, x2, postprocess, x1_eq_x2=False):
+        res = self._sq_dist(x1, x2, postprocess=False, x1_eq_x2=x1_eq_x2)
+        res = res.clamp_min_(1e-30).sqrt_()
+        return self._postprocess(res) if postprocess else res
+
+
+class Kernel(nn.Module):
+    """
+    Base class for GP kernels, all of which are assumed to include a scale
+    and lengthscale, as well as the option for ARD lengthscales.
+    """
+    def __init__(self, ard_num_dims=None, batch_shape=torch.Size([]),
+                 lengthscale=1., outputscale=1.):
+        super().__init__()
+
+        self.ard_num_dims = ard_num_dims
+        self._batch_shape = batch_shape
+        outputscale = torch.ones(*self.batch_shape) * outputscale if len(
+            self.batch_shape) else torch.tensor(outputscale)
+        self.log_outputscale = nn.Parameter(
+            outputscale.log(), requires_grad=True)
+
+        lengthscale_num_dims = 1 if ard_num_dims is None else ard_num_dims
+        self.log_lengthscale = nn.Parameter(
+            (torch.ones(*self.batch_shape, 1, lengthscale_num_dims)
+             * lengthscale).log(), requires_grad=True)
+
+        self.distance_module = None
 
     @property
-    def is_stationary(self) -> bool:
-        """
-        Property to indicate whether kernel is stationary or not.
-        """
-        return self.has_lengthscale or self.has_manual_lengthscale
+    def batch_shape(self):
+        kernels = list(self.sub_kernels())
+        if len(kernels):
+            return _mul_broadcast_shape(self._batch_shape,
+                                        *[k.batch_shape for k in kernels])
+        else:
+            return self._batch_shape
+
+    @batch_shape.setter
+    def batch_shape(self, val):
+        self._batch_shape = val
+
+    @abstractmethod
+    def forward(self, x1, x2, diag=False):
+        raise NotImplementedError
 
     @property
     def lengthscale(self):
-        if self.has_manual_lengthscale:
-            return self.raw_lengthscale_constraint.transform(
-                self.raw_lengthscale)
-        else:
-            return None
+        return self.log_lengthscale.exp()
 
     @lengthscale.setter
     def lengthscale(self, value):
-        self._set_lengthscale(value)
-
-    def _set_lengthscale(self, value):
-        if not self.has_manual_lengthscale:
-            raise RuntimeError("Kernel has no lengthscale.")
-
         if not torch.is_tensor(value):
-            value = torch.as_tensor(value).to(self.raw_lengthscale)
+            value = torch.as_tensor(value)
 
-        # Inverse transform and constrain.
-        raw_lengthscale = self.raw_lengthscale_constraint.inverse_transform(
-                    value)
-
-        # Not a parameter, manually set lengthscale.
-        self.raw_lengthscale = raw_lengthscale.reshape(
-            self.raw_lengthscale.shape)
-
-
-class BayesianRBFKernel(BayesianKernel):
-    """
-    A wrapper for the GPyTorch RBFKernel, which allows a lengthscale to be set
-    manually (to retain gradients when learning q(ε)).
-    """
-
-    has_manual_lengthscale = True
-
-    def forward(self, x1, x2, diag=False, **params):
-        if (
-            x1.requires_grad
-            or x2.requires_grad
-            or (self.ard_num_dims is not None and self.ard_num_dims > 1)
-            or diag
-            or trace_mode.on()
-        ):
-            x1_ = x1.div(self.lengthscale)
-            x2_ = x2.div(self.lengthscale)
-            return self.covar_dist(
-                x1_, x2_, square_dist=True, diag=diag, dist_postprocess_func=postprocess_rbf, postprocess=True, **params
-            )
-        return RBFCovariance().apply(
-            x1,
-            x2,
-            self.lengthscale,
-            lambda x1, x2: self.covar_dist(
-                x1, x2, square_dist=True, diag=False, dist_postprocess_func=postprocess_rbf, postprocess=False, **params
-            ),
-        )
-
-
-class BayesianScaleKernel(BayesianKernel):
-    """
-    A wrapper for the GPyTorch RBFKernel, which allows an outputscale to be set
-    manually (to retain gradients when learning q(ε)).
-    """
-
-    @property
-    def is_stationary(self) -> bool:
-        """
-        Kernel is stationary if base kernel is stationary.
-        """
-        return self.base_kernel.is_stationary
-
-    def __init__(self, base_kernel, outputscale_prior=None,
-                 outputscale_constraint=None, **kwargs):
-        if base_kernel.active_dims is not None:
-            kwargs["active_dims"] = base_kernel.active_dims
-        super().__init__(**kwargs)
-        if outputscale_constraint is None:
-            outputscale_constraint = Positive()
-
-        self.base_kernel = base_kernel
-        outputscale = torch.zeros(*self.batch_shape) if len(
-            self.batch_shape) else torch.tensor(0.0)
-        self.register_buffer(name="raw_outputscale",
-                             tensor=outputscale)
-
-        if outputscale_prior is not None:
-            self.register_prior(
-                "outputscale_prior", outputscale_prior,
-                lambda: self.outputscale, lambda v: self._set_outputscale(v)
-            )
-
-        self.raw_outputscale_constraint = outputscale_constraint
+        self.log_lengthscale = value.log()
 
     @property
     def outputscale(self):
-        return self.raw_outputscale_constraint.transform(self.raw_outputscale)
+        return self.log_outputscale.exp()
 
     @outputscale.setter
     def outputscale(self, value):
-        self._set_outputscale(value)
-
-    def _set_outputscale(self, value):
         if not torch.is_tensor(value):
-            value = torch.as_tensor(value).to(self.raw_outputscale)
+            value = torch.as_tensor(value)
 
-        raw_outputscale = self.raw_outputscale_constraint.inverse_transform(
-                value)
+        self.log_outputscale = value.log()
 
-        self.raw_outputscale = raw_outputscale.reshape(
-            self.raw_outputscale.shape)
+    def covar_dist(self, x1, x2, diag=False, square_dist=False,
+                   dist_postprocess_func=default_postprocess_script,
+                   postprocess=True):
+        x1_eq_x2 = torch.equal(x1, x2)
 
-    def forward(self, x1, x2, last_dim_is_batch=False, diag=False, **params):
-        orig_output = self.base_kernel.forward(x1, x2, diag=diag,
-                                               last_dim_is_batch=last_dim_is_batch,
-                                               **params)
+        # Torch scripts expect tensors.
+        postprocess = torch.tensor(postprocess)
+
+        # Cache the Distance object or else JIT will recompile every time.
+        if not self.distance_module or self.distance_module._postprocess != \
+                dist_postprocess_func:
+            self.distance_module = Distance(dist_postprocess_func)
+
+        if diag:
+            # Special case the diagonal because we can return all zeros most
+            # of the time.
+            if x1_eq_x2:
+                res = torch.zeros(*x1.shape[:-2], x1.shape[-2], dtype=x1.dtype,
+                                  device=x1.device)
+                if postprocess:
+                    res = dist_postprocess_func(res)
+                return res
+            else:
+                res = torch.norm(x1 - x2, p=2, dim=-1)
+                if square_dist:
+                    res = res.pow(2)
+            if postprocess:
+                res = dist_postprocess_func(res)
+            return res
+
+        elif square_dist:
+            res = self.distance_module._sq_dist(x1, x2, postprocess, x1_eq_x2)
+        else:
+            res = self.distance_module._dist(x1, x2, postprocess, x1_eq_x2)
+
+        return res
+
+    def __call__(self, x1, x2=None, diag=False):
+        x1_, x2_ = x1, x2
+
+        # Give x1_ and x2_ a last dimension, if necessary.
+        if x1_.ndimension() == 1:
+            x1_ = x1_.unsqueeze(1)
+        if x2_ is not None:
+            if x2_.ndimension() == 1:
+                x2_ = x2_.unsqueeze(1)
+            if not x1_.size(-1) == x2_.size(-1):
+                raise RuntimeError(
+                    "x1_ and x2_ must have the same number of dimensions!")
+
+        if x2_ is None:
+            x2_ = x1_
+
+        # Check that ard_num_dims matches the supplied number of dimensions.
+        if self.ard_num_dims is not None and self.ard_num_dims != x1_.size(-1):
+            raise RuntimeError("Expected the input to have {} dimensionality "
+                               "(based on the ard_num_dims argument). Got "
+                               "{}.".format(self.ard_num_dims, x1_.size(-1)))
+
+        if diag:
+            res = self.forward(x1_, x2_, diag=True)
+            # Did this Kernel eat the diag option?
+            # We can call diag on the output.
+            if res.dim() == x1_.dim() and res.shape[-2:] == torch.Size(
+                    (x1_.size(-2), x2_.size(-2))):
+                res = res.diag()
+            return res
+
+        else:
+            res = self.forward(x1_, x2_)
+            return res
+
+
+class RBFKernel(Kernel):
+
+    def forward(self, x1, x2, diag=False):
+        x1_ = x1.div(self.lengthscale)
+        x2_ = x2.div(self.lengthscale)
+        covar_dist = self.covar_dist(
+            x1_, x2_, square_dist=True, diag=diag,
+            dist_postprocess_func=postprocess_rbf, postprocess=True)
+
         outputscales = self.outputscale
-        if last_dim_is_batch:
-            outputscales = outputscales.unsqueeze(-1)
         if diag:
             outputscales = outputscales.unsqueeze(-1)
-            return delazify(orig_output) * outputscales
+            return covar_dist * outputscales
         else:
             outputscales = outputscales.view(*outputscales.shape, 1, 1)
-            return orig_output.mul(outputscales)
-
-    def num_outputs_per_input(self, x1, x2):
-        return self.base_kernel.num_outputs_per_input(x1, x2)
+            return covar_dist.mul(outputscales)
