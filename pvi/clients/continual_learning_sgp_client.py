@@ -405,7 +405,7 @@ class ContinualLearningSGPClientBayesianHypers(ClientBayesianHypers):
                         },
                     )
 
-                kleps = sum(qeps.kl_divergence(peps).values()) / len(x)
+                kleps = sum(sum(qeps.kl_divergence(peps).values())) / len(x)
 
                 ll = 0
                 kl = 0

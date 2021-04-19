@@ -85,31 +85,38 @@ class Kernel(nn.Module):
     and lengthscale, as well as the option for ARD lengthscales.
     """
     def __init__(self, ard_num_dims=None, batch_shape=torch.Size([]),
-                 lengthscale=1., outputscale=1.):
+                 lengthscale=1., outputscale=1., train_hypers=False):
         super().__init__()
 
         self.ard_num_dims = ard_num_dims
         self._batch_shape = batch_shape
-        outputscale = torch.ones(*self.batch_shape) * outputscale if len(
-            self.batch_shape) else torch.tensor(outputscale)
-        self.log_outputscale = nn.Parameter(
-            outputscale.log(), requires_grad=True)
+        self.train_hypers = train_hypers
+        outputscale = torch.ones(*self._batch_shape) * outputscale if len(
+            self._batch_shape) else torch.tensor(outputscale)
+
+        if self.train_hypers:
+            self.register_parameter(
+                "log_outputscale",
+                nn.Parameter(outputscale.log(), requires_grad=True))
+        else:
+            self.register_buffer("log_outputscale", outputscale.log())
 
         lengthscale_num_dims = 1 if ard_num_dims is None else ard_num_dims
-        self.log_lengthscale = nn.Parameter(
-            (torch.ones(*self.batch_shape, 1, lengthscale_num_dims)
-             * lengthscale).log(), requires_grad=True)
+        lengthscale = torch.ones(
+            *self._batch_shape, 1, lengthscale_num_dims) * lengthscale
+
+        if self.train_hypers:
+            self.register_parameter(
+                "log_lengthscale",
+                nn.Parameter(lengthscale.log(), requires_grad=True))
+        else:
+            self.register_buffer("log_lengthscale", lengthscale.log())
 
         self.distance_module = None
 
     @property
     def batch_shape(self):
-        kernels = list(self.sub_kernels())
-        if len(kernels):
-            return _mul_broadcast_shape(self._batch_shape,
-                                        *[k.batch_shape for k in kernels])
-        else:
-            return self._batch_shape
+        return self._batch_shape
 
     @batch_shape.setter
     def batch_shape(self, val):
@@ -128,7 +135,10 @@ class Kernel(nn.Module):
         if not torch.is_tensor(value):
             value = torch.as_tensor(value)
 
-        self.log_lengthscale = value.log()
+        if self.train_hypers:
+            self.log_lengthscale.data = value.log()
+        else:
+            self.log_lengthscale = value.log()
 
     @property
     def outputscale(self):
@@ -139,7 +149,10 @@ class Kernel(nn.Module):
         if not torch.is_tensor(value):
             value = torch.as_tensor(value)
 
-        self.log_outputscale = value.log()
+        if self.train_hypers:
+            self.log_outputscale.data = value.log()
+        else:
+            self.log_outputscale = value.log()
 
     def covar_dist(self, x1, x2, diag=False, square_dist=False,
                    dist_postprocess_func=default_postprocess_script,
