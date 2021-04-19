@@ -62,7 +62,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
         if hasattr(self, "kernel"):
             self.kernel.outputscale = self.hyperparameters["outputscale"]
-            self.kernel.lentthscale = self.hyperparameters["lengthscale"]
+            self.kernel.lengthscale = self.hyperparameters["lengthscale"]
 
     def get_default_hyperparameters(self):
         """
