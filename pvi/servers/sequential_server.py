@@ -7,11 +7,13 @@ logger = logging.getLogger(__name__)
 
 
 class SequentialServer(Server):
+    
     def __init__(self, model, q, clients, hyperparameters=None):
         super().__init__(model, q, clients, hyperparameters)
 
         self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
+        
 
     def get_default_hyperparameters(self):
         return {

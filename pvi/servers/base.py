@@ -58,7 +58,7 @@ class Server(ABC):
         Returns the current models predictive posterior distribution.
         :return: ∫ p(y | θ, x) q(θ) dθ.
         """
-        return self.model(x, self.q)
+        return self.model(x, self.q, model_predict=True)
 
     def add_client(self, client):
         self.clients.append(client)

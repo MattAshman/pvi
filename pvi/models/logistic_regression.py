@@ -49,6 +49,9 @@ class LogisticRegressionModel(Model, nn.Module):
         :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ ≅ (1/M) Σ_m p(y | θ_m, x) θ_m ~ q(θ).
         """
+        
+        print('forward')
+        
         if self.hyperparameters["use_probit_approximation"]:
             # Use Probit approximation.
             q_loc = q.std_params["loc"]
@@ -73,6 +76,8 @@ class LogisticRegressionModel(Model, nn.Module):
             comp_ = self.likelihood_forward(x, thetas)
             comp = distributions.Bernoulli(logits=comp_.logits.T)
             mix = distributions.Categorical(torch.ones(len(thetas),))
+            print(comp, mix)
+            raise Exception
 
             return distributions.MixtureSameFamily(mix, comp)
 
@@ -179,7 +184,7 @@ class LogisticRegressionModelNoBias(LogisticRegressionModel):
         :return: Bernoulli distribution.
         """
         assert len(x.shape) in [1, 2], "x must be (*, D)."
-        assert len(x.shape) in [1, 2], "theta must be (*, D)."
+        assert len(theta.shape) in [1, 2], "theta must be (*, D)."
 
         if len(theta.shape) == 1:
             logits = x.unsqueeze(-2).matmul(theta.unsqueeze(-1)).reshape(-1)
