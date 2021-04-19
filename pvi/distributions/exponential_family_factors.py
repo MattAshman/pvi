@@ -205,3 +205,21 @@ class GammaFactor(ExponentialFamilyFactor):
         dist = torch.distributions.Gamma(**std)
 
         return dist
+
+# =============================================================================
+# Log-Normal factor
+# =============================================================================
+
+
+class LogNormalFactor(MeanFieldGaussianFactor):
+
+    def __init__(self, nat_params):
+        super().__init__(nat_params)
+
+        self.distribution_class = LogNormalDistribution
+
+    def dist_from_nat(self, nat):
+        std = self.distribution_class._std_from_nat(nat)
+        dist = torch.distributions.LogNormal(**std)
+
+        return dist
