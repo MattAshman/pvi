@@ -19,9 +19,15 @@ class LinearRegressionModel(Model, nn.Module):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
-        self.register_parameter("output_sigma", nn.Parameter(
-            torch.tensor(self.hyperparameters["output_sigma"]),
-            requires_grad=train_sigma))
+        self.train_sigma = train_sigma
+        if self.train_sigma:
+            self.register_parameter("log_outputsigma", nn.Parameter(
+                torch.tensor(self.hyperparameters["outputsigma"]).log(),
+                requires_grad=True))
+        else:
+            self.register_buffer(
+                "log_outputsigma",
+                torch.tensor(self.hyperparameters["outputsigma"]).log())
 
         # Set ε after model is constructed.
         self.hyperparameters = self.hyperparameters
@@ -52,15 +58,20 @@ class LinearRegressionModel(Model, nn.Module):
     def hyperparameters(self, hyperparameters):
         self._hyperparameters = {**self._hyperparameters, **hyperparameters}
 
-        if hasattr(self, "output_sigma"):
-            self.output_sigma.data = self.hyperparameters["output_sigma"]
+        if hasattr(self, "log_outputsigma"):
+            if self.train_sigma:
+                self.log_outputsigma.data = \
+                    self.hyperparameters["outputsigma"].log()
+            else:
+                self.log_outputsigma = \
+                    self.hyperparameters["outputsigma"].log()
 
     def get_default_hyperparameters(self):
         """
         :return: A default set of ε for the model.
         """
         return {
-            "output_sigma": torch.tensor(1.),
+            "outputsigma": torch.tensor(1.),
         }
 
     def forward(self, x, q):
@@ -113,7 +124,7 @@ class LinearRegressionModel(Model, nn.Module):
                 mu = x_r.unsqueeze(-2).matmul(theta_r.unsqueeze(-1)).reshape(
                     len(theta), len(x_))
 
-        return distributions.Normal(mu, self.output_sigma)
+        return distributions.Normal(mu, self.outputsigma)
 
     def conjugate_update(self, data, q, t=None):
         """
@@ -132,7 +143,7 @@ class LinearRegressionModel(Model, nn.Module):
             x_ = x
 
         with torch.no_grad():
-            sigma = self.output_sigma
+            sigma = self.outputsigma
 
             # Closed-form solution.
             t_new_np2 = (-0.5 * sigma ** (-2) * x_.T.matmul(x_))
@@ -157,7 +168,7 @@ class LinearRegressionModel(Model, nn.Module):
 
     def expected_log_likelihood(self, data, q, num_samples=1):
         n = data["x"].shape[0]
-        sigma = self.output_sigma
+        sigma = self.outputsigma
         qmu = q.distribution.mean
         qcov = q.distribution.covariance_matrix
 
@@ -189,7 +200,7 @@ class LinearRegressionModel(Model, nn.Module):
         :return: p(y | x) = ∫ p(y | x, θ) q(θ) dθ = N(y; X * mw, X * Sw * X^T).
         """
         n = data["x"].shape[0]
-        sigma = self.output_sigma
+        sigma = self.outputsigma
         qmu = q.distribution.mean
         qcov = q.distribution.covariance_matrix
 
@@ -207,3 +218,7 @@ class LinearRegressionModel(Model, nn.Module):
         ydist = distributions.MultivariateNormal(ymu, covariance_matrix=ycov)
 
         return ydist.log_prob(y).sum()
+
+    @property
+    def outputsigma(self):
+        return self.log_outputsigma.exp()
