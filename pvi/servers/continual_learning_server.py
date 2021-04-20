@@ -1,4 +1,5 @@
 import logging
+import copy
 
 from .base import *
 
@@ -17,7 +18,8 @@ class ContinualLearningServer(Server):
         self.log["communications"].append(self.communications)
 
         if self.config["train_model"]:
-            self.log["model_state_dict"].append(self.model.state_dict())
+            self.log["model_state_dict"].append(
+                copy.deepcopy(self.model.state_dict()))
 
             for client in self.clients:
                 # Ensure clients know to train the model.
@@ -51,7 +53,8 @@ class ContinualLearningServer(Server):
             self.log["communications"].append(self.communications)
 
             if self.config["train_model"]:
-                self.log["model_state_dict"].append(self.model.state_dict())
+                self.log["model_state_dict"].append(
+                    copy.deepcopy(self.model.state_dict()))
 
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
@@ -66,6 +69,9 @@ class ContinualLearningServer(Server):
 class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
     def __init__(self, model, q, qeps, clients, config=None):
         super().__init__(model, q, qeps, clients, config)
+
+        # Loop through each client just once.
+        self.config = {"max_iterations": len(self.clients)}
 
         self.client_idx = 0
         self.log["q"].append(self.q.non_trainable_copy())
