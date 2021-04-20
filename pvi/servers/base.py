@@ -129,12 +129,12 @@ class Server(ABC):
 
         return
 
-    def model_predict(self, x):
+    def model_predict(self, x, **kwargs):
         """
         Returns the current models predictive posterior distribution.
         :return: ∫ p(y | θ, x) q(θ) dθ.
         """
-        return self.model(x, self.q)
+        return self.model(x, self.q, **kwargs)
 
     def add_client(self, client):
         self.clients.append(client)
@@ -183,7 +183,7 @@ class ServerBayesianHypers(Server):
         """
         pass
 
-    def model_predict(self, x):
+    def model_predict(self, x, **kwargs):
         """
         Returns the current models predictive posterior distribution.
         :return: ∫ p(y | x, θ, ε) q(θ)q(ε) dθ dε.
@@ -193,6 +193,6 @@ class ServerBayesianHypers(Server):
         for _ in range(neps):
             eps = self.qeps.sample()
             self.model.hyperparameters = eps
-            dists.append(self.model(x, self.q))
+            dists.append(self.model(x, self.q, **kwargs))
 
         return dists
