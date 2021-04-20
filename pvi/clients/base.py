@@ -46,7 +46,7 @@ class Client(ABC):
     def get_default_config(cls):
         return {
             "train_model": False,
-            "model_optimiser_params": {"lr": 1e-2},
+            # "model_optimiser_params": {"lr": 1e-2},
             "damping_factor": 1.,
             "valid_factors": False,
             "epochs": 1,
@@ -79,7 +79,8 @@ class Client(ABC):
         """
 
         # Type(q) is self.model.conjugate_family.
-        if str(type(q)) == str(self.model.conjugate_family):
+        if str(type(q)) == str(self.model.conjugate_family) \
+                and not self.config["train_model"]:
             # No need to make q trainable.
             q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
@@ -106,11 +107,17 @@ class Client(ABC):
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
-            parameters = [
-                {"params": q.parameters()},
-                {"params": self.model.parameters(),
-                 **self.config["model_optimiser_params"]}
-            ]
+            if "model_optimiser_params" in self.config:
+                parameters = [
+                    {"params": q.parameters()},
+                    {"params": self.model.parameters(),
+                     **self.config["model_optimiser_params"]}
+                ]
+            else:
+                parameters = [
+                    {"params": q.parameters()},
+                    {"params": self.model.parameters()}
+                ]
         else:
             parameters = q.parameters()
 
@@ -122,9 +129,7 @@ class Client(ABC):
         # Set up data
         x = self.data["x"]
         y = self.data["y"]
-        
-        num_data = self.data["x"].shape[0]
-        
+
         tensor_dataset = TensorDataset(x, y)
         loader = DataLoader(tensor_dataset,
                             batch_size=self.config["batch_size"],

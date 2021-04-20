@@ -82,11 +82,17 @@ class ContinualLearningSGPClient(Client):
         variational_parameters = [zb, mb, sb_chol]
 
         if self.config["train_model"]:
-            parameters = [
-                {"params": variational_parameters},
-                {"params": self.model.parameters(),
-                 **self.config["model_optimiser_params"]}
-            ]
+            if "model_optimiser_params" in self.config:
+                parameters = [
+                    {"params": variational_parameters},
+                    {"params": self.model.parameters(),
+                     **self.config["model_optimiser_params"]}
+                ]
+            else:
+                parameters = [
+                    {"params": variational_parameters},
+                    {"params": self.model.parameters()}
+                ]
         else:
             parameters = variational_parameters
 
