@@ -74,7 +74,7 @@ class LinearRegressionModel(Model, nn.Module):
             "outputsigma": torch.tensor(1.),
         }
 
-    def forward(self, x, q):
+    def forward(self, x, q, **kwargs):
         """
         Returns the predictive posterior distribution of a Bayesian linear
         regression model.
@@ -97,7 +97,7 @@ class LinearRegressionModel(Model, nn.Module):
 
         return distributions.Normal(ppmu, ppvar**0.5)
 
-    def likelihood_forward(self, x, theta):
+    def likelihood_forward(self, x, theta, **kwargs):
         """
         Returns the model's likelihood p(y | θ, x).
         :param x: The input locations to make predictions at, (*, D).

@@ -5,10 +5,9 @@ from torch import distributions, nn, optim
 from .kernels import RBFKernel
 from .base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
-from pvi.distributions import MultivariateGaussianDistributionWithZ, \
-    MultivariateGaussianDistribution
+from pvi.distributions import MultivariateGaussianDistributionWithZ
 
-JITTER = 1e-6
+JITTER = 1e-4
 
 
 class SparseGaussianProcessModel(Model, nn.Module):
@@ -149,18 +148,44 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
     conjugate_family = MultivariateGaussianDistributionWithZ
 
-    def __init__(self, **kwargs):
+    def __init__(self, train_sigma=True, **kwargs):
         super().__init__(**kwargs)
+
+        self.train_sigma = train_sigma
+        if self.train_sigma:
+            self.register_parameter("log_outputsigma", nn.Parameter(
+                torch.tensor(self.hyperparameters["outputsigma"]).log(),
+                requires_grad=True))
+        else:
+            self.register_buffer(
+                "log_outputsigma",
+                torch.tensor(self.hyperparameters["outputsigma"]).log())
+
+        # Set ε after model is constructed.
+        self.hyperparameters = self.hyperparameters
 
     @property
     def hyperparameters(self):
-        return super().hyperparameters
+        return self._hyperparameters
 
     @hyperparameters.setter
     def hyperparameters(self, hyperparameters):
-        super().hyperparameters = hyperparameters
+        # TODO: why won't this work?
+        # super().hyperparameters = hyperparameters
 
-        self.output_sigma = nn.Parameter(self.hyperparameters["output_sigma"])
+        self._hyperparameters = {**self._hyperparameters, **hyperparameters}
+
+        if hasattr(self, "kernel"):
+            self.kernel.outputscale = self.hyperparameters["outputscale"]
+            self.kernel.lengthscale = self.hyperparameters["lengthscale"]
+
+        if hasattr(self, "log_outputsigma"):
+            if self.train_sigma:
+                self.log_outputsigma.data = torch.as_tensor(
+                    self.hyperparameters["outputsigma"]).log()
+            else:
+                self.log_outputsigma = torch.as_tensor(
+                    self.hyperparameters["outputsigma"]).log()
 
     def get_default_hyperparameters(self):
         """
@@ -168,20 +193,20 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         """
         return {
             **super().get_default_hyperparameters(),
-            "output_sigma": 1.,
+            "outputsigma": 1.,
         }
 
-    def forward(self, x, q):
-        return self.posterior(x, q)
+    def forward(self, x, q, diag=False):
+        return self.posterior(x, q, diag=diag)
     
-    def likelihood_forward(self, x, theta=None):
+    def likelihood_forward(self, x, theta=None, **kwargs):
         """
         Returns the model's likelihood p(y | x).
         :param x: The input locations to make predictions at, (*, D).
         :param theta: The latent variables of the model.
         :return: p(y | x).
         """
-        return distributions.Normal(x, self.output_sigma)
+        return distributions.Normal(x, self.outputsigma)
     
     def conjugate_update(self, data, q, t=None):
         """
@@ -192,7 +217,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         contribution.
         """
         if t is not None:
-            assert torch.eq(q.inducing_locations, t.inducing_locations), \
+            assert torch.equal(q.inducing_locations, t.inducing_locations), \
                 "q and t must share the same inducing locations for " \
                 "conjugate update."
 
@@ -209,7 +234,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
             lzz = kzz.cholesky()
             ikzz = psd_inverse(chol=lzz)
 
-            sigma = self.output_sigma
+            sigma = self.outputsigma
             a = kxz.matmul(ikzz)
 
             # Closed form solution for optimum q(u).
@@ -242,10 +267,10 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         y = data["y"]
         z = q.inducing_locations
 
-        kzz = add_diagonal(self.model.kernel(z, z), JITTER)
+        kzz = add_diagonal(self.kernel(z, z), JITTER)
         ikzz = psd_inverse(kzz)
-        kxz = self.model.kernel(x, z)
-        kxx = add_diagonal(self.model.kernel(x, x), JITTER)
+        kxz = self.kernel(x, z)
+        kxx = add_diagonal(self.kernel(x, x), JITTER)
 
         a = kxz.matmul(ikzz)
         c = kxx - a.matmul(kxz.T)
@@ -254,8 +279,8 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         qf_cov = c + a.matmul(
             q.std_params["covariance_matrix"]).matmul(a.T)
 
-        sigma = self.model.outputsigma
-        dist = self.model.likelihood_forward(qf_loc)
+        sigma = self.outputsigma
+        dist = self.likelihood_forward(qf_loc)
         ll1 = dist.log_prob(y.squeeze())
         ll2 = -0.5 * sigma ** (-2) * qf_cov.diag()
         ll = ll1.sum() + ll2.sum()
@@ -273,6 +298,10 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         :return: The evidence lower bound.
         """
         raise NotImplementedError
+
+    @property
+    def outputsigma(self):
+        return self.log_outputsigma.exp()
 
 
 class SparseGaussianProcessClassification(SparseGaussianProcessModel):
@@ -293,21 +322,23 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
             "use_probit_approximation": True,
         }
 
-    def forward(self, x, q):
+    def forward(self, x, q, diag=False):
         """
         Returns the (approximate) predictive posterior distribution of a
         sparse Gaussian process.
         :param x: The input locations to make predictions at.
         :param q: The approximate posterior distribution q(u | z).
+        :param diag: Whether to compute marginal posterior predictive
+        distributions.
         :return: ∫ p(y | f, x) p(f | u) q(u) df du.
         """
-        qf = self.posterior(x, q)
+        qf = self.posterior(x, q, diag=diag)
 
         if self.config["use_probit_approximation"]:
             # Use Probit approximation.
             qf_loc = qf.loc
 
-            if str(type(qf)) == str(MultivariateGaussianDistribution):
+            if str(type(qf)) == str(torch.distributions.MultivariateNormal):
                 qf_scale = qf.covariance_matrix.diag() ** 0.5
             else:
                 qf_scale = qf.scale
@@ -324,7 +355,7 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
 
             return distributions.MixtureSameFamily(mix, comp)
 
-    def likelihood_forward(self, x, theta):
+    def likelihood_forward(self, x, theta, **kwargs):
         """
         Returns the model's likelihood p(y | x).
         :param x: The input locations to make predictions at, (*, D).
@@ -346,7 +377,7 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
     def expected_log_likelihood(self, data, q, num_samples=1):
         x = data["x"]
 
-        qf = self.posterior(x, q)
+        qf = self.posterior(x, q, diag=True)
         fs = qf.rsample((num_samples,))
         return self.likelihood_log_prob(data, fs).mean(0)
 
