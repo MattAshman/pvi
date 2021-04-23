@@ -10,15 +10,6 @@ import torch
 
 
 class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
-    
-    def __init__(self,
-                 std_params=None,
-                 nat_params=None,
-                 is_trainable=False):
-        
-        super().__init__(std_params=std_params,
-                         nat_params=nat_params,
-                         is_trainable=is_trainable)
 
     @property
     def torch_dist_class(self):
@@ -93,15 +84,6 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
 
 
 class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
-    
-    def __init__(self,
-                 std_params=None,
-                 nat_params=None,
-                 is_trainable=False):
-        
-        super().__init__(std_params=std_params,
-                         nat_params=nat_params,
-                         is_trainable=is_trainable)
 
     @property
     def torch_dist_class(self):
@@ -180,15 +162,6 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
 
 
 class DirichletDistribution(ExponentialFamilyDistribution):
-    
-    def __init__(self,
-                 std_params=None,
-                 nat_params=None,
-                 is_trainable=False):
-        
-        super().__init__(std_params=std_params,
-                         nat_params=nat_params,
-                         is_trainable=is_trainable)
 
     @property
     def torch_dist_class(self):
@@ -252,15 +225,6 @@ class DirichletDistribution(ExponentialFamilyDistribution):
 
 
 class MultinomialDistribution(ExponentialFamilyDistribution):
-    
-    def __init__(self,
-                 std_params=None,
-                 nat_params=None,
-                 is_trainable=False):
-        
-        super().__init__(std_params=std_params,
-                         nat_params=nat_params,
-                         is_trainable=is_trainable)
 
     @property
     def mean_params(self):
@@ -346,14 +310,6 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
 
 class GammaDistribution(ExponentialFamilyDistribution):
 
-    def __init__(self,
-                 std_params=None,
-                 nat_params=None,
-                 is_trainable=False):
-        super().__init__(std_params=std_params,
-                         nat_params=nat_params,
-                         is_trainable=is_trainable)
-
     @property
     def mean_params(self):
         raise NotImplementedError
@@ -420,3 +376,16 @@ class GammaDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Gamma
+
+
+# =============================================================================
+# Log-Normal distributions
+# =============================================================================
+
+
+class LogNormalDistribution(MeanFieldGaussianDistribution):
+
+    @property
+    def torch_dist_class(self):
+        return torch.distributions.LogNormal
+

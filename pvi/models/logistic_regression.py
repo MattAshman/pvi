@@ -54,7 +54,7 @@ class LogisticRegressionModel(Model, nn.Module):
         """
         return {}
 
-    def forward(self, x, q):
+    def forward(self, x, q, **kwargs):
         """
         Returns the (approximate) predictive posterior distribution of a
         Bayesian logistic regression model.
@@ -95,7 +95,7 @@ class LogisticRegressionModel(Model, nn.Module):
 
             return distributions.MixtureSameFamily(mix, comp)
 
-    def likelihood_forward(self, x, theta):
+    def likelihood_forward(self, x, theta, **kwargs):
         """
         Returns the model's likelihood p(y | θ, x).
         :param x: Input of shape (*, D).

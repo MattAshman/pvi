@@ -59,7 +59,7 @@ class Model(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def forward(self, x, q):
+    def forward(self, x, q, **kwargs):
         """
         Returns the (approximate) predictive posterior.
         :param x: The input locations to make predictions at.
@@ -69,7 +69,7 @@ class Model(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def likelihood_forward(self, x, theta):
+    def likelihood_forward(self, x, theta, **kwargs):
         """
         Returns the model's likelihood p(y | θ, x).
         :param x: The input locations to make predictions at.

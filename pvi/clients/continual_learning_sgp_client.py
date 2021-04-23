@@ -62,19 +62,16 @@ class ContinualLearningSGPClient(Client):
             qa_cov = qa.std_params["covariance_matrix"]
             qa_loc = qa.std_params["loc"]
 
-            kaa = add_diagonal(self.model.kernel(za, za).evaluate().detach(),
-                               JITTER)
+            kaa = add_diagonal(self.model.kernel(za, za).detach(), JITTER)
             ikaa = psd_inverse(kaa)
-            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
-                               JITTER)
-            kba = self.model.kernel(zb, za).evaluate().detach()
+            kbb = add_diagonal(self.model.kernel(zb, zb).detach(), JITTER)
+            kba = self.model.kernel(zb, za).detach()
             # Initialise Sb = Kbb - Kba Kaa^{-1} Kab.
             sb = kbb - kba.matmul(ikaa).matmul(kba.T)
             sb_chol = torch.cholesky(sb)
         else:
             # Initialise Sb = Kbb.
-            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
-                               JITTER)
+            kbb = add_diagonal(self.model.kernel(zb, zb).detach(), JITTER)
             sb = kbb
             sb_chol = torch.cholesky(sb)
 
@@ -85,11 +82,17 @@ class ContinualLearningSGPClient(Client):
         variational_parameters = [zb, mb, sb_chol]
 
         if self.config["train_model"]:
-            parameters = [
-                {"params": variational_parameters},
-                {"params": self.model.parameters(),
-                 **self.config["model_optimiser_params"]}
-            ]
+            if "model_optimiser_params" in self.config:
+                parameters = [
+                    {"params": variational_parameters},
+                    {"params": self.model.parameters(),
+                     **self.config["model_optimiser_params"]}
+                ]
+            else:
+                parameters = [
+                    {"params": variational_parameters},
+                    {"params": self.model.parameters()}
+                ]
         else:
             parameters = variational_parameters
 
@@ -155,7 +158,7 @@ class ContinualLearningSGPClient(Client):
                     """
                     z = torch.cat([za, zb], axis=0)
 
-                    kba = self.model.kernel(zb, za).evaluate().detach()
+                    kba = self.model.kernel(zb, za).detach()
                     a = kba.matmul(ikaa)
 
                     q_loc = torch.empty(len(z))
@@ -180,8 +183,7 @@ class ContinualLearningSGPClient(Client):
                     )
 
                 # Everything is the same from here on in.
-                kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
-                                   JITTER)
+                kzz = add_diagonal(self.model.kernel(z, z), JITTER)
                 p = type(q)(
                     inducing_locations=z,
                     std_params={
@@ -294,12 +296,10 @@ class ContinualLearningSGPClientBayesianHypers(ClientBayesianHypers):
             qa_cov = qa.std_params["covariance_matrix"]
             qa_loc = qa.std_params["loc"]
 
-            kaa = add_diagonal(self.model.kernel(za, za).evaluate().detach(),
-                               JITTER)
+            kaa = add_diagonal(self.model.kernel(za, za).detach(), JITTER)
             ikaa = psd_inverse(kaa)
-            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
-                               JITTER)
-            kba = self.model.kernel(zb, za).evaluate().detach()
+            kbb = add_diagonal(self.model.kernel(zb, zb).detach(), JITTER)
+            kba = self.model.kernel(zb, za).detach()
 
             # Initialise Sb = Kbb - Kba Kaa^{-1} Kab.
             sb = kbb - kba.matmul(ikaa).matmul(kba.T)
@@ -310,8 +310,7 @@ class ContinualLearningSGPClientBayesianHypers(ClientBayesianHypers):
             ab = nn.Parameter(ab, requires_grad=True)
         else:
             # Initialise Sb = Kbb.
-            kbb = add_diagonal(self.model.kernel(zb, zb).evaluate().detach(),
-                               JITTER)
+            kbb = add_diagonal(self.model.kernel(zb, zb).detach(), JITTER)
             sb = kbb
             sb_chol = torch.cholesky(sb)
 
@@ -412,7 +411,7 @@ class ContinualLearningSGPClientBayesianHypers(ClientBayesianHypers):
                         },
                     )
 
-                kleps = sum(qeps.kl_divergence(peps).values()) / len(x)
+                kleps = sum(sum(qeps.kl_divergence(peps).values())) / len(x)
 
                 ll = 0
                 kl = 0
@@ -421,8 +420,7 @@ class ContinualLearningSGPClientBayesianHypers(ClientBayesianHypers):
                     # Set model hyperparameters.
                     self.model.hyperparameters = eps
 
-                    kzz = add_diagonal(self.model.kernel(z, z).evaluate(),
-                                       JITTER)
+                    kzz = add_diagonal(self.model.kernel(z, z), JITTER)
 
                     p = type(q)(
                         inducing_locations=z,
@@ -436,7 +434,7 @@ class ContinualLearningSGPClientBayesianHypers(ClientBayesianHypers):
 
                     if za is not None:
                         kaa = add_diagonal(
-                            self.model.kernel(za, za).evaluate(), JITTER)
+                            self.model.kernel(za, za), JITTER)
 
                         pa = type(q)(
                             inducing_locations=za,
