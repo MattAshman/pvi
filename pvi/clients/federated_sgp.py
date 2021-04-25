@@ -2,8 +2,8 @@ import logging
 import torch
 
 from .base import Client
-from pvi.utils.psd_utils import psd_inverse
-from pvi.utils.gaussian import joint_from_marginal
+from pvi.utils.psd_utils import psd_inverse, add_diagonal
+from pvi.utils.gaussian import joint_from_marginal, nat_from_std, std_from_nat
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm.auto import tqdm
 
@@ -12,38 +12,13 @@ logger = logging.getLogger(__name__)
 JITTER = 1e-4
 
 
-def nat_from_std(std_params):
-    loc = std_params["loc"]
-    cov = std_params["covariance_matrix"]
-
-    nat = {
-        "np1": torch.solve(loc[:, None], cov).solution[:, 0],
-        "np2": -0.5 * cov.inverse()
-    }
-
-    return nat
-
-
-def std_from_nat(nat_params):
-    np1 = nat_params["np1"]
-    np2 = nat_params["np2"]
-
-    prec = -2. * np2
-
-    std = {
-        "loc": torch.solve(np1[:, None], prec).solution[:, 0],
-        "covariance_matrix": prec.inverse()
-    }
-
-    return std
-
-
 class FederatedSGPClient(Client):
     def __init__(self, data, model, t, config=None):
         super().__init__(data, model, t, config)
 
     def gradient_based_update(self, q):
         # TODO: use the collapsed variational lower bound for SGP regression.
+        #  i.e. should be closed-form solution.
         # Cannot update during optimisation.
         self._can_update = False
 
@@ -53,9 +28,15 @@ class FederatedSGPClient(Client):
             "Inducing location of q and self.t do not match."
 
         # Copy the approximate posterior, make old posterior non-trainable.
+        # Compute q_cav by subtracting old natural parameters. Note that q is
+        # current specified at the old inducing locations, Za.
         q_cav = q.non_trainable_copy()
         q_cav.nat_params = {k: v - self.t.nat_params[k]
                             for k, v in q_cav.nat_params.items()}
+
+        # Perturb the Za to get Zb (avoids numerical issues).
+        # q.inducing_locations = q.inducing_locations + torch.randn_like(
+        #     q.inducing_locations) * JITTER
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
@@ -95,22 +76,28 @@ class FederatedSGPClient(Client):
             "logt": [],
         }
 
-        # Stay fixed throughout optimisation.
+        # Stay fixed throughout optimisation as model hyperparameters are
+        # only updated by the server.
         za = q_cav.inducing_locations
-        kaa = self.model.kernel(za, za).detach()
+        kaa = add_diagonal(self.model.kernel(za, za).detach(), JITTER)
+        # kaa = self.model.kernel(za, za).detach()
         ikaa = psd_inverse(kaa)
 
         # Compute joint distributions q(a, b) and qcav(a, b).
-        zb = q.inducing_locations + torch.ones_like(
-            q.inducing_locations) * torch.randn(1) * JITTER
+        # Zb are new private inducing locations, which are to be optimised.
+        zb = q.inducing_locations
         z = torch.cat([za, zb], axis=0)
 
         kab = self.model.kernel(za, zb)
-        kbb = self.model.kernel(zb, zb)
+        kbb = add_diagonal(self.model.kernel(zb, zb), JITTER)
+        # kbb = self.model.kernel(zb, zb)
         ikbb = psd_inverse(kbb)
 
+        # q(a, b) = q(b) p(a | b). Remember to order as q(a, b), not q(b, a).
         qab_loc, qab_cov = joint_from_marginal(
-            q, kab.T, kbb=kaa, ikaa=ikbb)
+            q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
+
+        # q_cav(a, b) = q_cav(a) p(b | a).
         qab_cav_loc, qab_cav_cov = joint_from_marginal(
             q_cav, kab, kbb=kbb, ikaa=ikaa)
 
@@ -153,7 +140,11 @@ class FederatedSGPClient(Client):
 
                 # Compute KL divergence between q and q_old.
                 # kl = q.kl_divergence(q_old).sum() / len(x).
-                kl = qab.kl_divergence(qab_cav).sum() / len(x)
+                try:
+                    kl = qab.kl_divergence(qab_cav).sum() / len(x)
+                except RuntimeError:
+                    import pdb
+                    pdb.set_trace()
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
@@ -169,11 +160,15 @@ class FederatedSGPClient(Client):
                 z = torch.cat([za, zb], axis=0)
 
                 kab = self.model.kernel(za, zb)
-                kbb = self.model.kernel(zb, zb)
+                kbb = add_diagonal(self.model.kernel(zb, zb), JITTER)
+                # kbb = self.model.kernel(zb, zb)
                 ikbb = psd_inverse(kbb)
 
+                # q(a, b) = q(b) p(a | b).
                 qab_loc, qab_cov = joint_from_marginal(
-                    q, kab.T, kbb=kaa, ikaa=ikbb)
+                    q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
+
+                # q_cav(a, b) = q_cav(a) p(b | a).
                 qab_cav_loc, qab_cav_cov = joint_from_marginal(
                     q_cav, kab, kbb=kbb, ikaa=ikaa)
 
@@ -235,8 +230,7 @@ class FederatedSGPClient(Client):
         tab_np = {k: (v.detach() - qab_cav.nat_params[k].detach())
                   for k, v in qab.nat_params.items()}
 
-        # Convert to std params and extract those for t(b) then back to nat
-        # params.
+        # Marginalise to get t(b) = ∫ t(a, b) da.
         tab_std = std_from_nat(tab_np)
         tb_std = {
             "loc": tab_std["loc"][len(za):],
