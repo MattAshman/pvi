@@ -136,9 +136,11 @@ class Kernel(nn.Module):
             value = torch.as_tensor(value)
 
         if self.train_hypers:
-            self.log_lengthscale.data = value.log()
+            self.log_lengthscale.data = value.log().reshape(
+                self.log_lengthscale.shape)
         else:
-            self.log_lengthscale = value.log()
+            self.log_lengthscale = value.log().reshape(
+                self.log_lengthscale.shape)
 
     @property
     def outputscale(self):

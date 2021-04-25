@@ -67,10 +67,17 @@ class SparseGaussianProcessModel(Model, nn.Module):
         """
         :return: A default set of ε for the model.
         """
-        return {
-            "outputscale": torch.tensor(1.),
-            "lengthscale": torch.tensor(1.),
-        }
+        if self.config["kernel_params"]["ard_num_dims"] is not None:
+            return {
+                "outputscale": torch.tensor(1.),
+                "lengthscale": torch.ones(
+                    self.config["kernel_params"]["ard_num_dims"]) * 1.,
+            }
+        else:
+            return {
+                "outputscale": torch.tensor(1.),
+                "lengthscale": torch.tensor(1.),
+            }
 
     def prior(self, q=None, z=None, detach=False):
         """
