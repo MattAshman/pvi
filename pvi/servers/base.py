@@ -1,4 +1,5 @@
 import logging
+import torch
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
@@ -47,7 +48,9 @@ class Server(ABC):
         return {
             "train_model": False,
             "model_update_freq": 1,
-            "model_lr": 1e-2,
+            "hyper_optimiser": "SGD",
+            "hyper_optimiser_params": {"lr": 1},
+            "hyper_updates": 1,
         }
 
     @abstractmethod
@@ -70,7 +73,9 @@ class Server(ABC):
         Updates the model hyperparameters according to
         dF / dε = (μ_q - μ_0)^T dη_0 / dε + Σ_m dF_m / dε.
         """
-        # Zero gradients.
+        # TODO: currently performs single optimisation step. Perform more?
+
+        # Zero gradients as accumulated during client optimisation.
         for param in self.model.parameters():
             if param.grad is not None:
                 if param.grad.grad_fn is not None:
@@ -105,7 +110,8 @@ class Server(ABC):
 
         # Update model parameters, and pass to clients.
         for param in self.model.parameters():
-            param.data += self.config["hyper_lr"] * param.grad
+            param.data += (
+                self.config["hyper_optimiser_params"]["lr"] * param.grad)
 
         for client in self.clients:
             client.model = self.model
@@ -124,8 +130,8 @@ class Server(ABC):
         parameters = {k: v.data for k, v in self.model.named_parameters()}
         logger.debug(f"Updated model hyperparameters."
                      f"\nNew model hyperparameters:\n{parameters}\n.")
-        # print(f"Updated model hyperparameters."
-        #       f"\nNew model hyperparameters:\n{parameters}\n.")
+        print(f"Updated model hyperparameters."
+              f"\nNew model hyperparameters:\n{parameters}\n.")
 
         return
 

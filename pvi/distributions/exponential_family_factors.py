@@ -131,9 +131,6 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
 
         eqlogt = np1.dot(m1) + np2.dot(m2)
 
-        # eqlogt = (np1.dot(loc)
-        #           + np2.matmul(cov).trace() + loc.dot(torch.mv(np2, loc)))
-
         return eqlogt
 
     def nat_from_dist(self, q):
@@ -142,8 +139,8 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         cov = q.covariance_matrix.detach()
         
         std = {
-            "loc" : loc,
-            "covariance_matrix" : cov
+            "loc": loc,
+            "covariance_matrix": cov
         }
         
         return self.distribution_class._nat_from_std(std)

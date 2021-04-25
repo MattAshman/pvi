@@ -25,11 +25,13 @@ class ExponentialFamilyFactor(ABC):
     applications.
     """
     
-    def __init__(self, nat_params):
+    def __init__(self, nat_params, log_coeff=0.):
         
         self.nat_params = nat_params
+        self.log_coeff = log_coeff
 
-    def compute_refined_factor(self, q1, q2, damping=1., valid_dist=False):
+    def compute_refined_factor(self, q1, q2, damping=1., valid_dist=False,
+                               update_log_coeff=True):
         """
         Computes the log-coefficient and natural parameters of the
         approximating likelihood term **t** given by
@@ -55,9 +57,15 @@ class ExponentialFamilyFactor(ABC):
         if valid_dist:
             # Constraint natural parameters to form valid distribution.
             nat_params = self.valid_nat_from_nat(nat_params)
+
+        if update_log_coeff and not valid_dist:
+            # TODO: does not work unless valid_dist = False.
+            log_coeff = self.log_coeff + (q2.log_a - q1.log_a) * damping
+        else:
+            log_coeff = 0.
             
         # Create and return refined t of the same type
-        t = type(self)(nat_params=nat_params)
+        t = type(self)(nat_params=nat_params, log_coeff=log_coeff)
         
         return t
 
@@ -162,6 +170,14 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         else:
             self.std_params = std_params
             self.nat_params = nat_params
+
+    @abstractmethod
+    def log_a(self, nat_params):
+        """
+        :param nat_params: Natural parameters η.
+        :return: Log partition function, A(η).
+        """
+        raise NotImplementedError
         
     @property
     def std_params(self):
