@@ -9,6 +9,34 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
+JITTER = 1e-4
+
+
+def nat_from_std(std_params):
+    loc = std_params["loc"]
+    cov = std_params["covariance_matrix"]
+
+    nat = {
+        "np1": torch.solve(loc[:, None], cov).solution[:, 0],
+        "np2": -0.5 * cov.inverse()
+    }
+
+    return nat
+
+
+def std_from_nat(nat_params):
+    np1 = nat_params["np1"]
+    np2 = nat_params["np2"]
+
+    prec = -2. * np2
+
+    std = {
+        "loc": torch.solve(np1[:, None], prec).solution[:, 0],
+        "covariance_matrix": prec.inverse()
+    }
+
+    return std
+
 
 class FederatedSGPClient(Client):
     def __init__(self, data, model, t, config=None):
@@ -31,11 +59,17 @@ class FederatedSGPClient(Client):
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
-            parameters = [
-                {"params": q.parameters()},
-                {"params": self.model.parameters(),
-                 **self.config["model_optimiser_params"]}
-            ]
+            if "model_optimiser_params" in self.config:
+                parameters = [
+                    {"params": q.parameters()},
+                    {"params": self.model.parameters(),
+                     **self.config["model_optimiser_params"]}
+                ]
+            else:
+                parameters = [
+                    {"params": q.parameters()},
+                    {"params": self.model.parameters()}
+                ]
         else:
             parameters = q.parameters()
 
@@ -63,20 +97,22 @@ class FederatedSGPClient(Client):
 
         # Stay fixed throughout optimisation.
         za = q_cav.inducing_locations
-        kaa = self.model.kernel(za, za).evaluate().detach()
+        kaa = self.model.kernel(za, za).detach()
         ikaa = psd_inverse(kaa)
 
         # Compute joint distributions q(a, b) and qcav(a, b).
-        zb = q.inducing_locations
+        zb = q.inducing_locations + torch.ones_like(
+            q.inducing_locations) * torch.randn(1) * JITTER
         z = torch.cat([za, zb], axis=0)
 
-        kab = self.model.kernel(za, zb).evaluate()
-        kbb = self.model.kernel(zb, zb).evaluate()
+        kab = self.model.kernel(za, zb)
+        kbb = self.model.kernel(zb, zb)
         ikbb = psd_inverse(kbb)
 
-        qab_loc, qab_cov = joint_from_marginal(q, kab.T, ikaa=ikbb)
+        qab_loc, qab_cov = joint_from_marginal(
+            q, kab.T, kbb=kaa, ikaa=ikbb)
         qab_cav_loc, qab_cav_cov = joint_from_marginal(
-            q_cav, kab, ikaa=ikaa)
+            q_cav, kab, kbb=kbb, ikaa=ikaa)
 
         qab = type(q)(
             inducing_locations=z,
@@ -117,8 +153,7 @@ class FederatedSGPClient(Client):
 
                 # Compute KL divergence between q and q_old.
                 # kl = q.kl_divergence(q_old).sum() / len(x).
-
-                kl = qab.kl_divergence(qab_cov).sum() / len(x)
+                kl = qab.kl_divergence(qab_cav).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
@@ -133,13 +168,14 @@ class FederatedSGPClient(Client):
                 zb = q.inducing_locations
                 z = torch.cat([za, zb], axis=0)
 
-                kab = self.model.kernel(za, zb).evaluate()
-                kbb = self.model.kernel(zb, zb).evaluate()
+                kab = self.model.kernel(za, zb)
+                kbb = self.model.kernel(zb, zb)
                 ikbb = psd_inverse(kbb)
 
-                qab_loc, qab_cov = joint_from_marginal(q, kab.T, ikaa=ikbb)
+                qab_loc, qab_cov = joint_from_marginal(
+                    q, kab.T, kbb=kaa, ikaa=ikbb)
                 qab_cav_loc, qab_cav_cov = joint_from_marginal(
-                    q_cav, kab, ikaa=ikaa)
+                    q_cav, kab, kbb=kbb, ikaa=ikaa)
 
                 qab = type(q)(
                     inducing_locations=z,
@@ -201,13 +237,14 @@ class FederatedSGPClient(Client):
 
         # Convert to std params and extract those for t(b) then back to nat
         # params.
-        tab_std = q._std_from_nat(tab_np)
+        tab_std = std_from_nat(tab_np)
         tb_std = {
             "loc": tab_std["loc"][len(za):],
             "covariance_matrix": tab_std["covariance_matrix"][
                                  len(za):, len(za):],
         }
-        tb_np = q._nat_from_std(tb_std)
+
+        tb_np = nat_from_std(tb_std)
         t_new = type(self.t)(
             inducing_locations=zb.detach(),
             nat_params=tb_np,

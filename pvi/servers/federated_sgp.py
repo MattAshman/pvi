@@ -5,14 +5,17 @@ import numpy as np
 from tqdm.auto import tqdm
 from .base import *
 from pvi.utils.gaussian import joint_from_marginal
-from pvi.utils.psd_utils import psd_inverse
+from pvi.utils.psd_utils import psd_inverse, add_diagonal
+from pvi.distributions import MultivariateGaussianDistributionWithZ
 
 logger = logging.getLogger(__name__)
+
+JITTER = 1e-6
 
 
 class SequentialSGPServer(Server):
     def __init__(self, model, q, clients, config=None,
-                 maintain_inducing=None):
+                 maintain_inducing=False):
         super().__init__(model, q, clients, config)
 
         self.maintain_inducing = maintain_inducing
@@ -24,7 +27,7 @@ class SequentialSGPServer(Server):
             z = q.inducing_locations
             for i, client in enumerate(clients):
                 zi = client.t.inducing_locations.detach()
-                inducing_idx = np.empty(len(zi))
+                inducing_idx = np.zeros(len(zi), dtype=int)
                 for j, zij in enumerate(zi):
                     idx = torch.where((zij == z).all(dim=1))[0]
                     if idx is None:
@@ -53,17 +56,31 @@ class SequentialSGPServer(Server):
 
         clients_updated = 0
 
-        for i, client in tqdm(self.clients):
+        for i, client in tqdm(enumerate(self.clients)):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
-                _, t_i_new = client.fit(self.q)
+
+                # Send over q marginalised at t_i_old.inducing_locations.
+                qa_i_old = self.model.posterior(
+                    t_i_old.inducing_locations, self.q, diag=False)
+                qa_i_old = MultivariateGaussianDistributionWithZ(
+                    std_params={
+                        "loc": qa_i_old.loc,
+                        "covariance_matrix": qa_i_old.covariance_matrix,
+                    },
+                    inducing_locations=t_i_old.inducing_locations,
+                    is_trainable=False,
+                    train_inducing=self.q.train_inducing,
+                )
+
+                _, t_i_new = client.fit(qa_i_old)
 
                 logger.debug(
                     "Received client update. Updating global posterior.")
 
                 # Project onto global inducing locations.
-                self.q = self.update_posterior(self.q, t_i_old, t_i_new)
+                self.q = self.update_posterior(self.q, i, t_i_old, t_i_new)
 
                 clients_updated += 1
                 self.communications += 1
@@ -98,28 +115,39 @@ class SequentialSGPServer(Server):
         if not self.maintain_inducing:
             # Server uses aggregate of clients inducing points.
             # Remove t_old from q_old.
-            z_old = q_old.inducing_locations
-            zi = t_old.inducing_locations
-            zi_idx = torch.zeros(len(zi))
-            for j, zij in enumerate(zi):
-                zi_idx[j] = torch.where((zij == z_old).all(dim=1))[0]
+            # z_old = q_old.inducing_locations
+            # zi = t_old.inducing_locations
+            # zi_idx = torch.zeros(len(zi))
+            # for j, zij in enumerate(zi):
+            #     idx = torch.where((zij == z_old).all(dim=1))[0]
+            #     if idx is None:
+            #         raise ValueError(f"Client contains inducing "
+            #                          f"locations not include in q.")
+            #     else:
+            #         zi_idx[j] = idx
 
             q_cav_old_np = q_old.nat_params
+
+            # TODO: Can you delete marginals by just subtracting the marginal
+            #  natural parameters? I believe so.
             # Remove t_old(ai) from q_old.
             for k in q_cav_old_np.keys():
                 if len(q_cav_old_np[k].shape) == 1:
-                    for j, idx in self.client_inducing_idx[client_idx]:
+                    for j, idx in enumerate(
+                            self.client_inducing_idx[client_idx]):
                         # Remove natural parameters.
                         q_cav_old_np[k][idx] -= t_old.nat_params[k][j]
                 else:
-                    for j1, idx1 in self.client_inducing_idx[client_idx]:
-                        for j2, idx2 in self.client_inducing_idx[client_idx]:
+                    for j1, idx1 in enumerate(
+                            self.client_inducing_idx[client_idx]):
+                        for j2, idx2 in enumerate(
+                                self.client_inducing_idx[client_idx]):
                             # Remove natural parameters.
                             q_cav_old_np[k][idx1][idx2] -= \
                                 t_old.nat_params[k][j1][j2]
 
             # Convert to std params, and remove rows and columns from q_old(u)
-            # to form q_old(u_{\ ai})
+            # to form q_old(u_{\ ai}) (as is just absorbed into the prior).
             q_cav_old_std = q_old._std_from_nat(q_cav_old_np)
             for k in q_cav_old_std.keys():
                 if len(q_cav_old_std[k].shape) == 1:
@@ -131,10 +159,10 @@ class SequentialSGPServer(Server):
                     for idx in self.client_inducing_idx[client_idx]:
                         # Remove row.
                         q_cav_old_std[k] = q_cav_old_std[k][
-                            np.arange(len(q_cav_old_std[k])) != idx, :]
+                            np.arange(q_cav_old_std[k].shape[0]) != idx, :]
                         # Remove column.
                         q_cav_old_std[k] = q_cav_old_std[k][
-                            :, np.arange(len(q_cav_old_std[k])) != idx]
+                            :, np.arange(q_cav_old_std[k].shape[1]) != idx]
 
             # Removing inducing locations from Z_old.
             z_cav_old = q_old.inducing_locations
@@ -146,12 +174,13 @@ class SequentialSGPServer(Server):
 
             # Compute joint posterior q_old(u_{\ ai}, bi)p(bi | u_{\ai}).
             zbi = t_new.inducing_locations
-            kuu = self.model.kernel(z_cav_old, z_cav_old)
+            kuu = add_diagonal(self.model.kernel(z_cav_old, z_cav_old), JITTER)
             kub = self.model.kernel(z_cav_old, zbi)
+            kbb = add_diagonal(self.model.kernel(zbi, zbi), JITTER)
 
-            z_new_tmp = torch.cat([q_old.inducing_locations, zbi])
+            z_new_tmp = torch.cat([z_cav_old, zbi])
             q_cav_new_loc_tmp, q_cav_new_cov_tmp = joint_from_marginal(
-                q_cav_old, kub, kaa=kuu)
+                q_cav_old, kub, kbb, kaa=kuu)
 
             # Ensure new rows and columns are in the correct index.
             permutation = list(range(len(z_cav_old)))
@@ -159,14 +188,15 @@ class SequentialSGPServer(Server):
                 permutation.insert(idx, len(z_cav_old) + j)
 
             # Ensure new rows and columns are in the correct index.
-            z_new = torch.empty_like(z_new_tmp)
-            q_cav_new_loc = torch.empty_like(q_cav_new_loc_tmp)
-            q_cav_new_cov = torch.empty_like(q_cav_new_cov_tmp)
-            for j, idx in enumerate(permutation):
-                q_cav_new_loc[j] = q_cav_new_loc_tmp[idx]
-                q_cav_new_cov[j, :] = q_cav_new_cov_tmp[idx, :]
-                q_cav_new_cov[:, j] = q_cav_new_cov_tmp[:, idx]
-                z_new[j] = z_new_tmp[idx]
+            z_new = torch.zeros_like(z_new_tmp)
+            q_cav_new_loc = torch.zeros_like(q_cav_new_loc_tmp)
+            q_cav_new_cov = torch.zeros_like(q_cav_new_cov_tmp)
+
+            for i, idx1 in enumerate(permutation):
+                z_new[i] = z_new_tmp[idx1]
+                q_cav_new_loc[i] = q_cav_new_loc_tmp[idx1]
+                for j, idx2 in enumerate(permutation):
+                    q_cav_new_cov[i, j] = q_cav_new_cov_tmp[idx1, idx2]
 
             q_cav_new_std = {
                 "loc": q_cav_new_loc,
@@ -174,18 +204,20 @@ class SequentialSGPServer(Server):
             }
 
             # Convert to natural parameters, and add those of t_new(b).
-            z_new = torch.cat
             q_new_np = q_old._nat_from_std(q_cav_new_std)
             for k in q_new_np.keys():
                 if len(q_new_np[k].shape) == 1:
-                    for j, idx in self.client_inducing_idx[client_idx]:
+                    for j, idx in enumerate(
+                            self.client_inducing_idx[client_idx]):
                         # Add natural parameters.
-                        q_new_np[k][idx] -= t_new.nat_params[k][j]
+                        q_new_np[k][idx] += t_new.nat_params[k][j]
                 else:
-                    for j1, idx1 in self.client_inducing_idx[client_idx]:
-                        for j2, idx2 in self.client_inducing_idx[client_idx]:
+                    for j1, idx1 in enumerate(
+                            self.client_inducing_idx[client_idx]):
+                        for j2, idx2 in enumerate(
+                                self.client_inducing_idx[client_idx]):
                             # Add natural parameters.
-                            q_new_np[k][idx1][idx2] -= \
+                            q_new_np[k][idx1][idx2] += \
                                 t_new.nat_params[k][j1][j2]
 
             q_new = self.q.create_new(inducing_locations=z_new,
