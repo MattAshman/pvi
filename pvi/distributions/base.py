@@ -60,7 +60,8 @@ class ExponentialFamilyFactor(ABC):
 
         if update_log_coeff and not valid_dist:
             # TODO: does not work unless valid_dist = False.
-            log_coeff = self.log_coeff + (q2.log_a - q1.log_a) * damping
+            log_coeff = self.log_coeff + (q2.log_a() - q1.log_a()) * damping
+            log_coeff = log_coeff.detach().clone()
         else:
             log_coeff = 0.
             
@@ -172,7 +173,7 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             self.nat_params = nat_params
 
     @abstractmethod
-    def log_a(self, nat_params):
+    def log_a(self, nat_params=None):
         """
         :param nat_params: Natural parameters η.
         :return: Log partition function, A(η).

@@ -49,6 +49,7 @@ class Client(ABC):
             # "model_optimiser_params": {"lr": 1e-2},
             "damping_factor": 1.,
             "valid_factors": False,
+            "update_log_coeff": False,
             "epochs": 1,
             "batch_size": 100,
             "optimiser": "Adam",
@@ -226,7 +227,8 @@ class Client(ABC):
             # Compute new local contribution from old distributions
             t_new = self.t.compute_refined_factor(
                 q, q_old, damping=self.config["damping_factor"],
-                valid_dist=self.config["valid_factors"])
+                valid_dist=self.config["valid_factors"],
+                update_log_coeff=self.config["update_log_coeff"])
 
             return q_new, t_new
 

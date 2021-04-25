@@ -13,10 +13,7 @@ MIN_PRECISION = 1e-6
 
 class MeanFieldGaussianFactor(ExponentialFamilyFactor):
     
-    def __init__(self, nat_params):
-        super().__init__(nat_params=nat_params)
-        
-        self.distribution_class = MeanFieldGaussianDistribution
+    distribution_class = MeanFieldGaussianDistribution
     
     def log_h(self, thetas):
         """
@@ -48,6 +45,7 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         scale = q.std_params["scale"]
 
         eqlogt = np1.dot(loc) + np2.dot(scale ** 2 + loc ** 2)
+        eqlogt += self.log_coeff
 
         return eqlogt
 
@@ -90,10 +88,7 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
 
 class MultivariateGaussianFactor(ExponentialFamilyFactor):
 
-    def __init__(self, nat_params):
-        super().__init__(nat_params)
-        
-        self.distribution_class = MultivariateGaussianDistribution
+    distribution_class = MultivariateGaussianDistribution
 
     def log_h(self, thetas):
         """
@@ -130,6 +125,7 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         m2 = (cov + loc.matmul(loc.T)).flatten()
 
         eqlogt = np1.dot(m1) + np2.dot(m2)
+        eqlogt += self.log_coeff
 
         return eqlogt
 
@@ -160,10 +156,7 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
 
 class GammaFactor(ExponentialFamilyFactor):
 
-    def __init__(self, nat_params):
-        super().__init__(nat_params)
-
-        self.distribution_class = GammaDistribution
+    distribution_class = GammaDistribution
 
     def log_h(self, thetas):
         """
@@ -210,10 +203,7 @@ class GammaFactor(ExponentialFamilyFactor):
 
 class LogNormalFactor(MeanFieldGaussianFactor):
 
-    def __init__(self, nat_params):
-        super().__init__(nat_params)
-
-        self.distribution_class = LogNormalDistribution
+    distribution_class = LogNormalDistribution
 
     def dist_from_nat(self, nat):
         std = self.distribution_class._std_from_nat(nat)
