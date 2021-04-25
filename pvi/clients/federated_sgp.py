@@ -30,6 +30,7 @@ class FederatedSGPClient(Client):
         # Copy the approximate posterior, make old posterior non-trainable.
         # Compute q_cav by subtracting old natural parameters. Note that q is
         # current specified at the old inducing locations, Za.
+        q_old = q.non_trainable_copy()
         q_cav = q.non_trainable_copy()
         q_cav.nat_params = {k: v - self.t.nat_params[k]
                             for k, v in q_cav.nat_params.items()}
@@ -58,6 +59,7 @@ class FederatedSGPClient(Client):
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
+        optimiser.zero_grad()
 
         # Set up data
         x = self.data["x"]
@@ -131,8 +133,6 @@ class FederatedSGPClient(Client):
 
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
-                optimiser.zero_grad()
-
                 batch = {
                     "x": x_batch,
                     "y": y_batch,
@@ -154,6 +154,7 @@ class FederatedSGPClient(Client):
                 loss = kl - ll
                 loss.backward()
                 optimiser.step()
+                optimiser.zero_grad()
 
                 # Recompute joint distributions q(a, b) and qcav(a, b).
                 zb = q.inducing_locations
@@ -224,11 +225,24 @@ class FederatedSGPClient(Client):
         # Compute new local contribution from old distributions.
         # t(b) = ∫ (q(a, b) / q_cav(a, b)) da
 
-        # TODO: apply damped local updates.
+        # q_cav(a, b) = q_cav(a) p(b | a).
+        qab_old_loc, qab_old_cov = joint_from_marginal(
+            q_old, kab, kbb=kbb, ikaa=ikaa)
 
-        # First compute t(a, b) = [q(a, b) / q_old(a, b)] * t_old(a).
-        tab_np = {k: (v.detach() - qab_cav.nat_params[k].detach())
+        qab_old = type(q)(
+            inducing_locations=z,
+            std_params={
+                "loc": qab_old_loc,
+                "covariance_matrix": qab_old_cov,
+            }
+        )
+
+        # Compute t(a, b) = [q(a, b) / q_old(a, b)] ** λ * t_old(a).
+        tab_np = {k: (v.detach() - qab_old.nat_params[k].detach())
+                  * self.config["damping_factor"]
                   for k, v in qab.nat_params.items()}
+        tab_np["np1"][:len(za)] += self.t.nat_params["np1"]
+        tab_np["np2"][:len(za), :len(za)] += self.t.nat_params["np2"]
 
         # Marginalise to get t(b) = ∫ t(a, b) da.
         tab_std = std_from_nat(tab_np)
