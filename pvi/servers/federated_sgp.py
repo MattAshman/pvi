@@ -10,7 +10,7 @@ from pvi.distributions import MultivariateGaussianDistributionWithZ
 
 logger = logging.getLogger(__name__)
 
-JITTER = 1e-1
+JITTER = 1e-4
 
 
 class SequentialSGPServer(Server):
@@ -161,7 +161,7 @@ class SequentialSGPServer(Server):
             zb = q.inducing_locations
 
             # This remains fixed throughout optimisation.
-            kaa = self.model.kernel(za, za).detach()
+            kaa = add_diagonal(self.model.kernel(za, za), JITTER).detach()
             ikaa = psd_inverse(kaa)
 
             optimiser = getattr(torch.optim, self.config["optimiser"])(
@@ -193,13 +193,14 @@ class SequentialSGPServer(Server):
                 z = torch.cat([za, zb, zai, zbi])
 
                 kab = self.model.kernel(za, zb)
-                kbb = self.model.kernel(zb, zb)
-                kabab = self.model.kernel(zab, zab)
+                kbb = add_diagonal(self.model.kernel(zb, zb), JITTER)
+                kabab = add_diagonal(self.model.kernel(zab, zab), JITTER)
                 ikbb = psd_inverse(kbb)
                 ikabab = psd_inverse(kabab)
 
                 kabaibi = self.model.kernel(zab, zaibi)
-                kaibiaibi = self.model.kernel(zaibi, zaibi)
+                kaibiaibi = add_diagonal(self.model.kernel(zaibi, zaibi),
+                                         JITTER)
 
                 # q(a, b) = q(b) p(a | b).
                 # Remember to order as q(a, b), not q(b, a).
@@ -245,24 +246,28 @@ class SequentialSGPServer(Server):
                 }
                 qz_old_np = nat_from_std(qz_old_std)
 
-                # Create tilted as q_tilt = q_old(f) * t(bi) / t(ai).
+                # Create tilted as q_tilt = q_old(f) * (t(bi) / t(ai)) ** λ.
                 qz_tilt_np = qz_old_np
 
                 # Add t(bi) (last len(zbi) rows and columns of nat params).
                 for i in range(len(zbi)):
                     qz_tilt_np["np1"][-len(zbi)+i] += (
-                            t_new.nat_params["np1"][i])
+                            t_new.nat_params["np1"][i]
+                            * self.config["damping_factor"])
                     for j in range(len(zbi)):
                         qz_tilt_np["np2"][-len(zbi)+i, -len(zbi)+j] += (
-                                t_new.nat_params["np2"][i, j])
+                                t_new.nat_params["np2"][i, j]
+                                * self.config["damping_factor"])
 
                 # Subtract t(ai) (comes before rows and columns of zbi).
                 for i in range(len(zai)):
                     qz_tilt_np["np1"][-len(zaibi)+i] -= (
-                        t_old.nat_params["np1"][i])
+                        t_old.nat_params["np1"][i]
+                        * self.config["damping_factor"])
                     for j in range(len(zai)):
                         qz_tilt_np["np2"][-len(zaibi)+i, -len(zaibi)+j] -= (
-                            t_old.nat_params["np2"][i, j])
+                            t_old.nat_params["np2"][i, j]
+                            * self.config["damping_factor"])
 
                 qz_tilt = type(q)(inducing_locations=z, nat_params=qz_tilt_np)
 
