@@ -149,3 +149,24 @@ def std_from_nat(nat_params):
     }
 
     return std
+
+
+def slow_kl(std_params1, std_params2):
+    """
+    Compute the KL-divergence KL(q1 || q2) whilst avoiding Cholesky
+    decompositions to allow for invalid distributions.
+    :param std_params1: Standard parameters of q1.
+    :param std_params2: Standard parameters of q2.
+    :return: KL(q1 || q2).
+    """
+    mu1, cov1 = std_params1["loc"], std_params1["covariance_matrix"]
+    mu2, cov2 = std_params2["loc"], std_params2["covariance_matrix"]
+    prec2 = cov2.inverse()
+
+    assert mu1.shape == mu2.shape and cov1.shape == cov2.shape
+
+    kl = 0.5 * (cov2.logdet() - cov1.logdet() - len(mu1)
+                + prec2.matmul(cov1).trace()
+                + (mu2 - mu1).dot(prec2.matmul(mu2 - mu1)))
+
+    return kl

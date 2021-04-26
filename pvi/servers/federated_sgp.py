@@ -4,7 +4,7 @@ import numpy as np
 
 from tqdm.auto import tqdm
 from .base import *
-from pvi.utils.gaussian import joint_from_marginal, nat_from_std, std_from_nat
+from pvi.utils.gaussian import joint_from_marginal, nat_from_std, slow_kl
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions import MultivariateGaussianDistributionWithZ
 
@@ -146,6 +146,172 @@ class SequentialSGPServer(Server):
         if not self.maintain_inducing:
             return self.compute_posterior_union()
 
+        # else:
+        #     # TODO: use collapsed lower bound.
+        #     # TODO: check this passes trainable inducing locations too.
+        #     q_old = self.q.non_trainable_copy()
+        #     q = self.q.trainable_copy()
+        #     za = q_old.inducing_locations
+        #     zbi = t_new.inducing_locations
+        #     zai = t_old.inducing_locations
+        #
+        #     # Perturb Za to get Zb (avoids numerical issues).
+        #     q.inducing_locations = q.inducing_locations + torch.randn_like(
+        #         q.inducing_locations) * JITTER
+        #     zb = q.inducing_locations
+        #
+        #     # This remains fixed throughout optimisation.
+        #     kaa = add_diagonal(self.model.kernel(za, za), JITTER).detach()
+        #     ikaa = psd_inverse(kaa)
+        #
+        #     optimiser = getattr(torch.optim, self.config["optimiser"])(
+        #         q.parameters(), **self.config["optimiser_params"])
+        #     optimiser.zero_grad()
+        #
+        #     # Dict for logging optimisation progress
+        #     training_curve = {
+        #         "elbo": [],
+        #         "kl": [],
+        #         "logt_new": [],
+        #         "logt_old": [],
+        #     }
+        #
+        #     # Gradient-based optimisation loop -- loop over epochs
+        #     epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
+        #                       leave=True)
+        #     # for i in range(self.config["epochs"]):
+        #     for _ in epoch_iter:
+        #         epoch = {
+        #             "elbo": 0,
+        #             "kl": 0,
+        #             "logt_new": 0,
+        #             "logt_old": 0,
+        #         }
+        #
+        #         zab = torch.cat([za, zb])
+        #         zaibi = torch.cat([zai, zbi])
+        #         z = torch.cat([za, zb, zai, zbi])
+        #
+        #         kab = self.model.kernel(za, zb)
+        #         kbb = add_diagonal(self.model.kernel(zb, zb), JITTER)
+        #         kabab = add_diagonal(self.model.kernel(zab, zab), JITTER)
+        #         ikbb = psd_inverse(kbb)
+        #         ikabab = psd_inverse(kabab)
+        #
+        #         kabaibi = self.model.kernel(zab, zaibi)
+        #         kaibiaibi = add_diagonal(self.model.kernel(zaibi, zaibi),
+        #                                  JITTER)
+        #
+        #         # q(a, b) = q(b) p(a | b).
+        #         # Remember to order as q(a, b), not q(b, a).
+        #         qab_loc, qab_cov = joint_from_marginal(
+        #             q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
+        #         qab = type(q)(
+        #             inducing_locations=zab,
+        #             std_params={
+        #                 "loc": qab_loc,
+        #                 "covariance_matrix": qab_cov,
+        #             }
+        #         )
+        #         # q(a, b, ai, bi) = q(a, b) p(ai, bi | a, b).
+        #         qz_loc, qz_cov = joint_from_marginal(
+        #             qab, kabaibi, kbb=kaibiaibi, ikaa=ikabab
+        #         )
+        #
+        #         qz = type(q)(
+        #             inducing_locations=z,
+        #             std_params={
+        #                 "loc": qz_loc,
+        #                 "covariance_matrix": qz_cov,
+        #             }
+        #         )
+        #
+        #         # q_old(a, b) = q_old(a) p(b | a).
+        #         qab_old_loc, qab_old_cov = joint_from_marginal(
+        #             q_old, kab, kbb=kbb, ikaa=ikaa)
+        #         qab_old = type(q)(
+        #             inducing_locations=zab,
+        #             std_params={
+        #                 "loc": qab_old_loc,
+        #                 "covariance_matrix": qab_old_cov,
+        #             }
+        #         )
+        #         # q(a, b, ai, bi) = q(a, b) p(ai, bi | a, b).
+        #         qz_old_loc, qz_old_cov = joint_from_marginal(
+        #             qab_old, kabaibi, kbb=kaibiaibi, ikaa=ikabab
+        #         )
+        #         qz_old_std = {
+        #             "loc": qz_old_loc,
+        #             "covariance_matrix": qz_old_cov,
+        #         }
+        #         qz_old_np = nat_from_std(qz_old_std)
+        #
+        #         # Create tilted as q_tilt = q_old(f) * (t(bi) / t(ai)) ** λ.
+        #         qz_tilt_np = qz_old_np
+        #
+        #         # Add t(bi) (last len(zbi) rows and columns of nat params).
+        #         for i in range(len(zbi)):
+        #             qz_tilt_np["np1"][-len(zbi)+i] += (
+        #                     t_new.nat_params["np1"][i]
+        #                     * self.config["damping_factor"])
+        #             for j in range(len(zbi)):
+        #                 qz_tilt_np["np2"][-len(zbi)+i, -len(zbi)+j] += (
+        #                         t_new.nat_params["np2"][i, j]
+        #                         * self.config["damping_factor"])
+        #
+        #         # Subtract t(ai) (comes before rows and columns of zbi).
+        #         for i in range(len(zai)):
+        #             qz_tilt_np["np1"][-len(zaibi)+i] -= (
+        #                 t_old.nat_params["np1"][i]
+        #                 * self.config["damping_factor"])
+        #             for j in range(len(zai)):
+        #                 qz_tilt_np["np2"][-len(zaibi)+i, -len(zaibi)+j] -= (
+        #                     t_old.nat_params["np2"][i, j]
+        #                     * self.config["damping_factor"])
+        #
+        #         qz_tilt = type(q)(inducing_locations=z, nat_params=qz_tilt_np)
+        #
+        #         # KL[q(a, b) || q_old(a, b)].
+        #         try:
+        #             kl = qz.kl_divergence(qz_tilt).sum()
+        #         except RuntimeError:
+        #             kl = slow_kl(qz.std_params, qz_tilt.std_params)
+        #             import pdb
+        #             pdb.set_trace()
+        #
+        #         loss = kl
+        #         loss.backward()
+        #         optimiser.step()
+        #         optimiser.zero_grad()
+        #
+        #         # Keep track of quantities for current batch
+        #         # Will be very slow if training on GPUs.
+        #         epoch["elbo"] = -loss.item()
+        #         epoch["kl"] = kl.item()
+        #
+        #         # Log progress for current epoch
+        #         training_curve["elbo"].append(epoch["elbo"])
+        #         training_curve["kl"].append(epoch["kl"])
+        #         training_curve["logt_new"].append(epoch["logt_new"])
+        #         training_curve["logt_old"].append(epoch["logt_old"])
+        #
+        #         epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"])
+        #
+        #     # Log the training curves for this update
+        #     self.log["training_curves"].append(training_curve)
+        #
+        #     # Create non-trainable copy to send back to server.
+        #     q_new = q.non_trainable_copy()
+        #
+        #     try:
+        #         q_new.std_params["covariance_matrix"].cholesky()
+        #     except:
+        #         import pdb
+        #         pdb.set_trace()
+        #         print("wtf")
+        #
+        #     return q_new
+
         else:
             # TODO: use collapsed lower bound.
             # TODO: check this passes trainable inducing locations too.
@@ -188,41 +354,21 @@ class SequentialSGPServer(Server):
                     "logt_old": 0,
                 }
 
-                zab = torch.cat([za, zb])
-                zaibi = torch.cat([zai, zbi])
-                z = torch.cat([za, zb, zai, zbi])
+                z = torch.cat([za, zb])
 
                 kab = self.model.kernel(za, zb)
                 kbb = add_diagonal(self.model.kernel(zb, zb), JITTER)
-                kabab = add_diagonal(self.model.kernel(zab, zab), JITTER)
                 ikbb = psd_inverse(kbb)
-                ikabab = psd_inverse(kabab)
-
-                kabaibi = self.model.kernel(zab, zaibi)
-                kaibiaibi = add_diagonal(self.model.kernel(zaibi, zaibi),
-                                         JITTER)
 
                 # q(a, b) = q(b) p(a | b).
                 # Remember to order as q(a, b), not q(b, a).
                 qab_loc, qab_cov = joint_from_marginal(
                     q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
                 qab = type(q)(
-                    inducing_locations=zab,
+                    inducing_locations=z,
                     std_params={
                         "loc": qab_loc,
                         "covariance_matrix": qab_cov,
-                    }
-                )
-                # q(a, b, ai, bi) = q(a, b) p(ai, bi | a, b).
-                qz_loc, qz_cov = joint_from_marginal(
-                    qab, kabaibi, kbb=kaibiaibi, ikaa=ikabab
-                )
-
-                qz = type(q)(
-                    inducing_locations=z,
-                    std_params={
-                        "loc": qz_loc,
-                        "covariance_matrix": qz_cov,
                     }
                 )
 
@@ -230,56 +376,42 @@ class SequentialSGPServer(Server):
                 qab_old_loc, qab_old_cov = joint_from_marginal(
                     q_old, kab, kbb=kbb, ikaa=ikaa)
                 qab_old = type(q)(
-                    inducing_locations=zab,
+                    inducing_locations=z,
                     std_params={
                         "loc": qab_old_loc,
                         "covariance_matrix": qab_old_cov,
                     }
                 )
-                # q(a, b, ai, bi) = q(a, b) p(ai, bi | a, b).
-                qz_old_loc, qz_old_cov = joint_from_marginal(
-                    qab_old, kabaibi, kbb=kaibiaibi, ikaa=ikabab
-                )
-                qz_old_std = {
-                    "loc": qz_old_loc,
-                    "covariance_matrix": qz_old_cov,
-                }
-                qz_old_np = nat_from_std(qz_old_std)
-
-                # Create tilted as q_tilt = q_old(f) * (t(bi) / t(ai)) ** λ.
-                qz_tilt_np = qz_old_np
-
-                # Add t(bi) (last len(zbi) rows and columns of nat params).
-                for i in range(len(zbi)):
-                    qz_tilt_np["np1"][-len(zbi)+i] += (
-                            t_new.nat_params["np1"][i]
-                            * self.config["damping_factor"])
-                    for j in range(len(zbi)):
-                        qz_tilt_np["np2"][-len(zbi)+i, -len(zbi)+j] += (
-                                t_new.nat_params["np2"][i, j]
-                                * self.config["damping_factor"])
-
-                # Subtract t(ai) (comes before rows and columns of zbi).
-                for i in range(len(zai)):
-                    qz_tilt_np["np1"][-len(zaibi)+i] -= (
-                        t_old.nat_params["np1"][i]
-                        * self.config["damping_factor"])
-                    for j in range(len(zai)):
-                        qz_tilt_np["np2"][-len(zaibi)+i, -len(zaibi)+j] -= (
-                            t_old.nat_params["np2"][i, j]
-                            * self.config["damping_factor"])
-
-                qz_tilt = type(q)(inducing_locations=z, nat_params=qz_tilt_np)
 
                 # KL[q(a, b) || q_old(a, b)].
-                try:
-                    kl = qz.kl_divergence(qz_tilt).sum()
-                except:
-                    import pdb
-                    pdb.set_trace()
-                    kl = 0
+                kl = qab.kl_divergence(qab_old).sum()
 
-                loss = kl
+                # E_q[log t_new(b)] - E_q[log t_old(a)].
+                qbi = self.model.posterior(zbi, q, diag=False)
+                qbi = MultivariateGaussianDistributionWithZ(
+                    std_params={
+                        "loc": qbi.loc,
+                        "covariance_matrix": qbi.covariance_matrix,
+                    },
+                    inducing_locations=zbi,
+                )
+                # logt_new = t_new.eqlogt(qbi, self.config["num_elbo_samples"])
+                bis = qbi.rsample((1000,))
+                logt_new = t_new(bis).mean()
+
+                qai = self.model.posterior(zai, q, diag=False)
+                qai = MultivariateGaussianDistributionWithZ(
+                    std_params={
+                        "loc": qai.loc,
+                        "covariance_matrix": qai.covariance_matrix,
+                    },
+                    inducing_locations=zai,
+                )
+                # logt_old = t_old.eqlogt(qai, self.config["num_elbo_samples"])
+                ais = qai.rsample((1000,))
+                logt_old = t_old(ais).mean()
+
+                loss = kl - logt_new + logt_old
                 loss.backward()
                 optimiser.step()
                 optimiser.zero_grad()
@@ -288,6 +420,8 @@ class SequentialSGPServer(Server):
                 # Will be very slow if training on GPUs.
                 epoch["elbo"] = -loss.item()
                 epoch["kl"] = kl.item()
+                epoch["logt_new"] = logt_new.item()
+                epoch["logt_old"] = logt_old.item()
 
                 # Log progress for current epoch
                 training_curve["elbo"].append(epoch["elbo"])
@@ -295,7 +429,14 @@ class SequentialSGPServer(Server):
                 training_curve["logt_new"].append(epoch["logt_new"])
                 training_curve["logt_old"].append(epoch["logt_old"])
 
-                epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"])
+                epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
+                                       logt_new=epoch["logt_new"],
+                                       logt_old=epoch["logt_old"])
+
+                if -loss.item() > 1e3:
+                    import pdb
+                    pdb.set_trace()
+                    print("wtf")
 
             # Log the training curves for this update
             self.log["training_curves"].append(training_curve)
@@ -303,143 +444,7 @@ class SequentialSGPServer(Server):
             # Create non-trainable copy to send back to server.
             q_new = q.non_trainable_copy()
 
-            try:
-                q_new.std_params["covariance_matrix"].cholesky()
-            except:
-                import pdb
-                pdb.set_trace()
-                print("wtf")
-
             return q_new
-
-        # else:
-        #     # TODO: use collapsed lower bound.
-        #     # TODO: check this passes trainable inducing locations too.
-        #     q_old = self.q.non_trainable_copy()
-        #     q = self.q.trainable_copy()
-        #     za = q_old.inducing_locations
-        #     zbi = t_new.inducing_locations
-        #     zai = t_old.inducing_locations
-        #
-        #     # Perturb Za to get Zb (avoids numerical issues).
-        #     q.inducing_locations = q.inducing_locations + torch.randn_like(
-        #         q.inducing_locations) * JITTER
-        #     zb = q.inducing_locations
-        #
-        #     # This remains fixed throughout optimisation.
-        #     kaa = self.model.kernel(za, za).detach()
-        #     ikaa = psd_inverse(kaa)
-        #
-        #     optimiser = getattr(torch.optim, self.config["optimiser"])(
-        #         q.parameters(), **self.config["optimiser_params"])
-        #     optimiser.zero_grad()
-        #
-        #     # Dict for logging optimisation progress
-        #     training_curve = {
-        #         "elbo": [],
-        #         "kl": [],
-        #         "logt_new": [],
-        #         "logt_old": [],
-        #     }
-        #
-        #     # Gradient-based optimisation loop -- loop over epochs
-        #     epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
-        #                       leave=True)
-        #     # for i in range(self.config["epochs"]):
-        #     for _ in epoch_iter:
-        #         epoch = {
-        #             "elbo": 0,
-        #             "kl": 0,
-        #             "logt_new": 0,
-        #             "logt_old": 0,
-        #         }
-        #
-        #         z = torch.cat([za, zb])
-        #
-        #         kab = self.model.kernel(za, zb)
-        #         kbb = self.model.kernel(zb, zb)
-        #         ikbb = psd_inverse(kbb)
-        #
-        #         # q(a, b) = q(b) p(a | b).
-        #         # Remember to order as q(a, b), not q(b, a).
-        #         qab_loc, qab_cov = joint_from_marginal(
-        #             q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
-        #         qab = type(q)(
-        #             inducing_locations=z,
-        #             std_params={
-        #                 "loc": qab_loc,
-        #                 "covariance_matrix": qab_cov,
-        #             }
-        #         )
-        #
-        #         # q_old(a, b) = q_old(a) p(b | a).
-        #         qab_old_loc, qab_old_cov = joint_from_marginal(
-        #             q_old, kab, kbb=kbb, ikaa=ikaa)
-        #         qab_old = type(q)(
-        #             inducing_locations=z,
-        #             std_params={
-        #                 "loc": qab_old_loc,
-        #                 "covariance_matrix": qab_old_cov,
-        #             }
-        #         )
-        #
-        #         # KL[q(a, b) || q_old(a, b)].
-        #         kl = qab.kl_divergence(qab_old).sum()
-        #
-        #         # E_q[log t_new(b)] - E_q[log t_old(a)].
-        #         qbi = self.model.posterior(zbi, q, diag=False)
-        #         qbi = MultivariateGaussianDistributionWithZ(
-        #             std_params={
-        #                 "loc": qbi.loc,
-        #                 "covariance_matrix": qbi.covariance_matrix,
-        #             },
-        #             inducing_locations=zbi,
-        #         )
-        #         # logt_new = t_new.eqlogt(qbi, self.config["num_elbo_samples"])
-        #         bis = qbi.rsample((self.config["num_elbo_samples"],))
-        #         logt_new = t_new(bis).mean()
-        #
-        #         qai = self.model.posterior(zai, q, diag=False)
-        #         qai = MultivariateGaussianDistributionWithZ(
-        #             std_params={
-        #                 "loc": qai.loc,
-        #                 "covariance_matrix": qai.covariance_matrix,
-        #             },
-        #             inducing_locations=zai,
-        #         )
-        #         # logt_old = t_old.eqlogt(qai)
-        #         ais = qai.rsample((self.config["num_elbo_samples"],))
-        #         logt_old = t_old(ais).mean()
-        #
-        #         loss = kl + logt_new - logt_old
-        #         loss.backward()
-        #         optimiser.step()
-        #         optimiser.zero_grad()
-        #
-        #         # Keep track of quantities for current batch
-        #         # Will be very slow if training on GPUs.
-        #         epoch["elbo"] = -loss.item()
-        #         epoch["kl"] = kl.item()
-        #         epoch["logt_new"] = logt_new.item()
-        #         epoch["logt_old"] = logt_old.item()
-        #
-        #         # Log progress for current epoch
-        #         training_curve["elbo"].append(epoch["elbo"])
-        #         training_curve["kl"].append(epoch["kl"])
-        #         training_curve["logt_new"].append(epoch["logt_new"])
-        #         training_curve["logt_old"].append(epoch["logt_old"])
-        #
-        #         epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-        #                                logt_new=epoch["logt_new"],
-        #                                logt_old=epoch["logt_old"])
-        #
-        #     # Log the training curves for this update
-        #     self.log["training_curves"].append(training_curve)
-        #
-        #     # Create non-trainable copy to send back to server.
-        #     q_new = q.non_trainable_copy()
-        #
-        #     return q_new
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
