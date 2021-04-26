@@ -6,13 +6,20 @@ class Model(ABC):
     An abstract class for probabilistic models defined by a likelihood
     p(y | θ, x) and (approximate) posterior q(θ).
     """
-    def __init__(self, hyperparameters=None):
-        # Hyperparameters of the model.
+    def __init__(self, hyperparameters=None, config=None):
+        # Configuration of the model.
+        if config is None:
+            config = {}
+
+        self._config = self.get_default_config()
+        self.config = config
+
+        # Hyper-parameters of the model.
         if hyperparameters is None:
             hyperparameters = {}
 
-        self.hyperparameters = self.get_default_hyperparameters()
-        self.set_hyperparameters(hyperparameters)
+        self._hyperparameters = self.get_default_hyperparameters()
+        self.hyperparameters = hyperparameters
 
     @abstractmethod
     def get_default_nat_params(self):
@@ -21,22 +28,38 @@ class Model(ABC):
         """
         raise NotImplementedError
 
-    def set_hyperparameters(self, hyperparameters):
-        self.hyperparameters = {**self.hyperparameters, **hyperparameters}
+    @property
+    def config(self):
+        return self._config
 
-    def get_hyperparameters(self):
-        return self.hyperparameters
+    @config.setter
+    def config(self, config):
+        self._config = {**self._config, **config}
 
-    @staticmethod
     @abstractmethod
-    def get_default_hyperparameters():
+    def get_default_config(self):
         """
-        :return: A default set of hyperparameters for the model.
+        :return: A default set of config for the model.
+        """
+        raise NotImplementedError
+
+    @property
+    def hyperparameters(self):
+        return self._hyperparameters
+
+    @hyperparameters.setter
+    def hyperparameters(self, hyperparameters):
+        self._hyperparameters = {**self._hyperparameters, **hyperparameters}
+
+    @abstractmethod
+    def get_default_hyperparameters(self):
+        """
+        :return: A default set of parameters for the model.
         """
         raise NotImplementedError
 
     @abstractmethod
-    def forward(self, x, q):
+    def forward(self, x, q, **kwargs):
         """
         Returns the (approximate) predictive posterior.
         :param x: The input locations to make predictions at.
@@ -46,7 +69,7 @@ class Model(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def likelihood_forward(self, x, theta):
+    def likelihood_forward(self, x, theta, **kwargs):
         """
         Returns the model's likelihood p(y | θ, x).
         :param x: The input locations to make predictions at.
@@ -60,7 +83,7 @@ class Model(ABC):
         Compute the log probability of the data under the model's likelihood.
         :param data: The data to compute the log likelihood of.
         :param theta: The latent variables of the model.
-        :return: The log likelihood of the data.
+        :return: log p(y | x, θ)
         """
         dist = self.likelihood_forward(data["x"], theta)
         return dist.log_prob(data["y"])
@@ -76,15 +99,17 @@ class Model(ABC):
         """
         raise NotImplementedError
 
-    @abstractmethod
-    def expected_log_likelihood(self, data, q):
+    def expected_log_likelihood(self, data, q, num_samples=1):
         """
         Computes the expected log likelihood of the data under q(θ).
         :param data: The data to compute the conjugate update with.
         :param q: The current global posterior q(θ).
-        :return: The expected log likelihood of the data.
+        :param num_samples: The number of samples to estimate the expected
+        log-likelihood with.
+        :return: ∫ q(θ) log p(y | x, θ) dθ.
         """
-        raise NotImplementedError
+        thetas = q.rsample((num_samples,))
+        return self.likelihood_log_prob(data, thetas).mean(0)
 
     @property
     @abstractmethod
