@@ -92,8 +92,6 @@ class LogisticRegressionModel(Model, nn.Module):
             comp_ = self.likelihood_forward(x, thetas)
             comp = distributions.Bernoulli(logits=comp_.logits.T)
             mix = distributions.Categorical(torch.ones(len(thetas),))
-            print(comp, mix)
-            raise Exception
 
             return distributions.MixtureSameFamily(mix, comp)
 
