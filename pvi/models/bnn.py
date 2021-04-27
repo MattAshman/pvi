@@ -53,7 +53,8 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
             "epochs"                   : 100,
             "batch_size"               : 1000,
             "num_elbo_samples"         : 10,
-            "num_predictive_samples"   : 10
+            "num_predictive_samples"   : 10,
+            "device"                   : 'cpu'
         }
         
         return default_hyperparameters
@@ -113,6 +114,20 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
                 tensor = torch.nn.ReLU()(tensor)
 
         return self.pred_dist_from_tensor(tensor, samples_first=samples_first)
+
+    
+    def likelihood_log_prob(self, data, theta):
+        """
+        Compute the log probability of the data under the model's likelihood.
+        :param data: The data to compute the log likelihood of.
+        :param theta: The latent variables of the model.
+        :return: The log likelihood of the data.
+        """
+        
+        device = self.hyperparameters['device']
+        
+        dist = self.likelihood_forward(data["x"].to(device), theta.to(device))
+        return dist.log_prob(data["y"].to(device))
     
     
     def reshape_theta(self, theta):

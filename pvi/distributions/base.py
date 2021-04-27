@@ -52,6 +52,24 @@ class ExponentialFamilyFactor(ABC):
         
         # Compute natural parameters of the new t-factor (detach gradients)
         for name, np in self.nat_params.items():
+#             print(np1[name].shape)
+#             print('np1')
+#             print(np1[name].detach().cpu().numpy())
+#             print('np2')
+#             print(np2[name].detach().cpu().numpy())
+#             print('np1 - np2')
+#             print((np1[name] - np2[name]).detach().cpu().numpy())
+#             print('np')
+#             print(np.detach().cpu().numpy())
+#             print('np1 - np2 + np')
+#             print((np1[name] - np2[name] + np).detach().cpu().numpy())
+
+#             import matplotlib.pyplot as plt
+    
+#             print('Natural parameter', name)
+#             plt.hist((np1[name] - np2[name] + np).detach().cpu().numpy())
+#             plt.show()
+    
             nat_params[name] = (
                     np1[name].detach().clone() - np2[name].detach().clone()
                     + np.detach().clone())

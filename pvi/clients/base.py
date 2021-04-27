@@ -94,7 +94,12 @@ class PVIClient(ABC):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        # epoch_iter = tqdm(range(hyper["epochs"]), desc="Epoch", leave=False)
+                
+#         q_cav_np = {k : v - self.t.nat_params[k] \
+#                     for k, v in q_old.nat_params.items()}
+#         q_cav = type(q)(nat_params=q_cav_np, is_trainable=False)
+                
+                
         for i in range(hyper["epochs"]):
             epoch = {
                 "elbo" : 0,
@@ -110,15 +115,17 @@ class PVIClient(ABC):
                     "x" : x_batch,
                     "y" : y_batch,
                 }
-                
-                # Compute KL divergence between q and q_old.
-                kl = q.kl_divergence(q_old).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 thetas = q.rsample((hyper["num_elbo_samples"],))
+                
+                # Compute KL divergence between q and q_old.
+                kl = q.kl_divergence(q_old).sum() / len(x)
+                kl = kl + self.t(thetas).mean(0).sum() / len(x)
+#                 kl = q.kl_divergence(q_cav).sum() / len(x)
+                
                 ll = self.model.likelihood_log_prob(
                     batch, thetas).mean(0).sum() / len(x_batch)
-                ll = ll - self.t(thetas).mean(0).sum() / len(x)
 
                 # Negative local Free Energy is KL minus log-probability
                 loss = kl - ll

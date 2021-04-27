@@ -34,6 +34,13 @@ class SequentialServer(Server):
         for i, client in enumerate(self.clients):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
+            
+#                 print(f'\n'
+#                       f'================================================================================================\n'
+#                       f'=========================================== Client {i+1} ===========================================\n'
+#                       f'================================================================================================\n'
+#                       f'\n')
+
                 t_i_old = client.t
                 t_i_new = client.fit(self.q)
                 # Compute change in natural parameters.
