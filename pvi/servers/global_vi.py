@@ -15,17 +15,13 @@ logger = logging.getLogger(__name__)
 
 
 class GlobalVIServer(Server):
-    def __init__(self, model, q, clients, config=None,
-                 homogenous_split=False):
+    def __init__(self, model, q, clients, config=None):
         super().__init__(model, q, clients, config)
 
         # Global VI server has access to the entire dataset.
         self.data = {k: torch.cat([client.data[k] for client in self.clients],
                                   dim=0)
                      for k in self.clients[0].data.keys()}
-
-        # Dictates whether to use a homogenous data split or not.
-        self.homogenous_split = homogenous_split
 
         # Tracks number of epochs.
         self.epochs = 0
@@ -43,8 +39,13 @@ class GlobalVIServer(Server):
             "batch_size": 100,
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
+            "lr_scheduler": "MultiplicativeLR",
+            "lr_scheduler_params": {
+                "lr_lambda": lambda epoch: 1.
+            },
             "num_elbo_samples": 10,
-            "print_epochs": 1
+            "print_epochs": 1,
+            "homogenous_split": True,
         }
 
     def tick(self):
@@ -70,11 +71,14 @@ class GlobalVIServer(Server):
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
+        lr_scheduler = getattr(torch.optim.lr_scheduler,
+                               self.config["lr_scheduler"])(
+            optimiser, **self.config["lr_scheduler_params"])
 
         # Set up data: global VI server can access the entire dataset.
 
         # TODO: current only supports homogenous minibatches.
-        if self.homogenous_split:
+        if self.config["homogenous_split"]:
             x = self.data["x"]
             y = self.data["y"]
 
@@ -148,7 +152,8 @@ class GlobalVIServer(Server):
                 epoch["ll"] += ll.item() / len(loader)
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"])
+                                   ll=epoch["ll"],
+                                   lr=optimiser.param_groups[0]["lr"])
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
@@ -165,6 +170,9 @@ class GlobalVIServer(Server):
             self.log["q"].append(q.non_trainable_copy())
             self.log["communications"].append(self.communications)
             self.epochs += 1
+
+            # Update learning rate.
+            lr_scheduler.step()
 
         # Update global posterior.
         self.q = q.non_trainable_copy()

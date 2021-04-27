@@ -54,6 +54,10 @@ class Client(ABC):
             "batch_size": 100,
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
+            "lr_scheduler": "MultiplicativeLR",
+            "lr_scheduler_params": {
+                "lr_lambda": lambda epoch: 1.
+            },
             "num_elbo_samples": 10,
             "print_epochs": 1
         }
@@ -126,6 +130,9 @@ class Client(ABC):
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
+        lr_scheduler = getattr(torch.optim.lr_scheduler,
+                               self.config["lr_scheduler"])(
+            optimiser, **self.config["lr_scheduler_params"])
         
         # Set up data
         x = self.data["x"]
@@ -212,7 +219,11 @@ class Client(ABC):
                              f"Epochs: {i}.")
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], logt=epoch["logt"])
+                                   ll=epoch["ll"], logt=epoch["logt"],
+                                   lr=optimiser.param_groups[0]["lr"])
+
+            # Update learning rate.
+            lr_scheduler.step()
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
