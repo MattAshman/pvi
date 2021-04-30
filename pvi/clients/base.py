@@ -1,5 +1,6 @@
 import logging
 import torch
+import numpy as np
 
 from abc import ABC
 from collections import defaultdict
@@ -69,15 +70,15 @@ class Client(ABC):
         """
         return self._can_update
     
-    def fit(self, q):
+    def fit(self, q, init_q=None):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
         client, but in all cases it calls Client.q_update internally.
         """
-        return self.update_q(q)
+        return self.update_q(q, init_q)
 
-    def update_q(self, q):
+    def update_q(self, q, init_q=None):
         """
         Computes a refined approximate posterior and the associated
         approximating likelihood term.
@@ -90,25 +91,31 @@ class Client(ABC):
             q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
             # Pass a trainable copy to optimise.
-            q_new, self.t = self.gradient_based_update(q.trainable_copy())
+            q_new, self.t = self.gradient_based_update(p=q, init_q=init_q)
 
         return q_new, self.t
 
-    def gradient_based_update(self, q):
+    def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
         self._can_update = False
         
         # Copy the approximate posterior, make old posterior non-trainable.
-        q_old = q.non_trainable_copy()
+        q_old = p.non_trainable_copy()
 
         if self.t is None:
             # Standard VI: prior = old posterior.
-            q_cav = q.non_trainable_copy()
+            q_cav = p.non_trainable_copy()
         else:
             # TODO: check if valid distribution.
-            q_cav = q.non_trainable_copy()
+            q_cav = p.non_trainable_copy()
             q_cav.nat_params = {k: v - self.t.nat_params[k]
                                 for k, v in q_cav.nat_params.items()}
+
+        if init_q is not None:
+            q = init_q.trainable_copy()
+        else:
+            # Initialise to prior.
+            q = p.trainable_copy()
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
@@ -193,7 +200,7 @@ class Client(ABC):
                 loss = kl - ll
                 loss.backward()
                 optimiser.step()
-
+                
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
                 epoch["elbo"] += -loss.item() / len(loader)
