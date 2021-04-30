@@ -15,8 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class GlobalVIServer(Server):
-    def __init__(self, model, q, clients, config=None):
-        super().__init__(model, q, clients, config)
+    def __init__(self, model, p, clients, config=None, init_q=None):
+        super().__init__(model, p, clients, config, init_q)
 
         # Global VI server has access to the entire dataset.
         self.data = {k: torch.cat([client.data[k] for client in self.clients],
@@ -26,8 +26,9 @@ class GlobalVIServer(Server):
         # Tracks number of epochs.
         self.epochs = 0
 
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].append(self.communications)
+        # Initial q(θ) for optimisation.
+        if self.init_q is not None:
+            self.q = init_q.non_trainable_copy()
 
     def get_default_config(self):
         return {
@@ -55,7 +56,7 @@ class GlobalVIServer(Server):
         if self.should_stop():
             return False
 
-        p = self.q.non_trainable_copy()
+        p = self.p.non_trainable_copy()
         q = self.q.trainable_copy()
 
         # Parameters are those of q(θ) and self.model.

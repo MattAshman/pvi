@@ -7,12 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 class SequentialServer(Server):
-    def __init__(self, model, q, clients, config=None):
-        super().__init__(model, q, clients, config)
-
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].append(self.communications)
-        
 
     def get_default_config(self):
         return {
@@ -33,7 +27,13 @@ class SequentialServer(Server):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
-                _, t_i_new = client.fit(self.q)
+
+                if self.iterations == 0:
+                    # First iteration. Pass q_init(θ) to client.
+                    _, t_i_new = client.fit(self.q, self.init_q)
+                else:
+                    _, t_i_new = client.fit(self.q)
+
                 # Compute change in natural parameters.
                 delta_np = {k: (t_i_new.nat_params[k] - t_i_old.nat_params[k])
                             for k in self.q.nat_params.keys()}
@@ -70,12 +70,6 @@ class SequentialServer(Server):
 
 
 class SequentialServerBayesianHypers(ServerBayesianHypers):
-    def __init__(self, model, q, qeps, clients, config=None):
-        super().__init__(model, q, qeps, clients, config)
-
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["qeps"].append(self.qeps.non_trainable_copy())
-        self.log["communications"].append(self.communications)
 
     def get_default_config(self):
         return {
@@ -97,7 +91,12 @@ class SequentialServerBayesianHypers(ServerBayesianHypers):
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_old = client.t
                 teps_old = client.teps
-                _, _, t_new, teps_new = client.fit(self.q, self.qeps)
+
+                if self.iterations == 0:
+                    _, _, t_new, teps_new = client.fit(
+                        self.q, self.qeps, self.init_q, self.init_qeps)
+                else:
+                    _, _, t_new, teps_new = client.fit(self.q, self.qeps)
 
                 # Compute change in natural parameters.
                 q_delta_np = {k: t_new.nat_params[k] - t_old.nat_params[k]

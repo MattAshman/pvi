@@ -11,7 +11,7 @@ class Server(ABC):
     """
     An abstract class for the server.
     """
-    def __init__(self, model, q, clients, config=None):
+    def __init__(self, model, p, clients, config=None, init_q=None):
 
         if config is None:
             config = {}
@@ -22,8 +22,14 @@ class Server(ABC):
         # Shared probabilistic model.
         self.model = model
 
+        # Global prior p(θ).
+        self.p = p
+
         # Global posterior q(θ).
-        self.q = q
+        self.q = p.non_trainable_copy()
+
+        # Initial q(θ) for first client update.
+        self.init_q = init_q
 
         # Clients.
         self.clients = clients
@@ -35,6 +41,9 @@ class Server(ABC):
         self.communications = 0
 
         self.log = defaultdict(list)
+
+        self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
 
     @property
     def config(self):
@@ -162,11 +171,20 @@ class Server(ABC):
 
 
 class ServerBayesianHypers(Server):
-    def __init__(self, model, q, qeps, clients, config=None):
-        super().__init__(model, q, clients, config)
+    def __init__(self, model, p, peps, clients, config=None, init_q=None,
+                 init_qeps=None):
+        super().__init__(model, p, clients, config, init_q)
+
+        # Global prior p(ε).
+        self.peps = peps
 
         # Global posterior q(ε).
-        self.qeps = qeps
+        self.qeps = peps.non_trainable_copy()
+
+        # Initial q(ε) for first client.
+        self.init_qeps = init_qeps
+
+        self.log["qeps"].append(self.qeps.non_trainable_copy())
 
     @classmethod
     def get_default_config(cls):

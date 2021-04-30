@@ -17,11 +17,6 @@ class BayesianCommitteeMachineSame(Server):
 
     q_k(θ) ≅ p(θ | D_k) = p(θ) p(D_k | θ) / p(D_k).
     """
-    def __init__(self, model, q, clients, config=None):
-        super().__init__(model, q, clients, config)
-
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].append(self.communications)
 
     def get_default_config(self):
         return {
@@ -41,7 +36,11 @@ class BayesianCommitteeMachineSame(Server):
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                q_i, _ = client.fit(self.q)
+
+                if self.iterations == 0:
+                    q_i, _ = client.fit(self.q, self.init_q)
+                else:
+                    q_i, _ = client.fit(self.q)
 
                 # Store natural parameters.
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
@@ -82,15 +81,12 @@ class BayesianCommitteeMachineSplit(Server):
 
     q_k(θ) ≅ p(θ | D_k) = p(θ)^{N_k / N} p(D_k | θ) / p(D_k).
     """
-    def __init__(self, model, q, clients, config=None):
-        super().__init__(model, q, clients, config)
+    def __init__(self, model, p, clients, config=None, init_q=None):
+        super().__init__(model, p, clients, config, init_q)
 
         nk = [client.data["x"].shape[0] for client in clients]
         client_props = [n / sum(nk) for n in nk]
         self.client_props = client_props
-
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].append(self.communications)
 
     def get_default_config(self):
         return {
@@ -116,7 +112,10 @@ class BayesianCommitteeMachineSplit(Server):
                            for k, v in self.q.nat_params.items()}
                 p_i = type(self.q)(nat_params=p_i_nps, is_trainable=False)
 
-                q_i, _ = client.fit(p_i)
+                if self.iterations == 0:
+                    q_i, _ = client.fit(p_i, self.init_q)
+                else:
+                    q_i, _ = client.fit(p_i)
 
                 # Store natural parameters.
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}

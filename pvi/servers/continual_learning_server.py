@@ -7,15 +7,13 @@ logger = logging.getLogger(__name__)
 
 
 class ContinualLearningServer(Server):
-    def __init__(self, model, q, clients, config=None):
-        super().__init__(model, q, clients, config)
+    def __init__(self, model, p, clients, config=None, init_q=None):
+        super().__init__(model, p, clients, config, init_q)
 
         # Loop through each client just once.
         self.config = {"max_iterations": len(self.clients)}
 
         self.client_idx = 0
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].append(self.communications)
 
         if self.config["train_model"]:
             self.log["model_state_dict"].append(
@@ -44,9 +42,14 @@ class ContinualLearningServer(Server):
         client = self.clients[self.client_idx]
 
         if client.can_update():
-            q_new, _ = client.fit(self.q)
-            self.q = q_new.non_trainable_copy()
 
+            if self.iterations == 0:
+                # First iteration. Pass q_init(θ) to client.
+                q_new, _ = client.fit(self.q, self.init_q)
+            else:
+                q_new, _ = client.fit(self.q)
+
+            self.q = q_new.non_trainable_copy()
             self.communications += 1
 
             self.log["q"].append(self.q.non_trainable_copy())
@@ -67,16 +70,14 @@ class ContinualLearningServer(Server):
 
 
 class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
-    def __init__(self, model, q, qeps, clients, config=None):
-        super().__init__(model, q, qeps, clients, config)
+    def __init__(self, model, p, peps, clients, config=None, init_q=None,
+                 init_qeps=None):
+        super().__init__(model, p, peps, clients, config, init_q, init_qeps)
 
         # Loop through each client just once.
         self.config = {"max_iterations": len(self.clients)}
 
         self.client_idx = 0
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["qeps"].append(self.qeps.non_trainable_copy())
-        self.log["communications"].append(self.communications)
 
     def get_default_config(self):
         return {
@@ -92,11 +93,14 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
         client = self.clients[self.client_idx]
 
         if client.can_update():
-            # TODO: ensure that client.fit returns non-trainable copy?
-            q_new, qeps_new, _, _ = client.fit(self.q, self.qeps)
+            if self.iterations == 0:
+                q_new, qeps_new, _, _ = client.fit(self.q, self.qeps,
+                                                   self.init_q, self.init_qeps)
+            else:
+                q_new, qeps_new, _, _ = client.fit(self.q, self.qeps)
+
             self.q = q_new.non_trainable_copy()
             self.qeps = qeps_new.non_trainable_copy()
-
             self.communications += 1
 
             self.log["q"].append(self.q.non_trainable_copy())
