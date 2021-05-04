@@ -77,8 +77,6 @@ class GlobalVIServer(Server):
             optimiser, **self.config["lr_scheduler_params"])
 
         # Set up data: global VI server can access the entire dataset.
-
-        # TODO: current only supports homogenous minibatches.
         if self.config["homogenous_split"]:
             x = self.data["x"]
             y = self.data["y"]
