@@ -15,7 +15,8 @@ logger = logging.getLogger(__name__)
 
 
 class GlobalVIServer(Server):
-    def __init__(self, model, p, clients, config=None, init_q=None):
+    def __init__(self, model, p, clients, config=None, init_q=None,
+                 val_data=None):
         super().__init__(model, p, clients, config, init_q)
 
         # Global VI server has access to the entire dataset.
@@ -29,6 +30,9 @@ class GlobalVIServer(Server):
         # Initial q(θ) for optimisation.
         if self.init_q is not None:
             self.q = init_q.non_trainable_copy()
+
+        # Validation dataset.
+        self.val_data = val_data
 
     def get_default_config(self):
         return {
@@ -104,11 +108,18 @@ class GlobalVIServer(Server):
                                 batch_size=None,
                                 shuffle=True)
 
-        # Dict for logging optimisation progress
+        # Dict for logging optimisation progress.
         training_curve = {
             "elbo": [],
             "kl": [],
             "ll": [],
+        }
+
+        # Dict for logging performance progress.
+        performance_curve = {
+            "epoch": [],
+            "train_mll": [],
+            "val_mll": [],
         }
 
         # Gradient-based optimisation loop -- loop over epochs
@@ -165,6 +176,32 @@ class GlobalVIServer(Server):
                              f"KL: {epoch['kl']:.3f}, "
                              f"Epochs: {i}.")
 
+                # Update global posterior before making predictions.
+                self.q = q.non_trainable_copy()
+
+                # Get training set performance.
+                train_pp = self.model_predict(self.data["x"])
+                train_mll = train_pp.log_prob(self.data["y"]).mean()
+                performance_curve["epoch"].append(i)
+                performance_curve["train_mll"].append(train_mll.item())
+
+                # Get validation set performance.
+                if self.val_data is not None:
+                    val_pp = self.model_predict(self.val_data["x"])
+                    val_mll = val_pp.log_prob(self.val_data["y"]).mean()
+                    performance_curve["val_mll"].append(val_mll.item())
+
+                else:
+                    val_mll = None
+
+                tqdm.write(f"Epochs: {i}."
+                           f"ELBO: {epoch['elbo']:.3f}, "
+                           f"LL: {epoch['ll']:.3f}, "
+                           f"KL: {epoch['kl']:.3f}, "
+                           f"Train mll: {train_mll:.3f}, "
+                           f"Val mll: {val_mll:.3f}, "
+                           )
+
             # Log q so we can track performance each epoch.
             self.log["q"].append(q.non_trainable_copy())
             self.log["communications"].append(self.communications)
@@ -180,6 +217,9 @@ class GlobalVIServer(Server):
 
         # Log training.
         self.log["training_curves"].append(training_curve)
+
+        # Log performance.
+        self.log["performance_curves"].append(performance_curve)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
