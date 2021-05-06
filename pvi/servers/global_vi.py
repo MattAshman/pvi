@@ -170,7 +170,8 @@ class GlobalVIServer(Server):
             training_curve["kl"].append(epoch["kl"])
             training_curve["ll"].append(epoch["ll"])
 
-            if i % self.config["print_epochs"] == 0:
+            if i % self.config["print_epochs"] == 0 \
+                    or i == (self.config["epochs"] - 1):
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
@@ -180,8 +181,12 @@ class GlobalVIServer(Server):
                 self.q = q.non_trainable_copy()
 
                 # Get training set performance.
+                report = f"Epochs: {i}. ELBO: {epoch['elbo']:.3f} "\
+                         f"LL: {epoch['ll']:.3f} KL: {epoch['kl']:.3f} "
+
                 train_pp = self.model_predict(self.data["x"])
                 train_mll = train_pp.log_prob(self.data["y"]).mean()
+                report += f"Train mll: {train_mll:.3f} "
                 performance_curve["epoch"].append(i)
                 performance_curve["train_mll"].append(train_mll.item())
 
@@ -189,18 +194,10 @@ class GlobalVIServer(Server):
                 if self.val_data is not None:
                     val_pp = self.model_predict(self.val_data["x"])
                     val_mll = val_pp.log_prob(self.val_data["y"]).mean()
+                    report += f"Val mll: {val_mll:.3f} "
                     performance_curve["val_mll"].append(val_mll.item())
 
-                else:
-                    val_mll = None
-
-                tqdm.write(f"Epochs: {i}."
-                           f"ELBO: {epoch['elbo']:.3f}, "
-                           f"LL: {epoch['ll']:.3f}, "
-                           f"KL: {epoch['kl']:.3f}, "
-                           f"Train mll: {train_mll:.3f}, "
-                           f"Val mll: {val_mll:.3f}, "
-                           )
+                tqdm.write(report)
 
             # Log q so we can track performance each epoch.
             self.log["q"].append(q.non_trainable_copy())
