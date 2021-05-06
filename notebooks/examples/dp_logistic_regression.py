@@ -36,13 +36,18 @@ formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(messag
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
-def main(args, rng_seed):
+def main(args, rng_seed, dataset_folder):
+    """
+    Args:
+        dataset_folder : (str) path to data containing x.npy and y.npy files for input and target
+    """
 
+    logger.info(f"Starting PVI run with data folder: {dataset_folder}, sampling type: {args.sampling_type}")
 
     np.random.seed(rng_seed)
 
     client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
-            None, args.clients, args.rho, args.kappa
+            None, args.clients, args.rho, args.kappa, dataset_folder=dataset_folder
             )
     x_train, x_valid, y_train, y_valid = full_data_split
 
@@ -68,10 +73,11 @@ def main(args, rng_seed):
 
     # note: for DP need to change to use actual sampling, no full data passes
     client_config = {
-        'batch_size' : 200, # will run through entire data on each epoch using this batch size
+        'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
+        'sampling_frac_q' : args.sampling_frac_q, # sampling fraction, only used with Poisson random sampling type
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment?
-        'epochs' : args.n_steps, # = n local epochs, i.e., full passes through local data
+        'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
         'optimiser' : 'Adam',
         'optimiser_params' : {'lr' : args.learning_rate},
         'lr_scheduler' : 'MultiplicativeLR',
@@ -80,6 +86,7 @@ def main(args, rng_seed):
         'print_epochs' : 1, # ?
         'train_model' : False, # no need for having trainable model on client
         'update_log_coeff' : False, # no need for log coeff in t factors
+        'sampling_type' : args.sampling_type, # sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'SWOR' for sampling size b batch without replacement. For DP, need either Poisson or SWOR
     }
     # prior params, use data dim+1 assuming model adds extra bias dim
     prior_std_params = {
@@ -206,22 +213,24 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
-    parser.add_argument('-batch_size', default=None, type=list, help='list of batch size(s); used only for test loss/acc. None to use actual test set sizes')
-    parser.add_argument('-q', default=[.005], type=list, help='list of sampling fractions for training data')
+    parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
+    parser.add_argument('--sampling_frac_q', default=[.05], type=list, help="sampling fraction; only used if sampling_type is 'poisson'")
     parser.add_argument('--dp_sigma', default=0.0, type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=200.0, type=float, help='gradient norm bound')
 
     parser.add_argument('--folder', default='data/adult/', type=str, help='path to combined train-test adult data folder')
 
     parser.add_argument('--clients', default=4, type=int, help='number of clients')
-    parser.add_argument('--n_steps', default=2, type=int, help='number of local training steps on each iteration')
+    parser.add_argument('--n_steps', default=5, type=int, help="when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes throuhg local data on each client update iteration")
     parser.add_argument('-rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=1., type=float, help='damping factor in (0,1], 1=no damping')
+    parser.add_argument('--sampling_type', default='seq', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
+
 
     args = parser.parse_args()
 
-    main(args, rng_seed=2303)
+    main(args, rng_seed=2303, dataset_folder='../../data/data/adult/')
 
 
 

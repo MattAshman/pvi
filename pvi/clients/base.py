@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 # Client class
 # =============================================================================
 
+import sys
 
 class Client(ABC):
     
@@ -45,23 +46,7 @@ class Client(ABC):
 
     @classmethod
     def get_default_config(cls):
-        return {
-            "train_model": False,
-            # "model_optimiser_params": {"lr": 1e-2},
-            "damping_factor": 1.,
-            "valid_factors": False,
-            "update_log_coeff": False,
-            "epochs": 1,
-            "batch_size": 100,
-            "optimiser": "Adam",
-            "optimiser_params": {"lr": 0.05},
-            "lr_scheduler": "MultiplicativeLR",
-            "lr_scheduler_params": {
-                "lr_lambda": lambda epoch: 1.
-            },
-            "num_elbo_samples": 10,
-            "print_epochs": 1
-        }
+        return {}
 
     def can_update(self):
         """
@@ -107,6 +92,7 @@ class Client(ABC):
             q_cav = p.non_trainable_copy()
         else:
             # TODO: check if valid distribution.
+
             q_cav = p.non_trainable_copy()
             q_cav.nat_params = {k: v - self.t.nat_params[k]
                                 for k, v in q_cav.nat_params.items()}
@@ -133,7 +119,8 @@ class Client(ABC):
         else:
             parameters = q.parameters()
 
-        # Reset optimiser.
+        # Reset optimiser
+        # NOTE: why is optimiser reset here?
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -146,9 +133,32 @@ class Client(ABC):
         y = self.data["y"]
 
         tensor_dataset = TensorDataset(x, y)
-        loader = DataLoader(tensor_dataset,
+
+        # set up data loader with chosen sampling type
+        if self.config['sampling_type'] == 'seq':
+            loader = DataLoader(tensor_dataset,
                             batch_size=self.config["batch_size"],
                             shuffle=True)
+            n_epochs = self.config['epochs']
+            n_samples = len(loader)
+
+        elif self.config['sampling_type'] == 'poisson':
+            raise NotImplementedError('poisson not done yet!')
+
+        elif self.config['sampling_type'] == 'swor':
+            sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=self.config['batch_size'], drop_last=False)
+            
+            loader = DataLoader(tensor_dataset, batch_sampler=sampler)
+            n_epochs = 1
+            n_samples = self.config['epochs']
+
+            #print(f"loader len: {len(loader)}, n_steps: {self.config['n_steps']}")
+            #print( int(np.ceil(self.config['n_steps']/len(loader) )))
+            #print(  self.config['n_steps'] % len(loader) )
+            #sys.exit()
+
+        else:
+            raise ValueError(f"Unknown sampling type: {self.config['sampling_type']}!")
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -159,8 +169,9 @@ class Client(ABC):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
-                          leave=True)
+        #epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
+        #                  leave=True)
+        epoch_iter = tqdm(range(n_epochs), desc="Epoch", leave=True)
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = {
@@ -171,7 +182,16 @@ class Client(ABC):
             }
             
             # Loop over batches in current epoch
-            for (x_batch, y_batch) in iter(loader):
+            tmp = iter(loader)
+            #for i_step, (x_batch, y_batch) in enumerate(iter(loader)):
+            for i_step in range(n_samples):
+                try:
+                    (x_batch, y_batch) = tmp.next()
+                except StopIteration as err:
+                    tmp = iter(loader)
+
+                #print(f"{i_step}: {x_batch[0][:3]}")
+
                 optimiser.zero_grad()
 
                 batch = {
@@ -183,7 +203,19 @@ class Client(ABC):
                 # kl = q.kl_divergence(q_old).sum() / len(x)
 
                 # Compute KL divergence between q and q_cav.
-                kl = q.kl_divergence(q_cav).sum() / len(x)
+                try:
+                    kl = q.kl_divergence(q_cav).sum() / len(x)
+                except:
+                    # NOTE: dirty fix: q_cav guaranteed to give proper std, shouldn't give errors at the moment
+                    print('exception in KL')
+                    #print(q._unc_params['log_scale'])
+                    print(q_cav)
+                    print('nat params')
+                    print(q_cav.nat_params)
+                    print('std params')
+                    print(q_cav.std_params)
+
+                    sys.exit()
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
@@ -209,6 +241,8 @@ class Client(ABC):
 
                 if self.t is not None:
                     epoch["logt"] += logt.item() / len(loader)
+
+                i_step += 1
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
