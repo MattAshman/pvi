@@ -42,11 +42,13 @@ def download_dataset(root_dir, dataset_name, info):
     print(f'Downloading {dataset_name} dataset')
     dataset_dir = f'{root_dir}/{dataset_name}'
 
-    if os.path.exists(dataset_dir):
+    if os.path.exists(os.path.join(dataset_dir, "data.npy")):
         print(f'{dataset_name} dataset already exists!')
         return
     else:
-        os.mkdir(dataset_dir)
+        if not os.path.exists(dataset_dir):
+            os.mkdir(dataset_dir)
+
         base_url = info['base_url']
 
         # Handle the case where the data must be unzipped
@@ -66,13 +68,13 @@ def download_dataset(root_dir, dataset_name, info):
             save_location = f'{dataset_dir}/{file_name}'
 
             if not info['zipped']:
+                if not os.path.exists(save_location):
+                    url = f"{base_url}/{file_name}"
+                    urllib.request.urlretrieve(url, save_location)
 
-                url = f"{base_url}/{file_name}"
-                urllib.request.urlretrieve(url, save_location)
-
-                if ('post-download' in info) and \
-                        (info['post-download'][i] is not None):
-                    info['post-download'][i](save_location)
+                    if ('post-download' in info) and \
+                            (info['post-download'][i] is not None):
+                        info['post-download'][i](save_location)
 
             _data = None
 
@@ -154,6 +156,9 @@ def process_dataset(data_dir, config):
     mask[config["output_column"]] = False
     x = data[:, mask]
 
+    # Replace "?" with np.nan.
+    # x[x == "?"] = np.nan
+
     # Preprocessor for scaling
     preprocessor = ColumnTransformer(transformers=[
         ('num', scaler, config["numerical_features"]),
@@ -193,6 +198,23 @@ def bankruptcy_preprocess_file(file_location):
             processed_data[i, j] = float(val_ij)
 
     return processed_data
+
+
+def echocardiogram_preprocess_file(file_location):
+    data = np.loadtxt(file_location,
+                      dtype=str,
+                      delimiter=",")
+
+    data[data == "?"] = np.nan
+    valid_idx = []
+    for i, x in enumerate(data):
+        if x[0] != "nan" and x[1] != "nan":
+            valid_idx.append(i)
+            x[-1] = 1 if (float(x[0]) < 12 and x[1] == "0") else 0
+
+    data = data[np.array(valid_idx)]
+
+    return data
 
 
 ROOT_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases'
@@ -300,7 +322,15 @@ datasets = {
                         'files'          : ['drug_consumption.data'],
                         'delimiter'      : ',',
                         'drop-header'    : True,
-                        'remove-missing' : False}
+                        'remove-missing' : False},
+
+    'echocardiogram' : {'base_url'       : f'{ROOT_URL}/echocardiogram/',
+                        'zipped'         : False,
+                        'files'          : ['echocardiogram.data'],
+                        'delimiter'      : ',',
+                        'drop-header'    : False,
+                        'remove-missing' : False,
+                        'pre-process'    : [echocardiogram_preprocess_file]}
 }
     
     
@@ -481,6 +511,21 @@ drug_config = {
     "output_generator"     : drug_output_generator
 }
 
+
+# Echocardiogram dataset.
+def echocardiogram_output_generator(y):
+    oe = OrdinalEncoder()
+    return oe.fit_transform(y)
+
+
+echocardiogram_config = {
+    "numerical_features"   : [2, 4, 5, 6, 7, 8],
+    "categorical_features" : [3],
+    "folder"               : "/echocardiogram",
+    "output_column"        : 12,
+    "output_generator"     : echocardiogram_output_generator
+}
+
 # =========================================================================
 # Download and preprocess data
 # =========================================================================
@@ -524,3 +569,6 @@ process_dataset(f"{args.dir}/hepatitis", hepatitis_config)
 
 print("Processing drug dataset")
 process_dataset(f"{args.dir}/drug", drug_config)
+
+print("Processing echocardiogram dataset")
+process_dataset(f"{args.dir}/echocardiogram", echocardiogram_config)
