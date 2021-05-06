@@ -35,6 +35,7 @@ class Model(ABC):
     @config.setter
     def config(self, config):
         self._config = {**self._config, **config}
+        print(f'model conf: {self._config}')
 
     @abstractmethod
     def get_default_config(self):
@@ -50,6 +51,7 @@ class Model(ABC):
     @hyperparameters.setter
     def hyperparameters(self, hyperparameters):
         self._hyperparameters = {**self._hyperparameters, **hyperparameters}
+        print(f'model hyperparams: {self._hyperparameters}')
 
     @abstractmethod
     def get_default_hyperparameters(self):

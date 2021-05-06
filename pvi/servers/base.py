@@ -54,13 +54,15 @@ class Server(ABC):
         self._config = {**self._config, **config}
 
     def get_default_config(self):
-        return {
+        return {}
+        '''pass all configs in call instead of here
             "train_model": False,
             "model_update_freq": 1,
             "hyper_optimiser": "SGD",
             "hyper_optimiser_params": {"lr": 1},
             "hyper_updates": 1,
         }
+        '''
 
     @abstractmethod
     def tick(self):
@@ -188,9 +190,10 @@ class ServerBayesianHypers(Server):
 
     @classmethod
     def get_default_config(cls):
-        return {
+        return {}
+        '''
             "num_eps_samples": 1,
-        }
+        }'''
 
     @abstractmethod
     def tick(self):

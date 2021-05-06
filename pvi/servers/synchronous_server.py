@@ -4,6 +4,7 @@ from tqdm.auto import tqdm
 from .base import *
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 
 class SynchronousServer(Server):
@@ -11,7 +12,7 @@ class SynchronousServer(Server):
     def get_default_config(self):
         return {
             **super().get_default_config(),
-            "max_iterations": 25,
+            #"max_iterations": 25,
         }
 
     def tick(self):

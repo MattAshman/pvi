@@ -48,7 +48,7 @@ def set_up_clients(model, client_data, init_nat_params, config):
 
 
 
-def standard_client_split(dataset_seed, num_clients, client_size_factor, class_balance_factor, total_splits=2, k_split=0):
+def standard_client_split(dataset_seed, num_clients, client_size_factor, class_balance_factor, total_splits=2, k_split=0, dataset_folder='../../data/data/adult/'):
     """
     Args:
         dataset_seed : seed for client data splitting, None to avoid fixing separate dataset seed
@@ -57,7 +57,7 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
     """
 
     # Get data split
-    full_data_split = get_nth_split(total_splits, k_split)
+    full_data_split = get_nth_split(total_splits, k_split, dataset_folder)
     x_train, x_valid, y_train, y_valid = full_data_split
 
     #logger.debug(f'shapes, x_train: {x_train.shape}, y_train: {y_train.shape}, x_valid: {x_valid.shape}, y_valid: {y_valid.shape}')
@@ -94,7 +94,7 @@ def acc_and_ll(server, x, y):
 
 
 
-def get_nth_split(n_splits, n, folder='../../data/data/adult/'):
+def get_nth_split(n_splits, n, folder):
     """data splitter
     Args:
         n_splits : k for k-fold split

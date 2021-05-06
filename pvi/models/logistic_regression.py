@@ -35,18 +35,7 @@ class LogisticRegressionModel(Model, nn.Module):
             }
 
     def get_default_config(self):
-        return {
-            "D": None,
-            "optimiser_class": optim.Adam,
-            "optimiser_params": {"lr": 1e-3},
-            "reset_optimiser": True,
-            "epochs": 100,
-            "batch_size": 100,
-            "num_elbo_samples": 1,
-            "num_predictive_samples": 1,
-            "print_epochs": 10,
-            "use_probit_approximation": True,
-        }
+        return {}
 
     def get_default_hyperparameters(self):
         """

@@ -5,7 +5,6 @@ import torch
 
 MIN_PRECISION = 1e-6
 
-
 # =============================================================================
 # Mean field Gaussian factor
 # =============================================================================
@@ -72,6 +71,7 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         prec = -2 * nat_params["np2"]
 
         prec[prec <= 0] = MIN_PRECISION
+        # NOTE: bug here, although not sure if mean should be fixed
         nat_params["np1"][prec <= 0] = 0
         loc = nat_params["np1"] / prec
 
