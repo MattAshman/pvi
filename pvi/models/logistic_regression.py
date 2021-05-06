@@ -103,7 +103,7 @@ class LogisticRegressionModel(Model, nn.Module):
         :return: Bernoulli distribution.
         """
         assert len(x.shape) in [1, 2], "x must be (*, D)."
-        assert len(x.shape) in [1, 2], "theta must be (*, D)."
+        assert len(theta.shape) in [1, 2], "theta must be (*, D)."
 
         if self.include_bias:
             x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)

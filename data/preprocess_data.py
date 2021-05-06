@@ -17,6 +17,7 @@ import argparse
 import numpy as np
 import pandas as pd
 
+from scipy.io import arff
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import OneHotEncoder,  \
                                   StandardScaler, \
@@ -37,80 +38,98 @@ args = argparser.parse_args()
 # =============================================================================
 
 
-def download_datasets(root_dir, datasets):
-    
-    # Directory to download data to
-    data_dir = root_dir + '/data'
-    
-    if os.path.exists(data_dir):
-        shutil.rmtree(data_dir)
-        
-    os.mkdir(data_dir)
-    
-    # Loop over datasets and download them into tmp
-    for dataset_name, info in datasets.items():
-        
-        print(f'Downloading {dataset_name} dataset')
-        os.mkdir(f'{data_dir}/{dataset_name}')
-        
+def download_dataset(root_dir, dataset_name, info):
+    print(f'Downloading {dataset_name} dataset')
+    dataset_dir = f'{root_dir}/{dataset_name}'
+
+    if os.path.exists(os.path.join(dataset_dir, "data.npy")):
+        print(f'{dataset_name} dataset already exists!')
+        return
+    else:
+        if not os.path.exists(dataset_dir):
+            os.mkdir(dataset_dir)
+
         base_url = info['base_url']
-        
+
         # Handle the case where the data must be unzipped
         if info['zipped']:
-            
             # Download zip file
             url = f"{base_url}/{info['zipfile']}"
-            save_location = f"{data_dir}/{dataset_name}/{info['zipfile']}"
+            save_location = f"{dataset_dir}/{info['zipfile']}"
             urllib.request.urlretrieve(url, save_location)
-            
+
             # Unzip data
             with zipfile.ZipFile(save_location, 'r') as zip_handle:
                 zip_handle.extractall(save_location[:-4])
 
         data = []
         for i, file_name in enumerate(info['files']):
-            
-            save_location = f'{data_dir}/{dataset_name}/{file_name}'
+
+            save_location = f'{dataset_dir}/{file_name}'
 
             if not info['zipped']:
-                
-                url = f"{base_url}/{file_name}"
-                urllib.request.urlretrieve(url, save_location)
-                
-                if ('post-download' in info) and           \
-                   (info['post-download'][i] is not None):
-                    info['post-download'][i](save_location)
+                if not os.path.exists(save_location):
+                    url = f"{base_url}/{file_name}"
+                    urllib.request.urlretrieve(url, save_location)
+
+                    if ('post-download' in info) and \
+                            (info['post-download'][i] is not None):
+                        info['post-download'][i](save_location)
 
             _data = None
-            
-            if save_location[-5:] == '.xlsx':
+
+            if ('pre-process' in info) and \
+                    (info['pre-process'][i] is not None):
+                _data = info['pre-process'][i](save_location)
+
+            elif save_location[-5:] == '.xlsx':
                 _data = np.array(pd.read_excel(save_location), dtype=str)
-                
+
             else:
                 _data = np.loadtxt(save_location,
                                    dtype=str,
                                    delimiter=info['delimiter'])
-                
+
             _data = _data[1:] if info['drop-header'] else _data
 
-            rows_with_missing = np.any(_data == '?', axis=1)
+            try:
+                rows_with_missing = np.any(_data == '?', axis=1)
+            except np.AxisError:
+                rows_with_missing = np.any(np.isnan(_data), axis=1)
+
             print(f'{np.sum(rows_with_missing)}/{rows_with_missing.shape[0]} '
                   f'rows had missing data\n')
-                
+
             if info['remove-missing']:
                 _data = _data[~rows_with_missing, :]
-                
+
             data.append(_data)
 
         data = np.concatenate(data, axis=0)
-        np.save(f'{data_dir}/{dataset_name}/data.npy', data)
+        np.save(f'{dataset_dir}/data.npy', data)
 
 
-        
+def download_datasets(root_dir, datasets):
+    
+    # Directory to download data to
+    # data_dir = root_dir + '/data'
+    dataset_dir = root_dir
+    
+    # if os.path.exists(dataset_dir):
+    #     shutil.rmtree(dataset_dir)
+    #
+    # os.mkdir(data_dir)
+    if not os.path.exists(dataset_dir):
+        os.mkdir(dataset_dir)
+    
+    # Loop over datasets and download them into tmp
+    for dataset_name, info in datasets.items():
+        download_dataset(dataset_dir, dataset_name, info)
+
+
 # =============================================================================
 # Dataset processor
 # =============================================================================
-
 
 def process_dataset(data_dir, config):
     
@@ -137,6 +156,9 @@ def process_dataset(data_dir, config):
     mask[config["output_column"]] = False
     x = data[:, mask]
 
+    # Replace "?" with np.nan.
+    # x[x == "?"] = np.nan
+
     # Preprocessor for scaling
     preprocessor = ColumnTransformer(transformers=[
         ('num', scaler, config["numerical_features"]),
@@ -156,16 +178,43 @@ def process_dataset(data_dir, config):
 
     
 def adult_preprocess_test_file(file_location):
-    
-    fhandle = open('./data/adult/adult.test', 'r')
+    fhandle = open(file_location, 'r')
     content_minus_first_line = '\n'.join(fhandle.read().split('\n')[1:])
     fhandle.close()
     
-    fhandle = open('./data/adult/adult.test', 'w')
+    fhandle = open(file_location, 'w')
     fhandle.write(content_minus_first_line)
     fhandle.close()
     
     return
+
+
+def bankruptcy_preprocess_file(file_location):
+    data, meta = arff.loadarff(file_location)
+
+    processed_data = np.zeros(shape=(len(data), len(data[0])))
+    for i, data_i in enumerate(data):
+        for j, val_ij in enumerate(data_i):
+            processed_data[i, j] = float(val_ij)
+
+    return processed_data
+
+
+def echocardiogram_preprocess_file(file_location):
+    data = np.loadtxt(file_location,
+                      dtype=str,
+                      delimiter=",")
+
+    data[data == "?"] = np.nan
+    valid_idx = []
+    for i, x in enumerate(data):
+        if x[0] != "nan" and x[1] != "nan":
+            valid_idx.append(i)
+            x[-1] = 1 if (float(x[0]) < 12 and x[1] == "0") else 0
+
+    data = data[np.array(valid_idx)]
+
+    return data
 
 
 ROOT_URL = 'https://archive.ics.uci.edu/ml/machine-learning-databases'
@@ -224,13 +273,64 @@ datasets = {
                         'drop-header'    : True,
                         'remove-missing' : False},
     
-    'power'          : {'base_url'       : f'{ROOT_URL}/00294/',
+    # 'power'          : {'base_url'       : f'{ROOT_URL}/00294/',
+    #                     'zipped'         : True,
+    #                     'zipfile'        : 'CCPP.zip',
+    #                     'files'          : ['CCPP/CCPP/Folds5x2_pp.xlsx'],
+    #                     'delimiter'      : ',',
+    #                     'drop-header'    : True,
+    #                     'remove-missing' : False}
+
+    'bankruptcy'     : {'base_url'       : f'{ROOT_URL}/00365/',
                         'zipped'         : True,
-                        'zipfile'        : 'CCPP.zip',
-                        'files'          : ['CCPP/CCPP/Folds5x2_pp.xlsx'],
+                        'zipfile'        : 'data.zip',
+                        'files'          : ['data/1year.arff',
+                                            'data/2year.arff',
+                                            'data/3year.arff',
+                                            'data/4year.arff',
+                                            'data/5year.arff'],
+                        'delimiter'      : ',',
+                        'drop-header'    : False,
+                        'remove-missing' : False,
+                        'pre-process'    : [bankruptcy_preprocess_file
+                                            for _ in range(5)]},
+
+    # 'parkinsons'     : {'base_url'       : f'{ROOT_URL}/00470/',
+    #                     'zipped'         : True,
+    #                     'zipfile'        : 'data.zip',
+    #                     'files'          : ['data/1year.arff',
+    #                                         'data/2year.arff',
+    #                                         'data/3year.arff',
+    #                                         'data/4year.arff',
+    #                                         'data/5year.arff'],
+    #                     'delimiter'      : ',',
+    #                     'drop-header'    : False,
+    #                     'remove-missing' : False,
+    #                     'pre-process'    : [bankruptcy_preprocess_file
+    #                                         for _ in range(5)]},
+
+    'hepatitis'      : {'base_url'       : f'{ROOT_URL}/00503/',
+                        'zipped'         : True,
+                        'zipfile'        : 'HCV-Egy-Data.zip',
+                        'files'          : ['HCV-Egy-Data/HCV-Egy-Data.csv'],
                         'delimiter'      : ',',
                         'drop-header'    : True,
-                        'remove-missing' : False}
+                        'remove-missing' : False},
+
+    'drug'           : {'base_url'       : f'{ROOT_URL}/00373/',
+                        'zipped'         : False,
+                        'files'          : ['drug_consumption.data'],
+                        'delimiter'      : ',',
+                        'drop-header'    : True,
+                        'remove-missing' : False},
+
+    'echocardiogram' : {'base_url'       : f'{ROOT_URL}/echocardiogram/',
+                        'zipped'         : False,
+                        'files'          : ['echocardiogram.data'],
+                        'delimiter'      : ',',
+                        'drop-header'    : False,
+                        'remove-missing' : False,
+                        'pre-process'    : [echocardiogram_preprocess_file]}
 }
     
     
@@ -352,34 +452,123 @@ bank_config = {
 }
 
 
+# Polish bankruptcy dataset
+def bankruptcy_output_generator(y):
+    oe = OrdinalEncoder()
+    return oe.fit_transform(y)
+
+
+bankruptcy_config = {
+    "numerical_features"   : [i for i in range(64)],
+    "categorical_features" : [],
+    "folder"               : "/bankruptcy",
+    "output_column"        : 64,
+    "output_generator"     : bankruptcy_output_generator
+}
+
+
+# Parkinson's disease classification dataset
+def parkinsons_output_generator(y):
+    oe = OrdinalEncoder()
+    return oe.fit_transform(y)
+
+
+parkinsons_config = {
+    "numerical_features"   : [i for i in range(754)],
+    "categorical_features" : [],
+    "folder"               : "/parkinsons",
+    "output_column"        : 754,
+    "output_generator"     : parkinsons_output_generator
+}
+
+
+# Hepatitis C dataset.
+def hepatitis_output_generator(y):
+    oe = OrdinalEncoder()
+    return oe.fit_transform(y)
+
+
+hepatitis_config = {
+    "numerical_features"   : [0, 2] + list(range(10, 26)),
+    "categorical_features" : [1] + list(range(3, 10)) + [27],
+    "folder"               : "/hepatitis",
+    "output_column"        : 28,
+    "output_generator"     : hepatitis_output_generator,
+}
+
+
+# Drug use dataset
+def drug_output_generator(y):
+    oe = OrdinalEncoder()
+    return oe.fit_transform(y)
+
+
+drug_config = {
+    "numerical_features"   : [i for i in range(1, 12)],
+    "categorical_features" : [i for i in range(12, 31)],
+    "folder"               : "/drug",
+    "output_column"        : 31,
+    "output_generator"     : drug_output_generator
+}
+
+
+# Echocardiogram dataset.
+def echocardiogram_output_generator(y):
+    oe = OrdinalEncoder()
+    return oe.fit_transform(y)
+
+
+echocardiogram_config = {
+    "numerical_features"   : [2, 4, 5, 6, 7, 8],
+    "categorical_features" : [3],
+    "folder"               : "/echocardiogram",
+    "output_column"        : 12,
+    "output_generator"     : echocardiogram_output_generator
+}
+
 # =========================================================================
 # Download and preprocess data
 # =========================================================================
 
 if not args.no_download:
-    download_datasets(f"{args.dir}/", datasets)
+    download_datasets(f"{args.dir}", datasets)
 
 
 print("Processing abalone dataset")
-process_dataset(f"{args.dir}/data/abalone", abalone_config)
+process_dataset(f"{args.dir}/abalone", abalone_config)
 
 print("Processing adult dataset")
-process_dataset(f"{args.dir}/data/adult", adult_config)
+process_dataset(f"{args.dir}/adult", adult_config)
 
 print("Processing mushroom dataset")
-process_dataset(f"{args.dir}/data/mushroom", mushroom_config)
+process_dataset(f"{args.dir}/mushroom", mushroom_config)
 
 print("Processing credit dataset")
-process_dataset(f"{args.dir}/data/credit", credit_config)
+process_dataset(f"{args.dir}/credit", credit_config)
 
 print("Processing bank dataset")
-process_dataset(f"{args.dir}/data/bank", bank_config)
+process_dataset(f"{args.dir}/bank", bank_config)
 
 print("Processing superconductor dataset")
-process_dataset(f"{args.dir}/data/superconductor", superconductor_config)
+process_dataset(f"{args.dir}/superconductor", superconductor_config)
 
 print("Processing protein dataset")
-process_dataset(f"{args.dir}/data/protein", protein_config)
+process_dataset(f"{args.dir}/protein", protein_config)
 
-print("Processing power dataset")
-process_dataset(f"{args.dir}/data/power", power_config)
+# print("Processing power dataset")
+# process_dataset(f"{args.dir}/power", power_config)
+
+print("Processing bankruptcy dataset")
+process_dataset(f"{args.dir}/bankruptcy", bankruptcy_config)
+
+print("Processing parkinsons dataset")
+process_dataset(f"{args.dir}/parkinsons", parkinsons_config)
+
+print("Processing hepatitis dataset")
+process_dataset(f"{args.dir}/hepatitis", hepatitis_config)
+
+print("Processing drug dataset")
+process_dataset(f"{args.dir}/drug", drug_config)
+
+print("Processing echocardiogram dataset")
+process_dataset(f"{args.dir}/echocardiogram", echocardiogram_config)

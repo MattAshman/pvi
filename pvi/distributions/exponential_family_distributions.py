@@ -1,7 +1,8 @@
 from .base import ExponentialFamilyDistribution
-from pvi.utils.psd_utils import psd_inverse
+from pvi.utils.psd_utils import psd_inverse, psd_logdet
 
 import torch
+import numpy as np
 
 
 # =============================================================================
@@ -14,6 +15,17 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Normal
+
+    def log_a(self, nat_params=None):
+        if nat_params is None:
+            nat_params = self.nat_params
+
+        np1 = nat_params["np1"]
+        np2 = nat_params["np2"]
+        log_a = -0.5 * np.log(np.pi) * len(np1)
+        log_a += (- np1 ** 2 / (4 * np2) - 0.5 * (-2 * np2).log()).sum()
+
+        return log_a
         
     def _std_from_unc(self, unc_params):
         
@@ -88,6 +100,18 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.MultivariateNormal
+
+    def log_a(self, nat_params=None):
+        if nat_params is None:
+            nat_params = self.nat_params
+
+        np1 = nat_params["np1"]
+        np2 = nat_params["np2"]
+        log_a = -0.5 * np.log(np.pi) * len(np1)
+        log_a += (-0.25 * np1.dot(np2.matmul(np1))
+                  - 0.5 * (psd_logdet(-2 * np2)))
+
+        return log_a
         
     def _std_from_unc(self, unc_params):
         

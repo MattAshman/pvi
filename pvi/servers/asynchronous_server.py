@@ -15,14 +15,14 @@ class AsynchronousServer(Server):
     inversely proportional to the amount of data on each client, and updates
     them one after another (i.e. incorporating the previous clients updates).
     """
-    def __init__(self, model, q, clients, config=None):
-        super().__init__(model, q, clients, config)
+    def __init__(self, model, p, clients, config=None, client_probs=None,
+                 init_q=None):
+        super().__init__(model, p, clients, config, init_q)
 
-        client_probs = [1 / client.data["x"].shape[0] for client in clients]
+        if client_probs is None:
+            client_probs = [1 / len(client.data["x"]) for client in clients]
+
         self.client_probs = [prob / sum(client_probs) for prob in client_probs]
-
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["communications"].append(self.communications)
 
     def get_default_config(self):
         return {
@@ -56,6 +56,9 @@ class AsynchronousServer(Server):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
+
+                # TODO: keep track of which clients have been visited so can
+                #  pass self.init_q at correct moment.
                 _, t_i_new = client.fit(self.q)
 
                 # Compute change in natural parameters.
@@ -110,15 +113,14 @@ class AsynchronousServerBayesianHypers(ServerBayesianHypers):
     inversely proportional to the amount of data on each client, and updates
     them one after another (i.e. incorporating the previous clients updates).
     """
-    def __init__(self, model, q, qeps, clients, config=None):
-        super().__init__(model, q, qeps, clients, config)
+    def __init__(self, model, p, peps, clients, config=None, client_probs=None,
+                 init_q=None, init_qeps=None):
+        super().__init__(model, p, peps, clients, config, init_q, init_qeps)
 
-        client_probs = [1 / client.data["x"].shape[0] for client in clients]
+        if client_probs is None:
+            client_probs = [1 / len(client.data["x"]) for client in clients]
+
         self.client_probs = [prob / sum(client_probs) for prob in client_probs]
-
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["qeps"].append(self.qeps.non_trainable_copy())
-        self.log["communications"].append(self.communications)
 
     def get_default_config(self):
         return {

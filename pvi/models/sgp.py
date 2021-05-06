@@ -100,11 +100,11 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
     def posterior(self, x, q, diag=True):
         """
-        Returns the  posterior distribution q(f) at locations x.
+        Returns the posterior distribution q(f) at locations x.
         :param x: The input locations to make predictions at.
         :param q: The approximate posterior distribution q(u).
         :param diag: Whether to return marginal posterior distribution.
-        :return: ∫ p(y | f, x) p(f | u) q(u) df du.
+        :return: ∫ p(f | u) q(u) df du.
         """
         qu_loc = q.std_params["loc"]
         qu_cov = q.std_params["covariance_matrix"]

@@ -1,5 +1,6 @@
 import logging
 import torch
+import numpy as np
 
 from abc import ABC
 from collections import defaultdict
@@ -49,10 +50,15 @@ class Client(ABC):
             # "model_optimiser_params": {"lr": 1e-2},
             "damping_factor": 1.,
             "valid_factors": False,
+            "update_log_coeff": False,
             "epochs": 1,
             "batch_size": 100,
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
+            "lr_scheduler": "MultiplicativeLR",
+            "lr_scheduler_params": {
+                "lr_lambda": lambda epoch: 1.
+            },
             "num_elbo_samples": 10,
             "print_epochs": 1
         }
@@ -64,15 +70,15 @@ class Client(ABC):
         """
         return self._can_update
     
-    def fit(self, q):
+    def fit(self, q, init_q=None):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
         client, but in all cases it calls Client.q_update internally.
         """
-        return self.update_q(q)
+        return self.update_q(q, init_q)
 
-    def update_q(self, q):
+    def update_q(self, q, init_q=None):
         """
         Computes a refined approximate posterior and the associated
         approximating likelihood term.
@@ -85,25 +91,31 @@ class Client(ABC):
             q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
             # Pass a trainable copy to optimise.
-            q_new, self.t = self.gradient_based_update(q.trainable_copy())
+            q_new, self.t = self.gradient_based_update(p=q, init_q=init_q)
 
         return q_new, self.t
 
-    def gradient_based_update(self, q):
+    def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
         self._can_update = False
         
         # Copy the approximate posterior, make old posterior non-trainable.
-        q_old = q.non_trainable_copy()
+        q_old = p.non_trainable_copy()
 
         if self.t is None:
             # Standard VI: prior = old posterior.
-            q_cav = q.non_trainable_copy()
+            q_cav = p.non_trainable_copy()
         else:
             # TODO: check if valid distribution.
-            q_cav = q.non_trainable_copy()
+            q_cav = p.non_trainable_copy()
             q_cav.nat_params = {k: v - self.t.nat_params[k]
                                 for k, v in q_cav.nat_params.items()}
+
+        if init_q is not None:
+            q = init_q.trainable_copy()
+        else:
+            # Initialise to prior.
+            q = p.trainable_copy()
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
@@ -125,6 +137,9 @@ class Client(ABC):
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
+        lr_scheduler = getattr(torch.optim.lr_scheduler,
+                               self.config["lr_scheduler"])(
+            optimiser, **self.config["lr_scheduler_params"])
         
         # Set up data
         x = self.data["x"]
@@ -185,7 +200,7 @@ class Client(ABC):
                 loss = kl - ll
                 loss.backward()
                 optimiser.step()
-
+                
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
                 epoch["elbo"] += -loss.item() / len(loader)
@@ -211,7 +226,11 @@ class Client(ABC):
                              f"Epochs: {i}.")
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], logt=epoch["logt"])
+                                   ll=epoch["ll"], logt=epoch["logt"],
+                                   lr=optimiser.param_groups[0]["lr"])
+
+            # Update learning rate.
+            lr_scheduler.step()
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
@@ -226,7 +245,8 @@ class Client(ABC):
             # Compute new local contribution from old distributions
             t_new = self.t.compute_refined_factor(
                 q, q_old, damping=self.config["damping_factor"],
-                valid_dist=self.config["valid_factors"])
+                valid_dist=self.config["valid_factors"],
+                update_log_coeff=self.config["update_log_coeff"])
 
             return q_new, t_new
 
