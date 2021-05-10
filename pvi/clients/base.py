@@ -1,8 +1,6 @@
 import logging
 import torch
-import numpy as np
 
-from abc import ABC
 from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm.auto import tqdm
@@ -15,8 +13,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 
-class Client(ABC):
-    
+class Client:
     def __init__(self, data, model, t=None, config=None):
 
         if config is None:
@@ -47,7 +44,6 @@ class Client(ABC):
     def get_default_config(cls):
         return {
             "train_model": False,
-            # "model_optimiser_params": {"lr": 1e-2},
             "damping_factor": 1.,
             "valid_factors": False,
             "update_log_coeff": False,
@@ -99,15 +95,12 @@ class Client(ABC):
         # Cannot update during optimisation.
         self._can_update = False
         
-        # Copy the approximate posterior, make old posterior non-trainable.
+        # Copy the approximate posterior, make non-trainable.
         q_old = p.non_trainable_copy()
+        q_cav = p.non_trainable_copy()
 
-        if self.t is None:
-            # Standard VI: prior = old posterior.
-            q_cav = p.non_trainable_copy()
-        else:
+        if self.t is not None:
             # TODO: check if valid distribution.
-            q_cav = p.non_trainable_copy()
             q_cav.nat_params = {k: v - self.t.nat_params[k]
                                 for k, v in q_cav.nat_params.items()}
 
@@ -254,7 +247,7 @@ class Client(ABC):
             return q_new, None
 
 
-class ClientBayesianHypers(ABC):
+class ClientBayesianHypers:
     """
     PVI client with Bayesian treatment of model hyperparameters.
     """
