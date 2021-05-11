@@ -28,7 +28,7 @@ class SequentialServer(Server):
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
 
-                if self.iterations == 0:
+                if self.communications == 0:
                     # First iteration. Pass q_init(θ) to client.
                     _, t_i_new = client.fit(self.q, self.init_q)
                 else:
