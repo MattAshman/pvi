@@ -182,6 +182,20 @@ class IPBNNGaussianPosterior:
             ts=[t.trainable_copy() for t in self.ts],
         )
 
+    def replace_factor(self, t_old, t_new, **kwargs):
+        """
+        Forms a new distribution by replacing t_old(θ) with t_new(θ).
+        :param t_old: The factor to remove.
+        :param t_new: The factor to add.
+        :param kwargs: Passed to self.create_new()
+        :return: Updated distribution.
+        """
+        # Find location of old factor and replace.
+        q, t_idx = self.form_cavity(t_old)
+        q.ts[t_idx] = t_new
+
+        return q
+
     def parameters(self):
         parameters = [t.parameters() for t in self.ts]
         return [item for sublist in parameters for item in sublist]

@@ -20,40 +20,34 @@ class SynchronousServer(Server):
 
         logger.debug("Getting client updates.")
 
-        delta_nps = []
         clients_updated = 0
 
+        t_olds = []
+        t_news = []
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_i_old = client.t
+                t_old = client.t
 
                 if self.iterations == 0:
                     # First iteration. Pass q_init(θ) to client.
-                    _, t_i_new = client.fit(self.q, self.init_q)
+                    _, t_new = client.fit(self.q, self.init_q)
                 else:
-                    _, t_i_new = client.fit(self.q)
+                    _, t_new = client.fit(self.q)
 
-                # Compute change in natural parameters.
-                delta_np = {}
-                for k in self.q.nat_params.keys():
-                    delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
+                t_olds.append(t_old)
+                t_news.append(t_new)
 
-                delta_nps.append(delta_np)
                 clients_updated += 1
                 self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
 
         # Update global posterior.
-        q_new_nps = {}
-        for k, v in self.q.nat_params.items():
-            q_new_nps[k] = (v + sum([delta_np[k] for delta_np in delta_nps]))
+        for t_old, t_new in zip(t_olds, t_news):
+            self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
 
-        self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
-
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+        logger.debug(f"Iteration {self.iterations} complete.\n")
 
         self.iterations += 1
 
@@ -85,14 +79,15 @@ class SynchronousServerBayesianHypers(ServerBayesianHypers):
 
         logger.debug("Getting client updates.")
 
-        q_delta_nps, qeps_delta_nps = [], []
         clients_updated = 0
 
+        t_olds, t_news = [], []
+        teps_olds, teps_news = [], []
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_i_old = client.t
-                teps_i_old = client.teps
+                t_old = client.t
+                teps_old = client.teps
 
                 if self.iterations == 0:
                     _, _, t_new, teps_new = client.fit(
@@ -100,18 +95,10 @@ class SynchronousServerBayesianHypers(ServerBayesianHypers):
                 else:
                     _, _, t_new, teps_new = client.fit(self.q, self.qeps)
 
-                # Compute change in natural parameters.
-                q_delta_np = {k: (t_new.nat_params[k]
-                                  - t_i_old.nat_params[k])
-                              for k in self.q.nat_params.keys()}
-                qeps_delta_np = {
-                    k1: {k2: (teps_new.nat_params[k1][k2]
-                              - teps_i_old.nat_params[k1][k2])
-                         for k2 in self.qeps.nat_params[k1].keys()}
-                    for k1 in self.qeps.nat_params.keys()}
-
-                q_delta_nps.append(q_delta_np)
-                qeps_delta_nps.append(qeps_delta_np)
+                t_olds.append(t_old)
+                t_news.append(t_new)
+                teps_olds.append(teps_old)
+                teps_news.append(teps_new)
 
                 clients_updated += 1
                 self.communications += 1
@@ -119,19 +106,11 @@ class SynchronousServerBayesianHypers(ServerBayesianHypers):
         logger.debug("Received client updates. Updating global posterior.")
 
         # Update global posterior.
-        q_new_nps = {k: v + sum([np[k] for np in q_delta_nps])
-                     for k, v in self.q.nat_params.items()}
-        qeps_new_nps = {
-            k1: {k2: v2 + sum([np[k1][k2] for np in qeps_delta_nps])
-                 for k2, v2 in self.qeps.nat_params[k1].items()}
-            for k1 in self.qeps.nat_params.keys()}
-        qeps_new_distributions = {
-            k: self.qeps.distributions[k].create_new(
-                nat_params=v, is_trainable=False)
-            for k, v in qeps_new_nps.items()}
-
-        self.q = self.q.create_new(nat_params=q_new_nps, is_trainable=False)
-        self.qeps = type(self.qeps)(distributions=qeps_new_distributions)
+        for t_old, t_new, teps_old, teps_new in zip(
+                t_olds, t_news, teps_olds, teps_news):
+            self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
+            self.qeps = self.qeps.replace_factor(teps_old, teps_new,
+                                                 is_trainable=False)
 
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")

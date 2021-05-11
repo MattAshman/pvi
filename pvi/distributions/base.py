@@ -240,7 +240,9 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         raise NotImplementedError
 
     def non_trainable_copy(self):
-
+        """
+        :return: A non-trainable copy with identical parameters.
+        """
         if self.is_trainable:
             nat_params = None
             std_params = {k: v.detach().clone()
@@ -262,7 +264,9 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         return type(self)(std_params, nat_params, is_trainable=False)
 
     def trainable_copy(self):
-
+        """
+        :return: A trainable copy with identical parameters.
+        """
         if self.is_trainable:
             nat_params = None
             std_params = {k: v.detach().clone()
@@ -282,6 +286,24 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
                 nat_params = None
 
         return type(self)(std_params, nat_params, is_trainable=True)
+
+    def replace_factor(self, t_old, t_new, **kwargs):
+        """
+        Forms a new distribution by replacing the natural parameters of
+        t_old(θ) with t_new(θ).
+        :param t_old: The factor to remove.
+        :param t_new: The factor to add.
+        :param kwargs: Passed to self.create_new()
+        :return: Updated distribution.
+        """
+        # Compute change in natural parameters.
+        delta_np = {k: (t_old.nat_params[k] - t_new.nat_params[k])
+                    for k in self.nat_params.keys()}
+
+        q_new_nps = {k: v + delta_np[k]
+                     for k, v in self.nat_params.items()}
+
+        return self.create_new(nat_params=q_new_nps, **kwargs)
 
     @property
     def distribution(self):

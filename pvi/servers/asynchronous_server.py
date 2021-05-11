@@ -55,26 +55,18 @@ class AsynchronousServer(Server):
 
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_i_old = client.t
+                t_old = client.t
 
                 # TODO: keep track of which clients have been visited so can
                 #  pass self.init_q at correct moment.
-                _, t_i_new = client.fit(self.q)
-
-                # Compute change in natural parameters.
-                delta_np = {}
-                for k in self.q.nat_params.keys():
-                    delta_np[k] = t_i_new.nat_params[k] - t_i_old.nat_params[k]
+                _, t_new = client.fit(self.q)
 
                 logger.debug(
                     "Received client updates. Updating global posterior.")
 
                 # Update global posterior.
-                q_new_nps = {k: v + delta_np[k]
-                             for k, v in self.q.nat_params.items()}
-
-                self.q = self.q.create_new(nat_params=q_new_nps,
-                                           is_trainable=False)
+                self.q = self.q.replace_factor(t_old, t_new,
+                                               is_trainable=False)
 
                 clients_updated += 1
                 self.communications += 1
@@ -153,39 +145,17 @@ class AsynchronousServerBayesianHypers(ServerBayesianHypers):
 
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_i_old = client.t
-                teps_i_old = client.teps
-                _, _, t_i_new, teps_i_new = client.fit(self.q, self.qeps)
-
-                # TODO: check parameter update results in valid distribution.
-                # Compute change in natural parameters.
-                q_delta_np = {k: t_i_new.nat_params[k] - t_i_old.nat_params[k]
-                              for k in self.q.nat_params.keys()}
-                qeps_delta_np = {
-                    k1: {k2: (teps_i_new.nat_params[k1][k2]
-                              - teps_i_old.nat_params[k1][k2])
-                         for k2 in self.qeps.nat_params[k1].keys()}
-                    for k1 in self.qeps.nat_params.keys()}
+                t_old = client.t
+                teps_old = client.teps
+                _, _, t_new, teps_new = client.fit(self.q, self.qeps)
 
                 logger.debug(
                     "Received client updates. Updating global posterior.")
-
-                # Update global posterior.
-                q_new_nps = {k: v + q_delta_np[k]
-                             for k, v in self.q.nat_params.items()}
-                qeps_new_nps = {
-                    k1: {k2: v2 + qeps_delta_np[k1][k2]
-                         for k2, v2 in self.qeps.nat_params[k1].items()}
-                    for k1 in self.qeps.nat_params.keys()}
-                qeps_new_distributions = {
-                    k: self.qeps.distributions[k].create_new(
-                        nat_params=v, is_trainable=False)
-                    for k, v in qeps_new_nps.items()}
-
-                self.q = self.q.create_new(nat_params=q_new_nps,
-                                           is_trainable=False)
-                self.qeps = type(self.qeps)(
-                    distributions=qeps_new_distributions)
+                # TODO: check parameter update results in valid distribution.
+                self.q = self.q.replace_factor(t_old, t_new,
+                                               is_trianable=False)
+                self.qeps = self.qeps.replace_factor(teps_old, teps_new,
+                                                     is_trainable=False)
 
                 clients_updated += 1
                 self.communications += 1

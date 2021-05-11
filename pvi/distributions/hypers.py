@@ -29,6 +29,23 @@ class HyperparameterDistribution:
             }
         )
 
+    def replace_factor(self, t_old, t_new, **kwargs):
+        """
+        Forms a new distribution by replacing the natural parameters of
+        t_old(ε) with t_new(ε).
+        :param t_old: The factor to remove.
+        :param t_new: The factor to add.
+        :param kwargs: Passed to self.create_new()
+        :return: Updated distribution.
+        """
+        new_distributions = {
+            k: self.distributions[k].replace_factor(
+                t_old.factors[k], t_new.factors[k], **kwargs)
+            for k in self.distributions.keys()
+        }
+
+        return type(self)(distributions=new_distributions)
+
     def kl_divergence(self, other):
         return {k: v.kl_divergence(other.distributions[k])
                 for k, v in self.distributions.items()}
