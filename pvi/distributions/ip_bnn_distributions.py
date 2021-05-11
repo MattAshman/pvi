@@ -1,6 +1,7 @@
 import torch
 
 from torch import nn
+from pvi.utils.psd_utils import psd_inverse
 
 
 class BNNDistribution:
@@ -133,13 +134,14 @@ class IPBNNGaussianPosterior:
         t_dists = [t.distributions[layer] for t in self.ts]
         p_dist = self.p.distributions[layer]
 
-        # Assumes t distributions are mean-field Gaussians.
-        # (dim_out, m).
+        # (m, dim_out).
         t_np1 = torch.cat([dist.nat_params["np1"] for dist in t_dists], dim=0)
         t_np2 = torch.cat([dist.nat_params["np2"] for dist in t_dists], dim=0)
+
         # (dim_out, m).
         t_np1 = t_np1.transpose(0, 1)
         t_np2 = t_np2.transpose(0, 1)
+
         # (dim_out, m, m).
         t_np2 = t_np2.diag_embed()
 
@@ -151,9 +153,10 @@ class IPBNNGaussianPosterior:
         np2 = (p_dist.nat_params["np2"].diag_embed()
                + act_z.T.matmul(t_np2).matmul(act_z))
 
-        # (dim_out, dim_in) dimensional distributions.
-        cov = (-0.5 * np2).inverse()
-        loc = -0.5 * cov.matmul(np1).squeeze()
+        # Compute mean and covariance matrix for each column of weights.
+        prec = -2. * np2
+        cov = psd_inverse(prec)  # (dim_out, dim_in, dim_in)
+        loc = cov.matmul(np1).squeeze()  # (dim_out, dim_in)
         qw = torch.distributions.MultivariateNormal(loc, cov)
 
         return qw
