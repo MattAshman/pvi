@@ -75,12 +75,12 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
             theta = theta[None, :]
 
         # Bias term.
-        x = torch.cat([x, torch.ones(len(x))], dim=1)
+        x = torch.cat([x, torch.ones((len(x), 1))], dim=1)
         
         # Converts θ-vectors to tensors, shaped as expected by the network.
         # i.e. (S, D_in + 1, D_out).
         theta = self.reshape_theta(theta)
-        for i, (W, b) in enumerate(theta):
+        for i, W in enumerate(theta):
             x = x.matmul(W)
 
             # Don't apply ReLU to final layer.

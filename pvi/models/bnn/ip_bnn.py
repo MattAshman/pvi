@@ -27,7 +27,8 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
             z = torch.cat([z, torch.ones((len(z), 1))], dim=1)
 
             # Compute the distribution over weights and biases at this layer.
-            qw = q.compute_dist(i, self.activation(z))
+            # qw = q.compute_dist(i, self.activation(z))
+            qw = q.compute_dist(i, z)
 
             # Sample the weights and biases.
             w = qw.rsample().T    # (dim_in, dim_out).
@@ -42,7 +43,10 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
                     log_pw.append(pw.log_prob(w.T).sum())
 
             # Propagate inducing locations forward.
-            z = self.activation(z).matmul(w)
+            # z = self.activation(z).matmul(w)
+            z = z.matmul(w)
+            if i < len(self.shapes) - 1:
+                z = self.activation(z)
 
         if log_probs:
             if p is not None:
@@ -58,16 +62,39 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
             theta = self.sample_weights(q)
             thetas.append(theta)
 
-        import pdb
-        pdb.set_trace()
-        theta = torch.cat(thetas, dim=0)
-        qy = self.likelihood_forward(x, theta, samples_first=False)
+        thetas = [torch.stack([theta[i] for theta in thetas])
+                  for i in range(len(thetas[0]))]
+
+        qy = self.likelihood_forward(x, thetas, samples_first=False)
 
         mix = torch.distributions.Categorical(
             logits=torch.ones(size=qy.batch_shape))
         qy = torch.distributions.MixtureSameFamily(mix, qy)
 
         return qy
+
+    def likelihood_forward(self, x, thetas, samples_first=True):
+        assert len(x.shape) in [1, 2], "x must be (N, D)."
+
+        if len(x.shape) == 1:
+            x = x[None, :]
+
+        for i, theta in enumerate(thetas):
+            assert len(theta.shape) in [2, 3], "theta must be (S, Din, Dout)."
+            if len(theta.shape) == 2:
+                thetas[i] = theta[None, :, :]
+
+        for i, w in enumerate(thetas):
+            # Bias term.
+            x = torch.cat([x, torch.ones((*x.shape[:-1], 1))], dim=-1)
+            # x = self.activation(x).matmul(w)
+            x = x.matmul(w)
+
+            # Don't apply ReLU to final layer.
+            if i < len(thetas) - 1:
+                x = self.activation(x)
+
+        return self.pred_dist_from_tensor(x, samples_first=samples_first)
 
     def elbo(self, data, p, q, num_samples=1):
         """
@@ -93,9 +120,12 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
             kl += sum(log_qw) - sum(log_pw)
 
             # Propagate inputs forward.
-            for w in theta:
+            for i, w in enumerate(theta):
                 x = torch.cat([x, torch.ones((len(x), 1))], dim=1)
-                x = self.activation(x).matmul(w)
+                x = x.matmul(w)
+
+                if i < len(theta) - 1:
+                    x = self.activation(x)
 
             qy = self.pred_dist_from_tensor(x, samples_first=True)
             ll += qy.log_prob(y).sum()
