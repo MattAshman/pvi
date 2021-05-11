@@ -17,12 +17,13 @@ class IPBNNClient(Client):
 
         # Copy the approximate posterior, make non-trainable.
         q_cav = p.non_trainable_copy()
-        q_cav = q_cav.compute_cavity(self.t)
+        q_cav, t_idx = q_cav.form_cavity(self.t)
 
         # Special form for q.
         t_new = self.t.trainable_copy()
         q = p.non_trainable_copy()
-        q.ts.append(t_new)
+        # Replace old factor with new (optimisable) factor.
+        q.ts[t_idx] = t_new
 
         # Parameters are those of t_new(θ) and self.model.
         if self.config["train_model"]:
@@ -80,7 +81,7 @@ class IPBNNClient(Client):
                     "y": y_batch,
                 }
 
-                ll, kl = self.model.elbo(batch, q_cav, q, n=len(x))
+                ll, kl = self.model.elbo(batch, q_cav, q)
                 kl /= len(x)
                 ll /= len(x_batch)
 

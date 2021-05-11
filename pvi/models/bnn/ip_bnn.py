@@ -39,7 +39,8 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
                 log_qw.append(qw.log_prob(w.T).sum())
 
                 if p is not None:
-                    pw = p.compute_dist(i, self.activation(z))
+                    # pw. = p.compute_dist(i, self.activation(z))
+                    pw = p.compute_dist(i, z)
                     log_pw.append(pw.log_prob(w.T).sum())
 
             # Propagate inducing locations forward.

@@ -98,7 +98,7 @@ class IPBNNGaussianPosterior:
         inducing_locations = torch.cat([t.inducing_locations for t in self.ts])
         return inducing_locations
 
-    def compute_cavity(self, t):
+    def form_cavity(self, t):
         """
         Returns the distribution q({w_l}) = p({w_l}) Π _{/ i} t({w_l}).
         :param t: Pseudo-likelihood factor to remove from self.ts.
@@ -106,19 +106,27 @@ class IPBNNGaussianPosterior:
         """
         # Find the pseudo-likelihood factor in self.ts and remove.
         ts = self.ts
-        for i, ti in self.ts:
+        for i, ti in enumerate(self.ts):
             same_inducing = torch.allclose(
                 ti.inducing_locations, t.inducing_locations)
-            same_np1 = torch.allclose(
-                ti.nat_params["np1"], t.nat_params["np1"])
-            same_np2 = torch.allclose(
-                ti.nat_params["np2"], t.nat_params["np2"])
 
-            if same_inducing and same_np1 and same_np2:
-                ts.pop(i)
-                break
+            same_np1, same_np2 = [], []
+            for ti_dist, t_dist in zip(ti.distributions, t.distributions):
+                same_np1.append(torch.allclose(
+                    ti_dist.nat_params["np1"], t_dist.nat_params["np1"]))
+                same_np2.append(torch.allclose(
+                    ti_dist.nat_params["np2"], t_dist.nat_params["np2"]))
 
-        return type(self)(p=self.p, ts=ts)
+            if same_inducing and all(same_np1) and all(same_np2):
+                # Set natural parameters to 0. We retain it as need to keep
+                # inducing point values.
+                for dist in ts[i].distributions:
+                    for k, v in dist.nat_params.items():
+                        dist.nat_params[k] = torch.zeros_like(v)
+
+                return type(self)(p=self.p, ts=ts), i
+
+        raise ValueError("Could not find t in self.ts!")
 
     def compute_dist(self, layer, act_z):
         """
