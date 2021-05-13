@@ -27,10 +27,6 @@ class GlobalVIServer(Server):
         # Tracks number of epochs.
         self.epochs = 0
 
-        # Initial q(θ) for optimisation.
-        if self.init_q is not None:
-            self.q = init_q.non_trainable_copy()
-
         # Validation dataset.
         self.val_data = val_data
 
@@ -61,7 +57,11 @@ class GlobalVIServer(Server):
             return False
 
         p = self.p.non_trainable_copy()
-        q = self.q.trainable_copy()
+
+        if self.iterations == 0 and self.init_q is not None:
+            q = self.init_q.traiable_copy()
+        else:
+            q = self.q.trainable_copy()
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
@@ -109,18 +109,10 @@ class GlobalVIServer(Server):
                                 shuffle=True)
 
         # Dict for logging optimisation progress.
-        training_curve = {
-            "elbo": [],
-            "kl": [],
-            "ll": [],
-        }
+        training_curve = defaultdict(list)
 
         # Dict for logging performance progress.
-        performance_curve = {
-            "epoch": [],
-            "train_mll": [],
-            "val_mll": [],
-        }
+        performance_curve = defaultdict(list)
 
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
