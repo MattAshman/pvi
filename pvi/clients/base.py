@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class Client:
-    def __init__(self, data, model, t=None, config=None):
+    def __init__(self, data, model, t=None, config=None, val_data=None):
 
         if config is None:
             config = {}
@@ -28,6 +28,9 @@ class Client:
         
         # Set likelihood approximating term
         self.t = t
+
+        # Validation dataset.
+        self.val_data = val_data
         
         self.log = defaultdict(list)
         self._can_update = True
@@ -51,10 +54,13 @@ class Client:
             "batch_size": 100,
             "optimiser": "Adam",
             "optimiser_params": {"lr": 0.05},
+            "model_optimiser_params": {},
+            "sigma_optimiser_params": {},
             "lr_scheduler": "MultiplicativeLR",
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
+            "performance_metrics": None,
             "num_elbo_samples": 10,
             "print_epochs": 1
         }
@@ -110,21 +116,24 @@ class Client:
             # Initialise to prior.
             q = p.trainable_copy()
 
+        # TODO: currently assumes Gaussian distribution.
         # Parameters are those of q(θ) and self.model.
+        # Try using different learning rate for σ than μ.
+        q_parameters = list(q.parameters())
         if self.config["train_model"]:
-            if "model_optimiser_params" in self.config:
-                parameters = [
-                    {"params": q.parameters()},
-                    {"params": self.model.parameters(),
-                     **self.config["model_optimiser_params"]}
-                ]
-            else:
-                parameters = [
-                    {"params": q.parameters()},
-                    {"params": self.model.parameters()}
-                ]
+            parameters = [
+                {"params": q_parameters[0]},
+                {"params": q_parameters[1],
+                 **self.config["sigma_optimiser_params"]},
+                {"params": self.model.parameters(),
+                 **self.config["model_optimiser_params"]}
+            ]
         else:
-            parameters = q.parameters()
+            parameters = [
+                {"params": q_parameters[0]},
+                {"params": q_parameters[1],
+                 **self.config["sigma_optimiser_params"]},
+            ]
 
         # Reset optimiser.
         logging.info("Resetting optimiser")
@@ -143,8 +152,11 @@ class Client:
                             batch_size=self.config["batch_size"],
                             shuffle=True)
 
-        # Dict for logging optimisation progress
+        # Dict for logging optimisation progress.
         training_curve = defaultdict(list)
+
+        # Dict for logging performance progress.
+        performance_curve = defaultdict(list)
         
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
@@ -169,7 +181,7 @@ class Client:
 
                 # TODO: Put this code inside a unit test.
                 # Compute KL divergence between q and q_old.
-                # kl1 = q.kl_divergence(q_old).sum() / len(x)
+                kl1 = q.kl_divergence(q_old).sum() / len(x)
 
                 # Compute KL divergence between q and q_old using
                 # torch.distribution.
@@ -186,7 +198,7 @@ class Client:
 
                 # Compute the KL divergence between q and q_cav, ignoring
                 # A(η_cav).
-                kl5 = q.kl_divergence(q_cav, calc_log_ap=False).sum() / len(x)
+                # kl5 = q.kl_divergence(q_cav, calc_log_ap=False).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
@@ -194,15 +206,15 @@ class Client:
                 ll /= len(x_batch)
 
                 # Compute E_q[log t(θ)].
-                # logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                # logt /= len(x)
+                logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                logt /= len(x)
 
                 # Negative local free energy is KL minus log-probability.
-                # loss1 = kl1 + logt - ll
+                loss1 = kl1 + logt - ll
                 # loss2 = kl2 + logt - ll
                 # loss3 = kl3 - ll
                 # loss4 = kl4 - ll
-                loss5 = kl5 - ll
+                # loss5 = kl5 - ll
                 # losses = [loss1, loss2, loss3, loss4, loss5]
 
                 # Compute gradients for all 5 losses.
@@ -222,16 +234,16 @@ class Client:
                 #                 pdb.set_trace()
                 #                 raise ValueError("Gradients not equal!")
 
-                # Use loss 5.
-                loss5.backward()
+                # Use loss 1.
+                loss1.backward()
                 optimiser.step()
                 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss5.item() / len(loader)
-                epoch["kl"] += kl5.item() / len(loader)
+                epoch["elbo"] += -loss1.item() / len(loader)
+                epoch["kl"] += kl1.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
-                # epoch["logt"] += logt.item() / len(loader)
+                epoch["logt"] += logt.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
@@ -245,18 +257,46 @@ class Client:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
-                             # f"log t: {epoch['logt']:.3f}, "
+                             f"log t: {epoch['logt']:.3f}, "
                              f"Epochs: {i}.")
 
+                # Update global posterior before making predictions.
+                self.q = q.non_trainable_copy()
+
+                # Get training set performance.
+                report = f"Epochs: {i}. ELBO: {epoch['elbo']:.3f} " \
+                         f"LL: {epoch['ll']:.3f} KL: {epoch['kl']:.3f} "
+
+                if self.config["performance_metrics"] is not None:
+                    performance_curve["epoch"].append(i)
+                    train_metrics = self.config["performance_metrics"](
+                        self, self.data)
+
+                    for k, v in train_metrics.items():
+                        performance_curve["train_" + k].append(v.item())
+                        report += f"Train {k}: {v:.3f} "
+
+                    if self.val_data is not None:
+                        val_metrics = self.config["performance_metrics"](
+                            self, self.val_data)
+                        for k, v in val_metrics.items():
+                            performance_curve["val_" + k].append(v.item())
+                            report += f"Val {k}: {v:.3f} "
+
+                tqdm.write(report)
+
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], # logt=epoch["logt"],
+                                   ll=epoch["ll"], logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
 
             # Update learning rate.
             lr_scheduler.step()
 
-        # Log the training curves for this update
+        # Log the training curves for this update.
         self.log["training_curves"].append(training_curve)
+
+        # Log the performance curves for this update.
+        self.log["performance_curves"].append(performance_curve)
 
         # Create non-trainable copy to send back to server.
         q_new = q.non_trainable_copy()
@@ -275,6 +315,13 @@ class Client:
 
         else:
             return q_new, None
+
+    def model_predict(self, x, **kwargs):
+        """
+        Returns the current models predictive posterior distribution.
+        :return: ∫ p(y | θ, x) q(θ) dθ.
+        """
+        return self.model(x, self.q, **kwargs)
 
 
 class ClientBayesianHypers:

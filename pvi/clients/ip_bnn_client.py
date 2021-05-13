@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 class IPBNNClient(Client):
 
     def gradient_based_update(self, p, init_q=None):
+        # TODO: Can this somehow be merged with the base Client class?
         # Cannot update during optimisation.
         self._can_update = False
 
@@ -81,7 +82,9 @@ class IPBNNClient(Client):
                     "y": y_batch,
                 }
 
-                ll, kl = self.model.elbo(batch, q_cav, q)
+                ll, kl = self.model.elbo(
+                    batch, q_cav, q,
+                    num_samples=self.config["num_elbo_samples"])
                 kl /= len(x)
                 ll /= len(x_batch)
 
