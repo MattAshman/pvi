@@ -159,23 +159,19 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         self._mean_params = None
         
         # Initialise standard and natural parameters.
-        if is_trainable:
-            # Only initialise std_params (initialises unc_params).
-            if std_params is not None:
-                self.std_params = std_params
-            elif nat_params is not None:
+        if std_params is not None:
+            self.std_params = std_params
+
+        elif nat_params is not None:
+            if is_trainable:
                 self.std_params = self._std_from_nat(nat_params)
             else:
-                # No initial parameter values specified.
-                raise ValueError("No initial parameterisation specified. "
-                                 "Cannot create optimisable parameters.")
-        else:
-            # Can only specify either std_params or nat_params.
-            assert std_params is None or nat_params is None, \
-                "Cannot specify both std_params and nat_params."
+                self.nat_params = nat_params
 
-            self.std_params = std_params
-            self.nat_params = nat_params
+        else:
+            # No initial parameter values specified.
+            raise ValueError("No initial parameterisation specified. "
+                             "Cannot create optimisable parameters.")
 
     def _clear_params(self):
         """
@@ -325,7 +321,7 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         :return: Updated distribution.
         """
         # Compute change in natural parameters.
-        delta_np = {k: (t_old.nat_params[k] - t_new.nat_params[k])
+        delta_np = {k: (t_new.nat_params[k] - t_old.nat_params[k])
                     for k in self.nat_params.keys()}
 
         q_new_nps = {k: v + delta_np[k]
@@ -357,11 +353,11 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         assert type(p) == type(self), "Distributions must be the same type."
 
         # Stack natural parameters into single vector.
-        np1 = torch.stack([np.flatten() for np in self.nat_params.values()])
-        np2 = torch.stack([np.flatten() for np in p.nat_params.values()])
+        np1 = torch.cat([np.flatten() for np in self.nat_params.values()])
+        np2 = torch.cat([np.flatten() for np in p.nat_params.values()])
 
         # Stack mean parameters of q.
-        m1 = torch.stack([mp.flatten() for mp in self.mean_params.values()])
+        m1 = torch.cat([mp.flatten() for mp in self.mean_params.values()])
 
         # Compute KL-divergence.
         kl = (np1 - np2).dot(m1) - self.log_a()
