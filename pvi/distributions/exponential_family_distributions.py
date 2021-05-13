@@ -26,59 +26,61 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         log_a += (- np1 ** 2 / (4 * np2) - 0.5 * (-2 * np2).log()).sum()
 
         return log_a
-        
-    def _std_from_unc(self, unc_params):
+
+    @staticmethod
+    def _std_from_unc(unc_params):
         
         loc = unc_params["loc"]
         log_scale = unc_params["log_scale"]
         
         std = {
-            "loc" : loc,
-            "scale" : torch.exp(log_scale)
+            "loc": loc,
+            "scale": torch.exp(log_scale)
         }
         
         return std
-    
-    def _unc_from_std(self, std_params):
+
+    @staticmethod
+    def _unc_from_std(std_params):
         
         loc = std_params["loc"].detach()
         scale = std_params["scale"].detach()
         
         unc = {
-            "loc" : torch.nn.Parameter(loc),
-            "log_scale" : torch.nn.Parameter(torch.log(scale))
+            "loc": torch.nn.Parameter(loc),
+            "log_scale": torch.nn.Parameter(torch.log(scale))
         }
         
         return unc
 
-    @classmethod
-    def _nat_from_std(cls, std_params):
+    @staticmethod
+    def _nat_from_std(std_params):
         
         loc = std_params["loc"]
         scale = std_params["scale"]
         
         nat = {
-            "np1" : loc * scale ** -2,
-            "np2" : -0.5 * scale ** -2
+            "np1": loc * scale ** -2,
+            "np2": -0.5 * scale ** -2
         }
         
         return nat
     
-    @classmethod
-    def _std_from_nat(cls, nat_params):
+    @staticmethod
+    def _std_from_nat(nat_params):
         
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
         
         std = {
-            "loc" : - 0.5 * np1 / np2,
-            "scale" : (- 0.5 / np2) ** 0.5
+            "loc": - 0.5 * np1 / np2,
+            "scale": (- 0.5 / np2) ** 0.5
         }
         
         return std
 
-    @classmethod
-    def _mean_from_std(cls, std_params):
+    @staticmethod
+    def _mean_from_std(std_params):
         loc = std_params["loc"]
         scale = std_params["scale"]
 
@@ -112,20 +114,22 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
                   - 0.5 * (psd_logdet(-2 * np2)))
 
         return log_a
-        
-    def _std_from_unc(self, unc_params):
+
+    @staticmethod
+    def _std_from_unc(unc_params):
         
         loc = unc_params["loc"]
         scale_tril = unc_params["scale_tril"]
         
         std = {
-            "loc" : loc,
-            "covariance_matrix" : torch.mm(scale_tril, scale_tril.T)
+            "loc": loc,
+            "covariance_matrix": torch.mm(scale_tril, scale_tril.T)
         }
         
         return std
 
-    def _unc_from_std(self, std_params):
+    @staticmethod
+    def _unc_from_std(std_params):
 
         loc = std_params["loc"].detach()
         cov = std_params["covariance_matrix"].detach()
@@ -133,48 +137,51 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         scale_tril = torch.cholesky(cov)
         
         unc = {
-            "loc" : torch.nn.Parameter(loc),
-            "scale_tril" : torch.nn.Parameter(scale_tril)
+            "loc": torch.nn.Parameter(loc),
+            "scale_tril": torch.nn.Parameter(scale_tril)
         }
         
         return unc
     
-    @classmethod
-    def _nat_from_std(cls, std_params):
+    @staticmethod
+    def _nat_from_std(std_params):
         
         loc = std_params["loc"]
         cov = std_params["covariance_matrix"]
+        prec = psd_inverse(cov)
         
         nat = {
-            "np1" : torch.solve(loc[:, None], cov).solution[:, 0],
-            "np2" : -0.5 * psd_inverse(cov)
+            "np1": prec.matmul(loc),
+            "np2": -0.5 * prec
         }
         
         return nat
     
-    @classmethod
-    def _std_from_nat(cls, nat_params):
+    @staticmethod
+    def _std_from_nat(nat_params):
         
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
         
         prec = -2. * np2
+        cov = psd_inverse(prec)
+        loc = cov.matmul(np1)
         
         std = {
-            "loc" : torch.solve(np1[:, None], prec).solution[:, 0],
-            "covariance_matrix" : torch.inverse(prec)
+            "loc": loc,
+            "covariance_matrix": cov
         }
         
         return std
 
-    @classmethod
-    def _mean_from_std(cls, std_params):
+    @staticmethod
+    def _mean_from_std(std_params):
         loc = std_params["loc"]
-        covariance_matrix = std_params["covariance_matrix"]
+        cov = std_params["covariance_matrix"]
 
         mp = {
             "m1": loc,
-            "m2": covariance_matrix + loc.outer(loc),
+            "m2": cov + loc.outer(loc),
         }
 
         return mp
@@ -194,52 +201,54 @@ class DirichletDistribution(ExponentialFamilyDistribution):
     @property
     def mean_params(self):
         raise NotImplementedError
-        
-    def _std_from_unc(self, unc_params):
+
+    @staticmethod
+    def _std_from_unc(unc_params):
         
         log_conc = unc_params["up1"]
         
         std = {
-            "concentration" : torch.exp(log_conc)
+            "concentration": torch.exp(log_conc)
         }
         
         return std
 
-    def _unc_from_std(self, std_params):
+    @staticmethod
+    def _unc_from_std(std_params):
         
         conc = std_params["concentration"].detach()
         log_conc = torch.exp(conc)
         
         unc = {
-            "up1" : torch.nn.Parameter(log_conc)
+            "up1": torch.nn.Parameter(log_conc)
         }
         
         return unc
-    
-    @classmethod
-    def _nat_from_std(cls, std_params):
+
+    @staticmethod
+    def _nat_from_std(std_params):
         
         conc = std_params["concentration"]
         
         nat = {
-            "np1" : conc - 1.
+            "np1": conc - 1.
         }
         
         return nat
-    
-    @classmethod
-    def _std_from_nat(cls, nat_params):
+
+    @staticmethod
+    def _std_from_nat(nat_params):
         
         conc_minus_one = nat_params["np1"]
         
         std = {
-            "concentration" : conc_minus_one + 1.
+            "concentration": conc_minus_one + 1.
         }
         
         return std
 
-    @classmethod
-    def _mean_from_std(cls, std_params):
+    @staticmethod
+    def _mean_from_std(std_params):
         raise NotImplementedError
 
     
@@ -254,7 +263,8 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
     def mean_params(self):
         raise NotImplementedError
 
-    def _std_from_unc(self, unc_params):
+    @staticmethod
+    def _std_from_unc(unc_params):
         
         # First parameter is the number of trials and therefore not learnable
         up1 = unc_params["up1"]
@@ -264,30 +274,31 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         p = p / p.sum()
         
         std = {
-            "total_count" : up1,
-            "probs" : p,
+            "total_count": up1,
+            "probs": p,
         }
         
         return std
-    
-    def _unc_from_std(self, std_params):
+
+    @staticmethod
+    def _unc_from_std(std_params):
         
         # First parameter is the number of trials and therefore not learnable
         sp1 = std_params["total_count"]
         sp2 = std_params["probs"]
         
-        N = sp1
+        n = sp1
         log_p = torch.log(sp2)
         
         unc = {
-            "up1" : torch.nn.Parameter(N, requires_grad=False).int(),
-            "up2" : torch.nn.Parameter(log_p),
+            "up1": torch.nn.Parameter(n, requires_grad=False).int(),
+            "up2": torch.nn.Parameter(log_p),
         }
         
         return unc
 
-    @classmethod
-    def _nat_from_std(cls, std_params):
+    @staticmethod
+    def _nat_from_std(std_params):
         
         # First parameter is the number of trials and therefore not learnable
         sp1 = std_params["total_count"]
@@ -296,14 +307,14 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         log_p = torch.log(sp2)
         
         nat = {
-            "np1" : sp1,
-            "np2" : log_p,
+            "np1": sp1,
+            "np2": log_p,
         }
         
         return nat
 
-    @classmethod
-    def _std_from_nat(cls, nat_params):
+    @staticmethod
+    def _std_from_nat(nat_params):
         
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
@@ -312,14 +323,14 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
         p = p / p.sum()
         
         std = {
-            "total_count" : np1,
-            "probs" : p
+            "total_count": np1,
+            "probs": p
         }
 
         return std
 
-    @classmethod
-    def _mean_from_std(cls, std_params):
+    @staticmethod
+    def _mean_from_std(std_params):
         raise NotImplementedError
 
     @property
@@ -338,7 +349,8 @@ class GammaDistribution(ExponentialFamilyDistribution):
     def mean_params(self):
         raise NotImplementedError
 
-    def _std_from_unc(self, unc_params):
+    @staticmethod
+    def _std_from_unc(unc_params):
         log_alpha = unc_params["log_alpha"]
         log_beta = unc_params["log_beta"]
 
@@ -352,7 +364,8 @@ class GammaDistribution(ExponentialFamilyDistribution):
 
         return std
 
-    def _unc_from_std(self, std_params):
+    @staticmethod
+    def _unc_from_std(std_params):
         concentration = std_params["concentration"].detach()
         rate = std_params["rate"].detach()
 
@@ -363,8 +376,8 @@ class GammaDistribution(ExponentialFamilyDistribution):
 
         return unc
 
-    @classmethod
-    def _nat_from_std(cls, std_params):
+    @staticmethod
+    def _nat_from_std(std_params):
         concentration = std_params["concentration"]
         rate = std_params["rate"]
 
@@ -378,8 +391,8 @@ class GammaDistribution(ExponentialFamilyDistribution):
 
         return nat
 
-    @classmethod
-    def _std_from_nat(cls, nat_params):
+    @staticmethod
+    def _std_from_nat(nat_params):
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
 
@@ -393,8 +406,8 @@ class GammaDistribution(ExponentialFamilyDistribution):
 
         return std
 
-    @classmethod
-    def _mean_from_std(cls, std_params):
+    @staticmethod
+    def _mean_from_std(std_params):
         raise NotImplementedError
 
     @property
@@ -412,4 +425,3 @@ class LogNormalDistribution(MeanFieldGaussianDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.LogNormal
-

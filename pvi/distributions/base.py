@@ -100,7 +100,7 @@ class ExponentialFamilyFactor(ABC):
     @abstractmethod
     def npf(self, thetas):
         """
-        Rearranges NPs to ν vector for this member of the exponential family.
+        Computes ν.T f(θ) for this member of the exponential family.
         """
         raise NotImplementedError
 
@@ -156,21 +156,31 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         self._nat_params = None
         self._std_params = None
         self._unc_params = None
+        self._mean_params = None
         
-        # Initialise standard and natural parameters
-        if is_trainable:
-            # Only initialise std_params (initialises unc_params).
-            if std_params is not None:
-                self.std_params = std_params
-            elif nat_params is not None:
+        # Initialise standard and natural parameters.
+        if std_params is not None:
+            self.std_params = std_params
+
+        elif nat_params is not None:
+            if is_trainable:
                 self.std_params = self._std_from_nat(nat_params)
             else:
-                # No intitial parameter values specified.
-                raise ValueError("No initial parameterisation specified. "
-                                 "Cannot create optimisable parameters.")
+                self.nat_params = nat_params
+
         else:
-            self.std_params = std_params
-            self.nat_params = nat_params
+            # No initial parameter values specified.
+            raise ValueError("No initial parameterisation specified. "
+                             "Cannot create optimisable parameters.")
+
+    def _clear_params(self):
+        """
+        Sets all the parameters of self to None.
+        """
+        self._nat_params = None
+        self._std_params = None
+        self._unc_params = None
+        self._mean_params = None
 
     @abstractmethod
     def log_a(self, nat_params=None):
@@ -196,9 +206,11 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     def std_params(self, std_params):
 
         if self.is_trainable:
+            self._clear_params()
             self._unc_params = nn.ParameterDict(self._unc_from_std(std_params))
 
         else:
+            self._clear_params()
             self._std_params = std_params
         
     @property
@@ -212,35 +224,45 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
 
     @nat_params.setter
     def nat_params(self, nat_params):
-
+        self._clear_params()
         self._nat_params = nat_params
 
     @property
     def mean_params(self):
-        return self._mean_from_std(self.std_params)
+        if self.is_trainable or self._mean_params is None:
+            self._mean_params = self._mean_from_std(self.std_params)
 
+        return self._mean_params
+
+    @staticmethod
     @abstractmethod
-    def _std_from_unc(self, unc_params):
+    def _std_from_unc(unc_params):
         raise NotImplementedError
 
+    @staticmethod
     @abstractmethod
-    def _unc_from_std(self, std_params):
+    def _unc_from_std(std_params):
         raise NotImplementedError
 
+    @staticmethod
     @abstractmethod
-    def _nat_from_std(self, std_params):
-        raise NotImplementedError
-    
-    @abstractmethod
-    def _std_from_nat(self, nat_params):
+    def _nat_from_std(std_params):
         raise NotImplementedError
 
+    @staticmethod
     @abstractmethod
-    def _mean_from_std(self, std_params):
+    def _std_from_nat(nat_params):
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def _mean_from_std(std_params):
         raise NotImplementedError
 
     def non_trainable_copy(self):
-
+        """
+        :return: A non-trainable copy with identical parameters.
+        """
         if self.is_trainable:
             nat_params = None
             std_params = {k: v.detach().clone()
@@ -250,19 +272,23 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             if self._std_params is not None:
                 std_params = {k: v.detach().clone()
                               for k, v in self.std_params.items()}
-            else:
-                std_params = None
+                nat_params = None
 
-            if self._nat_params is not None:
+            elif self._nat_params is not None:
                 nat_params = {k: v.detach().clone()
                               for k, v in self.nat_params.items()}
+                std_params = None
+
             else:
+                std_params = None
                 nat_params = None
         
         return type(self)(std_params, nat_params, is_trainable=False)
 
     def trainable_copy(self):
-
+        """
+        :return: A trainable copy with identical parameters.
+        """
         if self.is_trainable:
             nat_params = None
             std_params = {k: v.detach().clone()
@@ -272,24 +298,74 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             if self._std_params is not None:
                 std_params = {k: v.detach().clone()
                               for k, v in self.std_params.items()}
-            else:
-                std_params = None
+                nat_params = None
 
-            if self._nat_params is not None:
+            elif self._nat_params is not None:
                 nat_params = {k: v.detach().clone()
                               for k, v in self.nat_params.items()}
+                std_params = None
+
             else:
+                std_params = None
                 nat_params = None
 
         return type(self)(std_params, nat_params, is_trainable=True)
+
+    def replace_factor(self, t_old, t_new, **kwargs):
+        """
+        Forms a new distribution by replacing the natural parameters of
+        t_old(θ) with t_new(θ).
+        :param t_old: The factor to remove.
+        :param t_new: The factor to add.
+        :param kwargs: Passed to self.create_new()
+        :return: Updated distribution.
+        """
+        # Compute change in natural parameters.
+        delta_np = {k: (t_new.nat_params[k] - t_old.nat_params[k])
+                    for k in self.nat_params.keys()}
+
+        q_new_nps = {k: v + delta_np[k]
+                     for k, v in self.nat_params.items()}
+
+        return self.create_new(nat_params=q_new_nps, **kwargs)
 
     @property
     def distribution(self):
         return self.torch_dist_class(**self.std_params)
 
-    def kl_divergence(self, other):
-        return torch.distributions.kl_divergence(self.distribution,
-                                                 other.distribution)
+    def kl_divergence(self, p, calc_log_ap=True):
+        """
+        Computes the KL-divergence KL(q | p) as
+
+        KL(q(θ) | p(θ)) = ∫q(θ) log q(θ) / p(θ) dθ
+                        = (η_q - η_p)^T E_q[f(θ)] - A(η_q) + A(η_p)
+
+        If gradients of KL(q(θ) | p(θ)) are taken w.r.t. η_q, note that
+
+        dA(η_p) / dη_q = 0
+
+        so we do not need to evaluate this term!
+
+        :param p: The other probability distribution.
+        :param calc_log_ap: Whether to calculate A(η_p).
+        :return: KL(q | p).
+        """
+        assert type(p) == type(self), "Distributions must be the same type."
+
+        # Stack natural parameters into single vector.
+        np1 = torch.cat([np.flatten() for np in self.nat_params.values()])
+        np2 = torch.cat([np.flatten() for np in p.nat_params.values()])
+
+        # Stack mean parameters of q.
+        m1 = torch.cat([mp.flatten() for mp in self.mean_params.values()])
+
+        # Compute KL-divergence.
+        kl = (np1 - np2).dot(m1) - self.log_a()
+
+        if calc_log_ap:
+            kl += p.log_a()
+
+        return kl
     
     def log_prob(self, *args, **kwargs):
         return self.distribution.log_prob(*args, **kwargs)
@@ -305,5 +381,6 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     def torch_dist_class(self):
         raise NotImplementedError
 
-    def create_new(self, **kwargs):
-        return type(self)(**kwargs)
+    @classmethod
+    def create_new(cls, **kwargs):
+        return cls(**kwargs)

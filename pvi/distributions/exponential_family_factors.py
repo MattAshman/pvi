@@ -55,8 +55,8 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         scale = q.scale.detach()
         
         std = {
-            "loc" : loc,
-            "scale" : scale
+            "loc": loc,
+            "scale": scale
         }
         
         return self.distribution_class._nat_from_std(std)

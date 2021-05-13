@@ -5,13 +5,8 @@ import numpy as np
 
 from pvi.models.base import Model
 
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 
-
-# =============================================================================
-# Bayesian Neural network base class
-# =============================================================================
-        
         
 class FullyConnectedBNN(Model, nn.Module, ABC):
     
@@ -80,42 +75,34 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
             theta = theta[None, :]
         
         # Converts θ-vectors to tensors, shaped as expected by the network.
-        # i.e. tuples of ((S, D_in, D_out), (S, D_out)).
+        # i.e. (S, D_in + 1, D_out).
         theta = self.reshape_theta(theta)
-        
-        # Expand input tensor dimension for broadcasting.
-        # PyTorch does this automatically.
-        # tensor = x[None, :, :]
-        tensor = x
-        
-        for i, (W, b) in enumerate(theta):
-            
-            # tensor = torch.einsum('sni, sij -> snj', tensor, W)
-            tensor = tensor.matmul(W)
-            tensor = tensor + b[:, None, :]
+        for i, W in enumerate(theta):
+            # Bias term.
+            x = torch.cat([x, torch.ones((*x.shape[:-1], 1))], dim=-1)
+            x = x.matmul(W)
 
             # Don't apply ReLU to final layer.
             if i < len(theta) - 1:
-                tensor = self.activation(tensor)
+                x = self.activation(x)
 
-        return self.pred_dist_from_tensor(tensor, samples_first=samples_first)
+        return self.pred_dist_from_tensor(x, samples_first=samples_first)
     
     def reshape_theta(self, theta):
         
-        # Number of Monte Carlo samples of parameters
-        S = theta.shape[0]
+        # Number of Monte Carlo samples of parameters.
+        num_samples = theta.shape[0]
         
-        # Check total number of parameters in network equals size of theta
+        # Check total number of parameters in network equals size of theta.
         assert self.num_parameters == theta.shape[-1]
         
         # Indices to slice the theta tensor at
         slices = np.cumsum([0] + self.sizes)
-        
+
         theta = [
-            torch.reshape(theta[:, s1:s2], [S] + list(shape))
+            torch.reshape(theta[:, s1:s2], [num_samples] + list(shape))
             for shape, s1, s2 in zip(self.shapes, slices[:-1], slices[1:])
         ]
-        theta = list(zip(theta[::2], theta[1::2]))
         
         return theta
     
@@ -123,9 +110,23 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         raise NotImplementedError
 
     @property
-    @abstractmethod
     def shapes(self):
-        raise NotImplementedError
+        shapes = []
+
+        for i in range(self.config["num_layers"] + 1):
+            if i == 0:
+                shapes.append((self.config["D"] + 1,
+                               self.config["latent_dim"]))
+            elif i == self.config["num_layers"]:
+                # Weight matrix.
+                shapes.append((self.config["latent_dim"] + 1,
+                               self.config["output_dim"]))
+            else:
+                # Weight matrix.
+                shapes.append((self.config["latent_dim"] + 1,
+                               self.config["latent_dim"]))
+
+        return shapes
 
     @abstractmethod
     def pred_dist_from_tensor(self, tensor, samples_first=False):
@@ -140,31 +141,7 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         return sum(self.sizes)
 
         
-# =============================================================================
-# Two layer regression BNN
-# =============================================================================
-
-        
-class TwoLayerRegressionBNN(FullyConnectedBNN):
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        
-        self.input_dim = self.config['D']
-        self.latent_dim = self.config['latent_dim']
-        self.output_dim = self.config['output_dim']
-
-    @property
-    def shapes(self):
-
-        shapes = [(self.input_dim, self.latent_dim),
-                  (self.latent_dim,),
-                  (self.latent_dim, self.latent_dim),
-                  (self.latent_dim,),
-                  (self.latent_dim, 2 * self.output_dim),
-                  (2 * self.output_dim,)]
-        
-        return shapes
+class RegressionBNN(FullyConnectedBNN):
 
     def pred_dist_from_tensor(self, tensor, samples_first=True):
         
@@ -174,67 +151,7 @@ class TwoLayerRegressionBNN(FullyConnectedBNN):
         return torch.distributions.normal.Normal(loc=loc, scale=scale)
 
 
-# =============================================================================
-# Two layer classification BNN
-# =============================================================================
-        
-        
-class TwoLayerClassificationBNN(FullyConnectedBNN):
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        
-        self.input_dim = self.config['D']
-        self.latent_dim = self.config['latent_dim']
-        self.output_dim = self.config['output_dim']
-        
-    @property
-    def shapes(self):
-        
-        shapes = [(self.input_dim, self.latent_dim),
-                  (self.latent_dim,),
-                  (self.latent_dim, self.latent_dim),
-                  (self.latent_dim,),
-                  (self.latent_dim, self.output_dim),
-                  (self.output_dim,)]
-        
-        return shapes
-
-    def pred_dist_from_tensor(self, tensor, samples_first=True):
-        
-        if not samples_first:
-            tensor = torch.transpose(tensor, 0, 1)
-        
-        return torch.distributions.Categorical(logits=tensor)
-
-
 class ClassificationBNN(FullyConnectedBNN):
-
-    @property
-    def shapes(self):
-        shapes = []
-
-        for i in range(self.config["num_layers"] + 1):
-            if i == 0:
-                # Weight matrix.
-                shapes.append((self.config["D"],
-                               self.config["latent_dim"]))
-                # Bias.
-                shapes.append((self.config["latent_dim"],))
-            elif i == self.config["num_layers"]:
-                # Weight matrix.
-                shapes.append((self.config["latent_dim"],
-                               self.config["output_dim"]))
-                # Bias.
-                shapes.append((self.config["output_dim"],))
-            else:
-                # Weight matrix.
-                shapes.append((self.config["latent_dim"],
-                               self.config["latent_dim"]))
-                # Bias.
-                shapes.append((self.config["latent_dim"],))
-
-        return shapes
 
     def pred_dist_from_tensor(self, tensor, samples_first=True):
 
@@ -343,32 +260,6 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
 
 
 class ClassificationBNNLocalRepam(FullyConnectedBNNLocalRepam):
-
-    @property
-    def shapes(self):
-        shapes = []
-
-        for i in range(self.config["num_layers"] + 1):
-            if i == 0:
-                # Weight matrix.
-                shapes.append((self.config["D"],
-                               self.config["latent_dim"]))
-                # Bias.
-                shapes.append((self.config["latent_dim"],))
-            elif i == self.config["num_layers"]:
-                # Weight matrix.
-                shapes.append((self.config["latent_dim"],
-                               self.config["output_dim"]))
-                # Bias.
-                shapes.append((self.config["output_dim"],))
-            else:
-                # Weight matrix.
-                shapes.append((self.config["latent_dim"],
-                               self.config["latent_dim"]))
-                # Bias.
-                shapes.append((self.config["latent_dim"],))
-
-        return shapes
 
     def pred_dist_from_tensor(self, tensor, samples_first=True):
 

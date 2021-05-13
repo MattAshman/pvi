@@ -2,8 +2,8 @@ import torch
 import numpy as np
 
 from torch import distributions, nn, optim
-from .kernels import RBFKernel
-from .base import Model
+from pvi.models.sgp.kernels import RBFKernel
+from pvi.models.base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions import MultivariateGaussianDistributionWithZ
 

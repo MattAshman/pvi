@@ -26,26 +26,20 @@ class SequentialServer(Server):
         for i, client in enumerate(self.clients):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_i_old = client.t
+                t_old = client.t
 
-                if self.iterations == 0:
+                if self.communications == 0:
                     # First iteration. Pass q_init(θ) to client.
-                    _, t_i_new = client.fit(self.q, self.init_q)
+                    _, t_new = client.fit(self.q, self.init_q)
                 else:
-                    _, t_i_new = client.fit(self.q)
-
-                # Compute change in natural parameters.
-                delta_np = {k: (t_i_new.nat_params[k] - t_i_old.nat_params[k])
-                            for k in self.q.nat_params.keys()}
+                    _, t_new = client.fit(self.q)
 
                 logger.debug(
                     "Received client update. Updating global posterior.")
-                # Update global posterior.
-                q_new_nps = {k: v + delta_np[k]
-                             for k, v in self.q.nat_params.items()}
 
-                self.q = self.q.create_new(nat_params=q_new_nps,
-                                           is_trainable=False)
+                # Update global posterior.
+                self.q = self.q.replace_factor(t_old, t_new,
+                                               is_trainable=False)
                 clients_updated += 1
                 self.communications += 1
 
@@ -53,8 +47,7 @@ class SequentialServer(Server):
                 self.log["q"].append(self.q.non_trainable_copy())
                 self.log["communications"].append(self.communications)
 
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+        logger.debug(f"Iteration {self.iterations} complete.\n")
 
         self.iterations += 1
 
@@ -98,33 +91,14 @@ class SequentialServerBayesianHypers(ServerBayesianHypers):
                 else:
                     _, _, t_new, teps_new = client.fit(self.q, self.qeps)
 
-                # Compute change in natural parameters.
-                q_delta_np = {k: t_new.nat_params[k] - t_old.nat_params[k]
-                              for k in self.q.nat_params.keys()}
-                qeps_delta_np = {
-                    k1: {k2: (teps_new.nat_params[k1][k2]
-                              - teps_old.nat_params[k1][k2])
-                         for k2 in self.qeps.nat_params[k1].keys()}
-                    for k1 in self.qeps.nat_params.keys()}
-
                 logger.debug(
                     "Received client update. Updating global posterior.")
-                # Update global posterior.
-                q_new_nps = {k: v + q_delta_np[k]
-                             for k, v in self.q.nat_params.items()}
-                qeps_new_nps = {
-                    k1: {k2: v2 + qeps_delta_np[k1][k2]
-                         for k2, v2 in self.qeps.nat_params[k1].items()}
-                    for k1 in self.qeps.nat_params.keys()}
-                qeps_new_distributions = {
-                    k: self.qeps.distributions[k].create_new(
-                        nat_params=v, is_trainable=False)
-                    for k, v in qeps_new_nps.items()}
 
-                self.q = self.q.create_new(nat_params=q_new_nps,
-                                           is_trainable=False)
-                self.qeps = type(self.qeps)(
-                    distributions=qeps_new_distributions)
+                self.q = self.q.replace_factor(t_old, t_new,
+                                               is_trianable=False)
+                self.qeps = self.qeps.replace_factor(teps_old, teps_new,
+                                                     is_trainable=False)
+
                 clients_updated += 1
                 self.communications += 1
 
@@ -133,8 +107,7 @@ class SequentialServerBayesianHypers(ServerBayesianHypers):
                 self.log["qeps"].append(self.qeps.non_trainable_copy())
                 self.log["communications"].append(self.communications)
 
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+        logger.debug(f"Iteration {self.iterations} complete.\n")
 
         self.iterations += 1
 

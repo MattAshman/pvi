@@ -27,10 +27,6 @@ class GlobalVIServer(Server):
         # Tracks number of epochs.
         self.epochs = 0
 
-        # Initial q(θ) for optimisation.
-        if self.init_q is not None:
-            self.q = init_q.non_trainable_copy()
-
         # Validation dataset.
         self.val_data = val_data
 
@@ -48,6 +44,7 @@ class GlobalVIServer(Server):
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
+            "performance_metrics": None,
             "num_elbo_samples": 10,
             "print_epochs": 1,
             "homogenous_split": True,
@@ -61,7 +58,11 @@ class GlobalVIServer(Server):
             return False
 
         p = self.p.non_trainable_copy()
-        q = self.q.trainable_copy()
+
+        if self.iterations == 0 and self.init_q is not None:
+            q = self.init_q.traiable_copy()
+        else:
+            q = self.q.trainable_copy()
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
@@ -109,18 +110,10 @@ class GlobalVIServer(Server):
                                 shuffle=True)
 
         # Dict for logging optimisation progress.
-        training_curve = {
-            "elbo": [],
-            "kl": [],
-            "ll": [],
-        }
+        training_curve = defaultdict(list)
 
         # Dict for logging performance progress.
-        performance_curve = {
-            "epoch": [],
-            "train_mll": [],
-            "val_mll": [],
-        }
+        performance_curve = defaultdict(list)
 
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
@@ -184,18 +177,21 @@ class GlobalVIServer(Server):
                 report = f"Epochs: {i}. ELBO: {epoch['elbo']:.3f} "\
                          f"LL: {epoch['ll']:.3f} KL: {epoch['kl']:.3f} "
 
-                train_pp = self.model_predict(self.data["x"])
-                train_mll = train_pp.log_prob(self.data["y"]).mean()
-                report += f"Train mll: {train_mll:.3f} "
-                performance_curve["epoch"].append(i)
-                performance_curve["train_mll"].append(train_mll.item())
+                if self.config["performance_metrics"] is not None:
+                    performance_curve["epoch"].append(i)
+                    train_metrics = self.config["performance_metrics"](
+                        self, self.data)
 
-                # Get validation set performance.
-                if self.val_data is not None:
-                    val_pp = self.model_predict(self.val_data["x"])
-                    val_mll = val_pp.log_prob(self.val_data["y"]).mean()
-                    report += f"Val mll: {val_mll:.3f} "
-                    performance_curve["val_mll"].append(val_mll.item())
+                    for k, v in train_metrics.items():
+                        performance_curve["train_" + k].append(v.item())
+                        report += f"Train {k}: {v:.3f} "
+
+                    if self.val_data is not None:
+                        val_metrics = self.config["performance_metrics"](
+                            self, self.val_data)
+                        for k, v in val_metrics.items():
+                            performance_curve["val_" + k].append(v.item())
+                            report += f"Val {k}: {v:.3f} "
 
                 tqdm.write(report)
 
