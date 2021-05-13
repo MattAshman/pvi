@@ -8,7 +8,7 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
     Bayesian neural network with inducing point variational approximation.
     """
 
-    def sample_weights(self, q, log_probs=False, p=None):
+    def sample_weights(self, q, log_probs=False, p=None, num_samples=1):
         """
         Samples q(w_l) at each layer, propagating the inducing locations
         forward each layer.
@@ -16,6 +16,7 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
         incuding locations.
         :param log_probs: Whether to return the log-probabilities also.
         :param p: The prior distribution.
+        :param num_samples: Number of samples.
         :return: {w_l}.
         """
         z = q.inducing_locations
@@ -23,25 +24,27 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
         theta = []
         log_qw = []
         log_pw = []
+        # (num_samples, m, dim_in - 1).
+        z = torch.cat(num_samples * [z.unsqueeze(0)])
         for i in range(len(self.shapes)):
-            z = torch.cat([z, torch.ones((len(z), 1))], dim=1)
+            z = torch.cat([z, torch.ones((*z.shape[:2], 1))], dim=-1)
 
             # Compute the distribution over weights and biases at this layer.
-            # qw = q.compute_dist(i, self.activation(z))
             qw = q.compute_dist(i, z)
 
             # Sample the weights and biases.
-            w = qw.rsample().T    # (dim_in, dim_out).
+            # (num_samples, dim_in, dim_out).
+            w = qw.rsample().transpose(-1, -2)
             theta.append(w)
 
             # Evaluate log-probabilities if needed.
             if log_probs:
-                log_qw.append(qw.log_prob(w.T).sum())
+                log_qw.append(qw.log_prob(w.transpose(-1, -2)).sum(-1))
 
                 if p is not None:
                     # pw. = p.compute_dist(i, self.activation(z))
                     pw = p.compute_dist(i, z)
-                    log_pw.append(pw.log_prob(w.T).sum())
+                    log_pw.append(pw.log_prob(w.transpose(-1, -2)).sum(-1))
 
             # Propagate inducing locations forward.
             # z = self.activation(z).matmul(w)
@@ -113,23 +116,20 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
         x = data["x"]
         y = data["y"]
 
-        ll = 0
-        kl = 0
-        for _ in range(num_samples):
+        theta, log_pw, log_qw = self.sample_weights(
+            q, log_probs=True, p=p, num_samples=num_samples)
+        kl = (sum(log_qw) - sum(log_pw)).mean()
 
-            theta, log_pw, log_qw = self.sample_weights(q, log_probs=True, p=p)
-            kl += sum(log_qw) - sum(log_pw)
+        # Propagate inputs forward.
+        for i, w in enumerate(theta):
+            x = torch.cat([x, torch.ones((*x.shape[:-1], 1))], dim=-1)
+            x = x.matmul(w)
 
-            # Propagate inputs forward.
-            for i, w in enumerate(theta):
-                x = torch.cat([x, torch.ones((len(x), 1))], dim=1)
-                x = x.matmul(w)
+            if i < len(theta) - 1:
+                x = self.activation(x)
 
-                if i < len(theta) - 1:
-                    x = self.activation(x)
-
-            qy = self.pred_dist_from_tensor(x, samples_first=True)
-            ll += qy.log_prob(y).sum()
+        qy = self.pred_dist_from_tensor(x, samples_first=True)
+        ll = qy.log_prob(y).sum(-1).mean()
 
         return ll, kl
 
