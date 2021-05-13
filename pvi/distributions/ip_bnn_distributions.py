@@ -1,7 +1,7 @@
 import torch
 
 from torch import nn
-from pvi.utils.psd_utils import psd_inverse
+from pvi.utils.psd_utils import psd_inverse, add_diagonal
 
 
 class BNNDistribution:
@@ -24,7 +24,7 @@ class BNNDistribution:
 
         return type(self)(distributions)
 
-    def compute_dist(self, layer, act_z):
+    def compute_dist(self, layer, *args, **kwargs):
         return self.distributions[layer]
 
 
@@ -153,18 +153,27 @@ class IPBNNGaussianPosterior:
         # (dim_out, m, m).
         t_np2 = t_np2.diag_embed()
 
-        # (dim_in, m) x (dim_out, m, 1) -> (dim_out, dim_in, 1).
-        np1 = act_z.T.matmul(t_np1.unsqueeze(-1))
+        num_samples, dim_in, m = act_z.shape
+        dim_out = t_np1.shape[0]
 
-        # (dim_in, m) x (dim_out, m, m) x (m, dim_in)
-        # -> (dim_out, dim_in, dim_in).
-        np2 = (p_dist.nat_params["np2"].diag_embed()
-               + act_z.T.matmul(t_np2).matmul(act_z))
+        # (num_samples, dim_out, m, dim_in).
+        act_z_ = act_z.unsqueeze(1).repeat(1, dim_out, 1, 1)
+        # (num_samples, dim_out, m).
+        t_np1_ = t_np1.unsqueeze(0).repeat(num_samples, 1, 1)
+        # (num_samples, dim_out, dim_in, 1)
+        np1 = act_z_.transpose(-1, -2).matmul(t_np1_.unsqueeze(-1))
+
+        # (num_samples, dim_out, m, m).
+        t_np2_ = t_np2.unsqueeze(0).repeat(num_samples, 1, 1, 1)
+        # (m, m).
+        p_np2 = p_dist.nat_params["np2"].diag_embed()
+        # (num_samples, dim_out, dim_in, dim_in).
+        np2 = p_np2 + act_z_.transpose(-1, -2).matmul(t_np2_).matmul(act_z_)
 
         # Compute mean and covariance matrix for each column of weights.
         prec = -2. * np2
-        cov = psd_inverse(prec)  # (dim_out, dim_in, dim_in)
-        loc = cov.matmul(np1).squeeze()  # (dim_out, dim_in)
+        cov = psd_inverse(prec)  # (num_samples, dim_out, dim_in, dim_in)
+        loc = cov.matmul(np1).squeeze()  # (num_samples, dim_out, dim_in)
         qw = torch.distributions.MultivariateNormal(loc, cov)
 
         return qw
