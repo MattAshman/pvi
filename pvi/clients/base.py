@@ -144,12 +144,7 @@ class Client:
                             shuffle=True)
 
         # Dict for logging optimisation progress
-        training_curve = {
-            "elbo" : [],
-            "kl"   : [],
-            "ll"   : [],
-            "logt" : [],
-        }
+        training_curve = defaultdict(list)
         
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
@@ -171,37 +166,72 @@ class Client:
                     "x" : x_batch,
                     "y" : y_batch,
                 }
-                
+
+                # TODO: Put this code inside a unit test.
                 # Compute KL divergence between q and q_old.
-                # kl = q.kl_divergence(q_old).sum() / len(x)
+                # kl1 = q.kl_divergence(q_old).sum() / len(x)
+
+                # Compute KL divergence between q and q_old using
+                # torch.distribution.
+                # kl2 = torch.distributions.kl_divergence(
+                #     q.distribution, q_old.distribution).sum() / len(x)
 
                 # Compute KL divergence between q and q_cav.
-                kl = q.kl_divergence(q_cav).sum() / len(x)
+                # kl3 = q.kl_divergence(q_cav).sum() / len(x)
+
+                # Compute KL divergence between q and q_cav using
+                # torch.distribution
+                # kl4 = torch.distributions.kl_divergence(
+                #     q.distribution, q_cav.distribution).sum() / len(x)
+
+                # Compute the KL divergence between q and q_cav, ignoring
+                # A(η_cav).
+                kl5 = q.kl_divergence(q_cav, calc_log_ap=False).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
                     batch, q, self.config["num_elbo_samples"]).sum()
                 ll /= len(x_batch)
 
-                if self.t is not None:
-                    # Compute E_q[log t(θ)].
-                    logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                    logt /= len(x)
+                # Compute E_q[log t(θ)].
+                # logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                # logt /= len(x)
 
                 # Negative local free energy is KL minus log-probability.
-                # loss = kl - ll + logt
-                loss = kl - ll
-                loss.backward()
+                # loss1 = kl1 + logt - ll
+                # loss2 = kl2 + logt - ll
+                # loss3 = kl3 - ll
+                # loss4 = kl4 - ll
+                loss5 = kl5 - ll
+                # losses = [loss1, loss2, loss3, loss4, loss5]
+
+                # Compute gradients for all 5 losses.
+                # grads = []
+                # for loss in losses:
+                #     loss.backward(retain_graph=True)
+                #     grads.append({k: v.grad.clone()
+                #                   for k, v in q._unc_params.items()})
+                #     optimiser.zero_grad()
+
+                # Check all gradients are equal.
+                # for p in q._unc_params.keys():
+                #     for j in range(len(grads)):
+                #         for k in range(len(grads)):
+                #             if not torch.allclose(grads[j][p], grads[k][p]):
+                #                 import pdb
+                #                 pdb.set_trace()
+                #                 raise ValueError("Gradients not equal!")
+
+                # Use loss 5.
+                loss5.backward()
                 optimiser.step()
                 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item() / len(loader)
-                epoch["kl"] += kl.item() / len(loader)
+                epoch["elbo"] += -loss5.item() / len(loader)
+                epoch["kl"] += kl5.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
-
-                if self.t is not None:
-                    epoch["logt"] += logt.item() / len(loader)
+                # epoch["logt"] += logt.item() / len(loader)
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
@@ -215,11 +245,11 @@ class Client:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                              f"LL: {epoch['ll']:.3f}, "
                              f"KL: {epoch['kl']:.3f}, "
-                             f"log t: {epoch['logt']:.3f}, "
+                             # f"log t: {epoch['logt']:.3f}, "
                              f"Epochs: {i}.")
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], logt=epoch["logt"],
+                                   ll=epoch["ll"], # logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
 
             # Update learning rate.
