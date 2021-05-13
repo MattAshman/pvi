@@ -21,9 +21,12 @@ def psd_inverse(x=None, chol=None):
         inverse = torch.cholesky_inverse(chol)
     elif num_dims == 3:
         inverse = torch.stack([torch.cholesky_inverse(l) for l in chol])
+    elif num_dims == 4:
+        inverse = torch.stack([torch.stack([torch.cholesky_inverse(l)
+                                            for l in sub_chol])
+                               for sub_chol in chol])
     else:
-        raise ValueError("x must be either (batch_size, D, D) or (D, D) "
-                         "positive definite matrix.")
+        raise ValueError("x must be (*, D, D) positive definite matrix.")
 
     return inverse
 

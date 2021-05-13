@@ -44,6 +44,7 @@ class GlobalVIServer(Server):
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
+            "performance_metrics": None,
             "num_elbo_samples": 10,
             "print_epochs": 1,
             "homogenous_split": True,
@@ -176,18 +177,21 @@ class GlobalVIServer(Server):
                 report = f"Epochs: {i}. ELBO: {epoch['elbo']:.3f} "\
                          f"LL: {epoch['ll']:.3f} KL: {epoch['kl']:.3f} "
 
-                train_pp = self.model_predict(self.data["x"])
-                train_mll = train_pp.log_prob(self.data["y"]).mean()
-                report += f"Train mll: {train_mll:.3f} "
-                performance_curve["epoch"].append(i)
-                performance_curve["train_mll"].append(train_mll.item())
+                if self.config["performance_metrics"] is not None:
+                    performance_curve["epoch"].append(i)
+                    train_metrics = self.config["performance_metrics"](
+                        self, self.data)
 
-                # Get validation set performance.
-                if self.val_data is not None:
-                    val_pp = self.model_predict(self.val_data["x"])
-                    val_mll = val_pp.log_prob(self.val_data["y"]).mean()
-                    report += f"Val mll: {val_mll:.3f} "
-                    performance_curve["val_mll"].append(val_mll.item())
+                    for k, v in train_metrics.items():
+                        performance_curve["train_" + k].append(v.item())
+                        report += f"Train {k}: {v:.3f} "
+
+                    if self.val_data is not None:
+                        val_metrics = self.config["performance_metrics"](
+                            self, self.val_data)
+                        for k, v in val_metrics.items():
+                            performance_curve["val_" + k].append(v.item())
+                            report += f"Val {k}: {v:.3f} "
 
                 tqdm.write(report)
 
