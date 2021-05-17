@@ -2,7 +2,7 @@ import torch
 import numpy as np
 
 from torch import distributions, nn, optim
-from pvi.models.sgp.kernels import RBFKernel
+from pvi.models.sgp.kernels import RBFKernel, KernelList
 from pvi.models.base import Model
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions import MultivariateGaussianDistributionWithZ
@@ -93,8 +93,13 @@ class SparseGaussianProcessModel(Model, nn.Module):
             z = q.inducing_locations
 
         kzz = add_diagonal(self.kernel(z, z), JITTER)
+        if hasattr(self.config, "P"):
+            loc = torch.zeros((self.config["P"], z.shape[0]))
+        else:
+            loc = torch.zeros(z.shape[0])
+
         std = {
-            "loc": torch.zeros(z.shape[0]),
+            "loc": loc,
             "covariance_matrix": kzz,
         }
 
@@ -318,9 +323,6 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
 
     conjugate_family = None
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
     def get_default_config(self):
         return {
             **super().get_default_config(),
@@ -399,3 +401,94 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
         :return: The evidence lower bound.
         """
         raise NotImplementedError
+
+
+class MOSparseGaussianProcess(SparseGaussianProcessModel):
+    """
+    Multi-output sparse Gaussian process model with independent dimensions.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        kernel = self.kernel
+        if not self.config["share_kernel"]:
+            # Replace kernel with multiple kernels, one for each output
+            # dimension.
+            self.kernel = KernelList(
+                [kernel.clone() for _ in range(self.config["P"])])
+        else:
+            # Use sample kernel for each output dimension.
+            self.kernel = KernelList(self.config["P"] * [kernel])
+
+    def get_default_nat_params(self):
+        return {
+            "np1": torch.tensor(
+                [0.]*self.config["num_inducing"]).unsqueeze(0).repeat(
+                self.config["K"], 1),
+            "np2": torch.tensor(
+                [-.5]*self.config["num_inducing"]).unsqueeze(0).repeat(
+                self.config["K"], 1).diag_embed(),
+        }
+
+    def get_default_config(self):
+        return {
+            **super().get_default_config(),
+            "P": None,
+            "share_kernel": False,
+        }
+
+
+class MOSparseGaussianProcessClassification(MOSparseGaussianProcess):
+    """
+    Sparse Gaussian process multi-output classification model.
+    """
+
+    conjugate_family = None
+
+    def forward(self, x, q, diag=False):
+        """
+        Returns the (approximate) predictive posterior distribution of a
+        multi-output sparse Gaussian process classification model.
+        :param x: The input locations to make predictions at.
+        :param q: The approximate posterior distribution q(u | z).
+        :param diag: Whether to compute marginal posterior predictive
+        distributions.
+        :return: ∫ p(y | f, x) p(f | u) q(u) df du.
+        """
+        qf = self.posterior(x, q, diag=diag)
+        # (num_samples, P, N).
+        fs = qf.sample((self.config["num_predictive_samples"],))
+
+        # (N, P, num_samples).
+        fs = fs.transpose(2, 1, 0)
+
+        comp = distributions.Categorical(logits=fs)
+        mix = distributions.Categorical(torch.ones(fs.shape[-1],))
+
+        return distributions.MixtureSameFamily(mix, comp)
+
+    def likelihood_forward(self, x, theta, **kwargs):
+        """
+        Returns the model's likelihood p(y | x).
+        :param x: The input locations to make predictions at, (*, D).
+        :param theta: The latent variables of the model.
+        :return: p(y | x).
+        """
+        return distributions.Categorical(logits=theta)
+
+    def conjugate_update(self, data, q, t=None):
+        """
+        :param data: The local data to refine the model with.
+        :param q: The current global posterior q(θ).
+        :param t: The local factor t(θ).
+        :return: q_new, t_new, the new global posterior and the new local
+        contribution.
+        """
+        raise NotImplementedError
+
+    def expected_log_likelihood(self, data, q, num_samples=1):
+        x = data["x"]
+
+        qf = self.posterior(x, q, diag=True)
+        fs = qf.rsample((num_samples,))
+        return self.likelihood_log_prob(data, fs).mean(0)
