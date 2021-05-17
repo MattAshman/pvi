@@ -57,7 +57,7 @@ class SynchronousServer(Server):
             self.update_hyperparameters()
 
         # Log progress.
-        self.log["q"].append(self.q.non_trainable_copy())
+        # self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
         self.log["clients_updated"].append(clients_updated)
 
@@ -118,8 +118,8 @@ class SynchronousServerBayesianHypers(ServerBayesianHypers):
         self.iterations += 1
 
         # Log progress.
-        self.log["q"].append(self.q.non_trainable_copy())
-        self.log["qeps"].append(self.qeps.non_trainable_copy())
+        # self.log["q"].append(self.q.non_trainable_copy())
+        # self.log["qeps"].append(self.qeps.non_trainable_copy())
         self.log["communications"].append(self.communications)
         self.log["clients_updated"].append(clients_updated)
 

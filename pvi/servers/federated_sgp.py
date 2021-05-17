@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 JITTER = 1e-4
 
 
-class SequentialSGPServer(Server):
+class SGPServer(Server):
     def __init__(self, model, p, clients, config=None, init_q=None,
                  maintain_inducing=False):
         super().__init__(model, p, clients, config, init_q)
@@ -39,58 +39,7 @@ class SequentialSGPServer(Server):
         }
 
     def tick(self):
-        if self.should_stop():
-            return False
-
-        logger.debug("Getting client updates.")
-
-        clients_updated = 0
-
-        for i, client in tqdm(enumerate(self.clients)):
-            if client.can_update():
-                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_old = client.t
-
-                # Send over q marginalised at t_i_old.inducing_locations.
-                za = t_old.inducing_locations
-                qa_old = self.model.posterior(za, self.q, diag=False)
-                qa_old = MultivariateGaussianDistributionWithZ(
-                    std_params={
-                        "loc": qa_old.loc,
-                        "covariance_matrix": qa_old.covariance_matrix,
-                    },
-                    inducing_locations=za,
-                    is_trainable=False,
-                    train_inducing=self.q.train_inducing,   # Should be True.
-                )
-
-                _, t_new = client.fit(qa_old)
-
-                logger.debug(
-                    "Received client update. Updating global posterior.")
-
-                # Project onto global inducing locations.
-                self.q = self.update_posterior(t_old, t_new)
-                # self.q = self.compute_posterior_union()
-
-                clients_updated += 1
-                self.communications += 1
-
-                # Log q after each update.
-                # self.log["q"].append(self.q.non_trainable_copy())
-                self.log["communications"].append(self.communications)
-
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
-
-        self.iterations += 1
-
-        # Update hyperparameters.
-        if self.config["train_model"] and \
-                self.iterations % self.config["model_update_freq"] == 0:
-            self.update_hyperparameters()
-
-        self.log["clients_updated"].append(clients_updated)
+        raise NotImplementedError
 
     def compute_posterior_union(self):
         """
@@ -134,13 +83,12 @@ class SequentialSGPServer(Server):
 
         return q
 
-    def update_posterior(self, t_old, t_new):
+    def update_posterior(self, t_olds, t_news):
         """
         Computes the projection
         q(f) = argmin KL[q(f) || qold(f) x t_new(bi) / t_old(ai)].
-        :param q_old: Old posterior q(f) = p(f | a) q(a).
-        :param t_old: Old approximate factor t_old(ai).
-        :param t_new: New approximate factor t_new(bi).
+        :param t_olds: Old approximate factors t_old(ai).
+        :param t_news: New approximate factors t_new(bi).
         :return: New posterior q(f) = p(f | b) q(b).
         """
 
@@ -308,8 +256,6 @@ class SequentialSGPServer(Server):
             q_old = self.q.non_trainable_copy()
             q = self.q.trainable_copy()
             za = q_old.inducing_locations
-            zbi = t_new.inducing_locations
-            zai = t_old.inducing_locations
 
             # Perturb Za to get Zb (avoids numerical issues).
             q.inducing_locations = q.inducing_locations + torch.randn_like(
@@ -366,29 +312,31 @@ class SequentialSGPServer(Server):
                 kl = qab.kl_divergence(qab_old).sum()
 
                 # E_q[log t_new(b)] - E_q[log t_old(a)].
-                qbi = self.model.posterior(zbi, q, diag=False)
-                qbi = MultivariateGaussianDistributionWithZ(
-                    std_params={
-                        "loc": qbi.loc,
-                        "covariance_matrix": qbi.covariance_matrix,
-                    },
-                    inducing_locations=zbi,
-                )
-                logt_new = t_new.eqlogt(qbi)
-                # bis = qbi.rsample((1000,))
-                # logt_new = t_new(bis).mean()
+                logt_new, logt_old = 0, 0
+                for t_new, t_old in zip(t_news, t_olds):
+                    zbi = t_new.inducing_locations
+                    zai = t_old.inducing_locations
 
-                qai = self.model.posterior(zai, q, diag=False)
-                qai = MultivariateGaussianDistributionWithZ(
-                    std_params={
-                        "loc": qai.loc,
-                        "covariance_matrix": qai.covariance_matrix,
-                    },
-                    inducing_locations=zai,
-                )
-                logt_old = t_old.eqlogt(qai)
-                # ais = qai.rsample((1000,))
-                # logt_old = t_old(ais).mean()
+                    qbi = self.model.posterior(zbi, q, diag=False)
+                    qbi = MultivariateGaussianDistributionWithZ(
+                        std_params={
+                            "loc": qbi.loc,
+                            "covariance_matrix": qbi.covariance_matrix,
+                        },
+                        inducing_locations=zbi,
+                    )
+
+                    qai = self.model.posterior(zai, q, diag=False)
+                    qai = MultivariateGaussianDistributionWithZ(
+                        std_params={
+                            "loc": qai.loc,
+                            "covariance_matrix": qai.covariance_matrix,
+                        },
+                        inducing_locations=zai,
+                    )
+
+                    logt_new += t_new.eqlogt(qbi)
+                    logt_old += t_old.eqlogt(qai)
 
                 loss = kl - logt_new + logt_old
                 loss.backward()
@@ -412,11 +360,6 @@ class SequentialSGPServer(Server):
                                        logt_new=epoch["logt_new"],
                                        logt_old=epoch["logt_old"])
 
-                # if -loss.item() > 1e3:
-                #     import pdb
-                #     pdb.set_trace()
-                #     print("wtf")
-
             # Log the training curves for this update
             self.log["training_curves"].append(training_curve)
 
@@ -427,3 +370,118 @@ class SequentialSGPServer(Server):
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
+
+
+class SequentialSGPServer(SGPServer):
+
+    def tick(self):
+        if self.should_stop():
+            return False
+
+        logger.debug("Getting client updates.")
+
+        clients_updated = 0
+
+        for i, client in tqdm(enumerate(self.clients)):
+            if client.can_update():
+                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
+                t_old = client.t
+
+                # Send over q marginalised at t_i_old.inducing_locations.
+                za = t_old.inducing_locations
+                qa_old = self.model.posterior(za, self.q, diag=False)
+                qa_old = MultivariateGaussianDistributionWithZ(
+                    std_params={
+                        "loc": qa_old.loc,
+                        "covariance_matrix": qa_old.covariance_matrix,
+                    },
+                    inducing_locations=za,
+                    is_trainable=False,
+                    train_inducing=self.q.train_inducing,   # Should be True.
+                )
+
+                _, t_new = client.fit(qa_old)
+
+                logger.debug(
+                    "Received client update. Updating global posterior.")
+
+                # Project onto global inducing locations.
+                self.q = self.update_posterior([t_old], [t_new])
+                # self.q = self.compute_posterior_union()
+
+                clients_updated += 1
+                self.communications += 1
+
+                # Log q after each update.
+                # self.log["q"].append(self.q.non_trainable_copy())
+                self.log["communications"].append(self.communications)
+
+        logger.debug(f"Iteration {self.iterations} complete."
+                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+
+        self.iterations += 1
+
+        # Update hyperparameters.
+        if self.config["train_model"] and \
+                self.iterations % self.config["model_update_freq"] == 0:
+            self.update_hyperparameters()
+
+        self.log["clients_updated"].append(clients_updated)
+
+
+class SynchronousSGPServer(SGPServer):
+
+    def tick(self):
+        if self.should_stop():
+            return False
+
+        logger.debug("Getting client updates.")
+
+        clients_updated = 0
+
+        t_olds, t_news = [], []
+        for i, client in tqdm(enumerate(self.clients)):
+            if client.can_update():
+                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
+                t_old = client.t
+
+                # Send over q marginalised at t_i_old.inducing_locations.
+                za = t_old.inducing_locations
+                qa_old = self.model.posterior(za, self.q, diag=False)
+                qa_old = MultivariateGaussianDistributionWithZ(
+                    std_params={
+                        "loc": qa_old.loc,
+                        "covariance_matrix": qa_old.covariance_matrix,
+                    },
+                    inducing_locations=za,
+                    is_trainable=False,
+                    train_inducing=self.q.train_inducing,   # Should be True.
+                )
+
+                _, t_new = client.fit(qa_old)
+
+                t_olds.append(t_old)
+                t_news.append(t_new)
+
+                clients_updated += 1
+                self.communications += 1
+
+        logger.debug("Received client updates. Updating global posterior.")
+
+        # Project onto global inducing locations.
+        self.q = self.update_posterior(t_olds, t_news)
+
+        # Log q after each update.
+        # self.log["q"].append(self.q.non_trainable_copy())
+        self.log["communications"].append(self.communications)
+
+        logger.debug(f"Iteration {self.iterations} complete.")
+
+        self.iterations += 1
+
+        # Update hyperparameters.
+        if self.config["train_model"] and \
+                self.iterations % self.config["model_update_freq"] == 0:
+            self.update_hyperparameters()
+
+        self.log["clients_updated"].append(clients_updated)

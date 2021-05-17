@@ -62,7 +62,7 @@ class BayesianCommitteeMachineSame(Server):
         self.iterations += 1
 
         # Log progress.
-        self.log["q"].append(self.q.non_trainable_copy())
+        # self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
         self.log["clients_updated"].append(clients_updated)
 
@@ -137,7 +137,7 @@ class BayesianCommitteeMachineSplit(Server):
         self.iterations += 1
 
         # Log progress.
-        self.log["q"].append(self.q.non_trainable_copy())
+        # self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
         self.log["clients_updated"].append(clients_updated)
 

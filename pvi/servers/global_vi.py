@@ -196,7 +196,7 @@ class GlobalVIServer(Server):
                 tqdm.write(report)
 
             # Log q so we can track performance each epoch.
-            self.log["q"].append(q.non_trainable_copy())
+            # self.log["q"].append(q.non_trainable_copy())
             self.log["communications"].append(self.communications)
             self.epochs += 1
 

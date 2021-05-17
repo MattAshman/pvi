@@ -52,7 +52,7 @@ class ContinualLearningServer(Server):
             self.q = q_new.non_trainable_copy()
             self.communications += 1
 
-            self.log["q"].append(self.q.non_trainable_copy())
+            # self.log["q"].append(self.q.non_trainable_copy())
             self.log["communications"].append(self.communications)
 
             if self.config["train_model"]:
@@ -103,8 +103,8 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
             self.qeps = qeps_new.non_trainable_copy()
             self.communications += 1
 
-            self.log["q"].append(self.q.non_trainable_copy())
-            self.log["qeps"].append(self.qeps.non_trainable_copy())
+            # self.log["q"].append(self.q.non_trainable_copy())
+            # self.log["qeps"].append(self.qeps.non_trainable_copy())
             self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete."

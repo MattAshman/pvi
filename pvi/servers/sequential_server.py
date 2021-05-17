@@ -44,7 +44,7 @@ class SequentialServer(Server):
                 self.communications += 1
 
                 # Log q after each update.
-                self.log["q"].append(self.q.non_trainable_copy())
+                # self.log["q"].append(self.q.non_trainable_copy())
                 self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
@@ -103,8 +103,8 @@ class SequentialServerBayesianHypers(ServerBayesianHypers):
                 self.communications += 1
 
                 # Log q after each update.
-                self.log["q"].append(self.q.non_trainable_copy())
-                self.log["qeps"].append(self.qeps.non_trainable_copy())
+                # self.log["q"].append(self.q.non_trainable_copy())
+                # self.log["qeps"].append(self.qeps.non_trainable_copy())
                 self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
