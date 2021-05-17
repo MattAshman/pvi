@@ -104,17 +104,19 @@ class ExponentialFamilyFactor(ABC):
         """
         raise NotImplementedError
 
-    def eqlogt(self, q, num_samples=1):
+    def eqlogt(self, q):
         """
         Computes E_q[log t(θ)] = ν.T E_q[f(θ)] + E_q[log h(θ)], ignoring the
         latter term.
         :param q: q(θ).
-        :param num_samples: Number of samples to form MC estimate with, if
-        closed-form solution not specified.
         :return: ν.T E_q[f(θ)].
         """
-        thetas = q.rsample((num_samples,))
-        return self(thetas).mean(0)
+        np = torch.cat([np.flatten() for np in self.nat_params.values()])
+        mp = torch.cat([mp.flatten() for mp in q.mean_params.values()])
+
+        eqlogt = np.dot(mp) + self.log_coeff
+
+        return eqlogt
 
     @abstractmethod
     def nat_from_dist(self, q):
@@ -204,13 +206,11 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
 
     @std_params.setter
     def std_params(self, std_params):
+        self._clear_params()
 
         if self.is_trainable:
-            self._clear_params()
             self._unc_params = nn.ParameterDict(self._unc_from_std(std_params))
-
         else:
-            self._clear_params()
             self._std_params = std_params
         
     @property
@@ -225,7 +225,12 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     @nat_params.setter
     def nat_params(self, nat_params):
         self._clear_params()
-        self._nat_params = nat_params
+
+        if self.is_trainable:
+            self._unc_params = nn.ParameterDict(
+                self._unc_from_std(self._std_from_nat(nat_params)))
+        else:
+            self._nat_params = nat_params
 
     @property
     def mean_params(self):
