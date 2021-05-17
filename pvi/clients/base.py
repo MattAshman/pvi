@@ -163,12 +163,7 @@ class Client:
                           leave=True)
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
-            epoch = {
-                "elbo" : 0,
-                "kl"   : 0,
-                "ll"   : 0,
-                "logt" : 0,
-            }
+            epoch = defaultdict(lambda: 0.)
             
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
@@ -238,8 +233,7 @@ class Client:
                 loss1.backward()
                 optimiser.step()
                 
-                # Keep track of quantities for current batch
-                # Will be very slow if training on GPUs.
+                # Keep track of quantities for current batch.
                 epoch["elbo"] += -loss1.item() / len(loader)
                 epoch["kl"] += kl1.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
