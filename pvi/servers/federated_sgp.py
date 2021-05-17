@@ -4,7 +4,7 @@ import numpy as np
 
 from tqdm.auto import tqdm
 from .base import *
-from pvi.utils.gaussian import joint_from_marginal, nat_from_std, slow_kl
+from pvi.utils.gaussian import joint_from_marginal, nat_from_std
 from pvi.utils.psd_utils import psd_inverse, add_diagonal
 from pvi.distributions import MultivariateGaussianDistributionWithZ
 
@@ -14,17 +14,18 @@ JITTER = 1e-4
 
 
 class SequentialSGPServer(Server):
-    def __init__(self, model, q, clients, config=None,
+    def __init__(self, model, p, clients, config=None, init_q=None,
                  maintain_inducing=False):
-        super().__init__(model, q, clients, config)
+        super().__init__(model, p, clients, config, init_q)
 
         self.maintain_inducing = maintain_inducing
         self.client_inducing_idx = []
 
         if not self.maintain_inducing:
+            # q(u) = p(u) Π_m t_m(u_m).
             self.q = self.compute_posterior_union()
 
-        self.log["q"].append(self.q.non_trainable_copy())
+        # self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
 
     def get_default_config(self):
@@ -48,35 +49,35 @@ class SequentialSGPServer(Server):
         for i, client in tqdm(enumerate(self.clients)):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_i_old = client.t
+                t_old = client.t
 
                 # Send over q marginalised at t_i_old.inducing_locations.
-                za_i = t_i_old.inducing_locations
-                qa_i_old = self.model.posterior(za_i, self.q, diag=False)
-                qa_i_old = MultivariateGaussianDistributionWithZ(
+                za = t_old.inducing_locations
+                qa_old = self.model.posterior(za, self.q, diag=False)
+                qa_old = MultivariateGaussianDistributionWithZ(
                     std_params={
-                        "loc": qa_i_old.loc,
-                        "covariance_matrix": qa_i_old.covariance_matrix,
+                        "loc": qa_old.loc,
+                        "covariance_matrix": qa_old.covariance_matrix,
                     },
-                    inducing_locations=za_i,
+                    inducing_locations=za,
                     is_trainable=False,
                     train_inducing=self.q.train_inducing,   # Should be True.
                 )
 
-                _, t_i_new = client.fit(qa_i_old)
+                _, t_new = client.fit(qa_old)
 
                 logger.debug(
                     "Received client update. Updating global posterior.")
 
                 # Project onto global inducing locations.
-                self.q = self.update_posterior(t_i_old, t_i_new)
+                self.q = self.update_posterior(t_old, t_new)
                 # self.q = self.compute_posterior_union()
 
                 clients_updated += 1
                 self.communications += 1
 
                 # Log q after each update.
-                self.log["q"].append(self.q.non_trainable_copy())
+                # self.log["q"].append(self.q.non_trainable_copy())
                 self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete."
@@ -169,24 +170,14 @@ class SequentialSGPServer(Server):
         #     optimiser.zero_grad()
         #
         #     # Dict for logging optimisation progress
-        #     training_curve = {
-        #         "elbo": [],
-        #         "kl": [],
-        #         "logt_new": [],
-        #         "logt_old": [],
-        #     }
+        #     training_curve = defaultdict(list)
         #
         #     # Gradient-based optimisation loop -- loop over epochs
         #     epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
         #                       leave=True)
         #     # for i in range(self.config["epochs"]):
         #     for _ in epoch_iter:
-        #         epoch = {
-        #             "elbo": 0,
-        #             "kl": 0,
-        #             "logt_new": 0,
-        #             "logt_old": 0,
-        #         }
+        #         epoch = defaultdict(lambda: 0.)
         #
         #         zab = torch.cat([za, zb])
         #         zaibi = torch.cat([zai, zbi])
@@ -273,9 +264,8 @@ class SequentialSGPServer(Server):
         #
         #         # KL[q(a, b) || q_old(a, b)].
         #         try:
-        #             kl = qz.kl_divergence(qz_tilt).sum()
+        #             kl = qz.kl_divergence(qz_tilt, calc_log_ap=False).sum()
         #         except RuntimeError:
-        #             kl = slow_kl(qz.std_params, qz_tilt.std_params)
         #             import pdb
         #             pdb.set_trace()
         #
@@ -334,28 +324,17 @@ class SequentialSGPServer(Server):
                 q.parameters(), **self.config["optimiser_params"])
             optimiser.zero_grad()
 
-            # Dict for logging optimisation progress
-            training_curve = {
-                "elbo": [],
-                "kl": [],
-                "logt_new": [],
-                "logt_old": [],
-            }
+            # Dict for logging optimisation progress.
+            training_curve = defaultdict(list)
 
-            # Gradient-based optimisation loop -- loop over epochs
+            # Gradient-based optimisation loop.
             epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
                               leave=True)
             # for i in range(self.config["epochs"]):
             for _ in epoch_iter:
-                epoch = {
-                    "elbo": 0,
-                    "kl": 0,
-                    "logt_new": 0,
-                    "logt_old": 0,
-                }
+                epoch = defaultdict(lambda: 0.)
 
                 z = torch.cat([za, zb])
-
                 kab = self.model.kernel(za, zb)
                 kbb = add_diagonal(self.model.kernel(zb, zb), JITTER)
                 ikbb = psd_inverse(kbb)
@@ -395,9 +374,9 @@ class SequentialSGPServer(Server):
                     },
                     inducing_locations=zbi,
                 )
-                # logt_new = t_new.eqlogt(qbi, self.config["num_elbo_samples"])
-                bis = qbi.rsample((1000,))
-                logt_new = t_new(bis).mean()
+                logt_new = t_new.eqlogt(qbi)
+                # bis = qbi.rsample((1000,))
+                # logt_new = t_new(bis).mean()
 
                 qai = self.model.posterior(zai, q, diag=False)
                 qai = MultivariateGaussianDistributionWithZ(
@@ -407,9 +386,9 @@ class SequentialSGPServer(Server):
                     },
                     inducing_locations=zai,
                 )
-                # logt_old = t_old.eqlogt(qai, self.config["num_elbo_samples"])
-                ais = qai.rsample((1000,))
-                logt_old = t_old(ais).mean()
+                logt_old = t_old.eqlogt(qai)
+                # ais = qai.rsample((1000,))
+                # logt_old = t_old(ais).mean()
 
                 loss = kl - logt_new + logt_old
                 loss.backward()
@@ -433,10 +412,10 @@ class SequentialSGPServer(Server):
                                        logt_new=epoch["logt_new"],
                                        logt_old=epoch["logt_old"])
 
-                if -loss.item() > 1e3:
-                    import pdb
-                    pdb.set_trace()
-                    print("wtf")
+                # if -loss.item() > 1e3:
+                #     import pdb
+                #     pdb.set_trace()
+                #     print("wtf")
 
             # Log the training curves for this update
             self.log["training_curves"].append(training_curve)
