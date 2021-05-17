@@ -109,8 +109,9 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
 
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
+        cov = psd_inverse(-2 * np2)
         log_a = -0.5 * np.log(np.pi) * len(np1)
-        log_a += (-0.25 * np1.dot(np2.matmul(np1))
+        log_a += (0.25 * np1.dot(cov.matmul(np1))
                   - 0.5 * (psd_logdet(-2 * np2)))
 
         return log_a
