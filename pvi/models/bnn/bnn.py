@@ -52,13 +52,13 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         theta = q.distribution.sample((num_pred_samples,))
 
         # Collection of output distributions, one for each θ, x pair
-        # Distribution assumed to be of shape (S, N, D)
+        # Distribution assumed to be of shape (S, N, D).
         qy = self.likelihood_forward(x, theta, samples_first=False)
 
         # Predictive is a mixture of predictive distributions with equal
         # weights.
         mix = torch.distributions.Categorical(
-            logits=torch.ones(size=qy.batch_shape))
+            logits=torch.ones(size=qy.batch_shape).to(x.device))
         qy = torch.distributions.MixtureSameFamily(mix, qy)
 
         return qy
@@ -79,7 +79,8 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         theta = self.reshape_theta(theta)
         for i, W in enumerate(theta):
             # Bias term.
-            x = torch.cat([x, torch.ones((*x.shape[:-1], 1))], dim=-1)
+            x = torch.cat(
+                [x, torch.ones((*x.shape[:-1], 1)).to(x.device)], dim=-1)
             x = x.matmul(W)
 
             # Don't apply ReLU to final layer.
@@ -163,7 +164,7 @@ class ClassificationBNN(FullyConnectedBNN):
 
 class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
 
-    def local_repam_forward(self, x, q, num_samples=None):
+    def local_repam_forward(self, x, q, samples_first=True, num_samples=None):
         """
         Returns samples from the predictive posterior distribution of a
         Bayesian neural network, sampling activations instead of weights.
@@ -171,74 +172,63 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
         :param q: The approximate posterior distribution q(θ).
         :param num_samples: The number of samples to estimate the predictive
         posterior distribution with.
+        :param samples_first: Whether to have sample dimension first.
         :return: Samples from ∫ p(y | θ, x) q(θ) dθ.
         """
         if num_samples is None:
             num_samples = self.config["num_predictive_samples"]
 
         # Compute activation distribution at each layer and sample.
-        h = x
-        num_params = np.cumsum(self.sizes)
-        for i in range(self.config["num_layers"] + 1):
-            if i == 0:
-                qw_loc = q.std_params["loc"][:num_params[0]]
-                qw_scale = q.std_params["scale"][:num_params[0]]
-            else:
-                qw_loc = q.std_params["loc"][
-                         num_params[2 * i - 1]:num_params[2 * i]]
-                qw_scale = q.std_params["scale"][
-                         num_params[2 * i - 1]:num_params[2 * i]]
+        num_params = np.cumsum([0] + self.sizes)
+        for i, shape in enumerate(self.shapes):
+            # Bias term.
+            x = torch.cat(
+                [x, torch.ones((*x.shape[:-1], 1)).to(x)], dim=-1)
 
-            # Layer's q(b).
-            qb_loc = q.std_params["loc"][
-                     num_params[2 * i]:num_params[2 * i + 1]]
-            qb_scale = q.std_params["scale"][
-                     num_params[2 * i]:num_params[2 * i + 1]]
-
-            # Layer's q(w).
-            qw_loc = qw_loc.reshape(self.shapes[2 * i])
-            qw_scale = qw_scale.reshape(self.shapes[2 * i])
-            qb = torch.distributions.Normal(qb_loc, qb_scale)
+            qw_loc = q.std_params["loc"][
+                     num_params[i]:num_params[i+1]].reshape(shape)
+            qw_scale = q.std_params["scale"][
+                       num_params[i]:num_params[i + 1]].reshape(shape)
 
             # Layer's q(h). Add jitter to scale to prevent numerical errors
             # during backward pass.
-            qh_loc = h.matmul(qw_loc)
-            qh_scale = ((h ** 2).matmul(qw_scale ** 2) + 1e-6) ** 0.5
+            qh_loc = x.matmul(qw_loc)
+            qh_scale = ((x ** 2).matmul(qw_scale ** 2) + 1e-6) ** 0.5
 
+            # Use different random sample for each datapoint to reduce
+            # covariance.
             if i == 0:
-                qh_eps = torch.randn((num_samples, qh_loc.shape[-1]))
-                h = qh_loc + qh_scale * qh_eps.unsqueeze(-2)
-                h += qb.rsample((num_samples,)).unsqueeze(-2)
+                qh_eps = qh_loc.new(num_samples, *qh_loc.shape).normal_()
+                x = qh_loc + qh_scale * qh_eps
             else:
-                qh_eps = torch.randn((qh_loc.shape[-1]))
-                h = qh_loc + qh_scale * qh_eps.unsqueeze(-2)
-                h += qb.rsample().unsqueeze(-2)
+                qh_eps = qh_loc.new(*qh_loc.shape).normal_()
+                x = qh_loc + qh_scale * qh_eps
 
             if i < self.config["num_layers"]:
-                h = self.activation(h)
+                x = self.activation(x)
 
-        return h
+        return self.pred_dist_from_tensor(x, samples_first=samples_first)
 
-    def forward(self, x, q, num_samples=None, **kwargs):
-        """
-        Returns the predictive posterior distribution of a Bayesian neural
-        network using by sampling activations instead of weights.
-        :param x: The input locations to make predictions at.
-        :param q: The approximate posterior distribution q(θ).
-        :param num_samples: The number oof samples to estimate the predictive
-        posterior distribution with.
-        :return: ∫ p(y | θ, x) q(θ) dθ.
-        """
-        # Get outputs, sampled using local reparameterisation.
-        h = self.local_repam_forward(x, q, num_samples)
-        qy = self.pred_dist_from_tensor(h, samples_first=False)
-
-        # Create equal mixture of distributions.
-        mix = torch.distributions.Categorical(
-            logits=torch.ones(size=qy.batch_shape))
-        qy = torch.distributions.MixtureSameFamily(mix, qy)
-
-        return qy
+    # def forward(self, x, q, num_samples=None, **kwargs):
+    #     """
+    #     Returns the predictive posterior distribution of a Bayesian neural
+    #     network using by sampling activations instead of weights.
+    #     :param x: The input locations to make predictions at.
+    #     :param q: The approximate posterior distribution q(θ).
+    #     :param num_samples: The number oof samples to estimate the predictive
+    #     posterior distribution with.
+    #     :return: ∫ p(y | θ, x) q(θ) dθ.
+    #     """
+    #     # Get outputs, sampled using local reparameterisation.
+    #     qy = self.local_repam_forward(x, q, samples_first=False,
+    #                                   num_samples=num_samples)
+    #
+    #     # Create equal mixture of distributions.
+    #     mix = torch.distributions.Categorical(
+    #         logits=torch.ones(size=qy.batch_shape).to(x.device))
+    #     qy = torch.distributions.MixtureSameFamily(mix, qy)
+    #
+    #     return qy
 
     def expected_log_likelihood(self, data, q, num_samples=1):
         """
@@ -253,8 +243,8 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
         x = data["x"]
         y = data["y"]
 
-        h = self.local_repam_forward(x, q, num_samples)
-        qy = self.pred_dist_from_tensor(h, samples_first=True)
+        qy = self.local_repam_forward(x, q, samples_first=True,
+                                      num_samples=num_samples)
 
         return qy.log_prob(y).mean(0)
 
