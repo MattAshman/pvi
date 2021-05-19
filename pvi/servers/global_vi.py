@@ -48,6 +48,7 @@ class GlobalVIServer(Server):
             "num_elbo_samples": 10,
             "print_epochs": 1,
             "homogenous_split": True,
+            "device": "cpu",
         }
 
     def tick(self):
@@ -60,7 +61,7 @@ class GlobalVIServer(Server):
         p = self.p.non_trainable_copy()
 
         if self.iterations == 0 and self.init_q is not None:
-            q = self.init_q.traiable_copy()
+            q = self.init_q.trainable_copy()
         else:
             q = self.q.trainable_copy()
 
@@ -109,6 +110,9 @@ class GlobalVIServer(Server):
                                 batch_size=None,
                                 shuffle=True)
 
+        if self.config["device"] == "cuda":
+            loader.pin_memory = True
+
         # Dict for logging optimisation progress.
         training_curve = defaultdict(list)
 
@@ -119,15 +123,14 @@ class GlobalVIServer(Server):
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
-            epoch = {
-                "elbo": 0,
-                "kl": 0,
-                "ll": 0,
-            }
+            epoch = defaultdict(lambda: 0.)
 
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
+                x_batch = x_batch.to(self.config["device"])
+                y_batch = y_batch.to(self.config["device"])
                 self.communications += 1
+
                 optimiser.zero_grad()
 
                 batch = {

@@ -62,7 +62,8 @@ class Client:
             },
             "performance_metrics": None,
             "num_elbo_samples": 10,
-            "print_epochs": 1
+            "print_epochs": 1,
+            "device": "cpu",
         }
 
     def can_update(self):
@@ -152,6 +153,9 @@ class Client:
                             batch_size=self.config["batch_size"],
                             shuffle=True)
 
+        if self.config["device"] == "cuda":
+            loader.pin_memory = True
+
         # Dict for logging optimisation progress.
         training_curve = defaultdict(list)
 
@@ -167,16 +171,19 @@ class Client:
             
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
+                x_batch = x_batch.to(self.config["device"])
+                y_batch = y_batch.to(self.config["device"])
+
                 optimiser.zero_grad()
 
                 batch = {
-                    "x" : x_batch,
-                    "y" : y_batch,
+                    "x": x_batch,
+                    "y": y_batch,
                 }
 
                 # TODO: Put this code inside a unit test.
                 # Compute KL divergence between q and q_old.
-                kl1 = q.kl_divergence(q_old).sum() / len(x)
+                # kl1 = q.kl_divergence(q_old).sum() / len(x)
 
                 # Compute KL divergence between q and q_old using
                 # torch.distribution.
@@ -193,7 +200,7 @@ class Client:
 
                 # Compute the KL divergence between q and q_cav, ignoring
                 # A(η_cav).
-                # kl5 = q.kl_divergence(q_cav, calc_log_ap=False).sum() / len(x)
+                kl5 = q.kl_divergence(q_cav, calc_log_ap=False).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
@@ -201,11 +208,12 @@ class Client:
                 ll /= len(x_batch)
 
                 # Compute E_q[log t(θ)].
-                logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                logt /= len(x)
+                # logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                # logt /= len(x)
+                logt = torch.tensor(0.).to(self.config["device"])
 
                 # Negative local free energy is KL minus log-probability.
-                loss1 = kl1 + logt - ll
+                # loss1 = kl1 + logt - ll
                 # loss2 = kl2 + logt - ll
                 # loss3 = kl3 - ll
                 # loss4 = kl4 - ll
@@ -229,13 +237,15 @@ class Client:
                 #                 pdb.set_trace()
                 #                 raise ValueError("Gradients not equal!")
 
-                # Use loss 1.
-                loss1.backward()
+                # Use loss 5.
+                kl = kl5
+                loss = kl - ll + logt
+                loss.backward()
                 optimiser.step()
                 
                 # Keep track of quantities for current batch.
-                epoch["elbo"] += -loss1.item() / len(loader)
-                epoch["kl"] += kl1.item() / len(loader)
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
                 epoch["logt"] += logt.item() / len(loader)
 
