@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import copy
 
 from torch import distributions, nn, optim
 from pvi.models.sgp.kernels import RBFKernel, KernelList
@@ -124,7 +125,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
         # Parameters of prior.
         kxz = self.kernel(x, z)
-        kzx = kxz.T
+        kzx = kxz.transpose(-1, -2)
         kzz = add_diagonal(self.kernel(z, z), JITTER)
         ikzz = psd_inverse(kzz)
 
@@ -132,11 +133,14 @@ class SparseGaussianProcessModel(Model, nn.Module):
             kxx = self.kernel(x, x, diag=diag)
 
             # Predictive marginal posterior.
-            kxz = kxz.unsqueeze(1)
+            kxz = kxz.unsqueeze(-2)
             kzx = kxz.transpose(-1, -2)
-            qf_mu = kxz.matmul(ikzz).matmul(qu_loc).reshape(-1)
+            qf_mu = kxz.matmul(ikzz.unsqueeze(-3)).matmul(
+                qu_loc.unsqueeze(-2).unsqueeze(-1)).squeeze(-1).squeeze(-1)
             qf_cov = kxx + kxz.matmul(
-                ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx).reshape(-1)
+                ikzz.unsqueeze(-3)).matmul(
+                (qu_cov - kzz).unsqueeze(-3)).matmul(
+                ikzz.unsqueeze(-3)).matmul(kzx).squeeze(-1).squeeze(-1)
 
             return distributions.Normal(qf_mu, qf_cov ** 0.5)
 
@@ -144,7 +148,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
             kxx = add_diagonal(self.kernel(x, x, diag=diag), JITTER)
 
             # Predictive posterior.
-            qf_mu = kxz.matmul(ikzz).matmul(qu_loc)
+            qf_mu = kxz.matmul(ikzz).matmul(qu_loc.unsqueeze(-1)).squeeze(-1)
             qf_cov = kxx + kxz.matmul(
                 ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx)
 
@@ -415,7 +419,7 @@ class MOSparseGaussianProcess(SparseGaussianProcessModel):
             # Replace kernel with multiple kernels, one for each output
             # dimension.
             self.kernel = KernelList(
-                [kernel.clone() for _ in range(self.config["P"])])
+                [copy.deepcopy(kernel) for _ in range(self.config["P"])])
         else:
             # Use sample kernel for each output dimension.
             self.kernel = KernelList(self.config["P"] * [kernel])
@@ -459,11 +463,11 @@ class MOSparseGaussianProcessClassification(MOSparseGaussianProcess):
         # (num_samples, P, N).
         fs = qf.sample((self.config["num_predictive_samples"],))
 
-        # (N, P, num_samples).
-        fs = fs.transpose(2, 1, 0)
+        # (N, num_samples, P).
+        fs = fs.permute(2, 0, 1)
 
         comp = distributions.Categorical(logits=fs)
-        mix = distributions.Categorical(torch.ones(fs.shape[-1],))
+        mix = distributions.Categorical(torch.ones(fs.shape[1],))
 
         return distributions.MixtureSameFamily(mix, comp)
 
@@ -488,7 +492,6 @@ class MOSparseGaussianProcessClassification(MOSparseGaussianProcess):
 
     def expected_log_likelihood(self, data, q, num_samples=1):
         x = data["x"]
-
         qf = self.posterior(x, q, diag=True)
-        fs = qf.rsample((num_samples,))
+        fs = qf.rsample((num_samples,)).permute(0, 2, 1)
         return self.likelihood_log_prob(data, fs).mean(0)
