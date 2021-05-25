@@ -27,32 +27,6 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
 
         return log_a
 
-    # @staticmethod
-    # def _std_from_unc(unc_params):
-    #
-    #     loc = unc_params["loc"]
-    #     log_scale = unc_params["log_scale"]
-    #
-    #     std = {
-    #         "loc": loc,
-    #         "scale": torch.exp(log_scale)
-    #     }
-    #
-    #     return std
-    #
-    # @staticmethod
-    # def _unc_from_std(std_params):
-    #
-    #     loc = std_params["loc"].detach()
-    #     scale = std_params["scale"].detach()
-    #
-    #     unc = {
-    #         "loc": torch.nn.Parameter(loc),
-    #         "log_scale": torch.nn.Parameter(torch.log(scale))
-    #     }
-    #
-    #     return unc
-
     @staticmethod
     def _std_from_unc(unc_params):
         loc = unc_params["loc"]
@@ -134,8 +108,9 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
         cov = psd_inverse(-2 * np2)
-        log_a = -0.5 * np.log(np.pi) * len(np1)
-        log_a += (0.25 * np1.dot(cov.matmul(np1))
+        log_a = -0.5 * np.log(np.pi) * np1.shape[-1]
+        log_a += (0.25 * np1.unsqueeze(-2).matmul(
+            cov.matmul(np1.unsqueeze(-1))).squeeze()
                   - 0.5 * (psd_logdet(-2 * np2)))
 
         return log_a
@@ -148,7 +123,8 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         
         std = {
             "loc": loc,
-            "covariance_matrix": torch.mm(scale_tril, scale_tril.T)
+            "covariance_matrix": scale_tril.matmul(
+                scale_tril.transpose(-1, -2))
         }
         
         return std
@@ -176,7 +152,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         prec = psd_inverse(cov)
         
         nat = {
-            "np1": prec.matmul(loc),
+            "np1": prec.matmul(loc.unsqueeze(-1)).squeeze(-1),
             "np2": -0.5 * prec
         }
         
@@ -190,10 +166,9 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         
         prec = -2. * np2
         cov = psd_inverse(prec)
-        loc = cov.matmul(np1)
         
         std = {
-            "loc": loc,
+            "loc": cov.matmul(np1.unsqueeze(-1)).squeeze(-1),
             "covariance_matrix": cov
         }
         
@@ -206,7 +181,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
 
         mp = {
             "m1": loc,
-            "m2": cov + loc.outer(loc),
+            "m2": cov + loc.unsqueeze(-1).matmul(loc.unsqueeze(-2)),
         }
 
         return mp
