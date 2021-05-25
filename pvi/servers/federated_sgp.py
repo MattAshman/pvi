@@ -65,22 +65,23 @@ class SGPServer(Server):
 
         # Prior distribution p(u).
         kzz = self.model.kernel(z, z).detach()
-        std_params = {
-            "loc": torch.zeros(z.shape[0]), # Assumes zero mean.
+        std_q = {
+            "loc": torch.zeros(kzz.shape[:-1]),
             "covariance_matrix": kzz,
         }
 
         # Compute q(u) = p(u) Π_m t_m(u_m).
-        nat_params = nat_from_std(std_params)
+        np_q = nat_from_std(std_q)
+
         for client_idx, client in enumerate(self.clients):
             np_i = client.t.nat_params
             for i, idx1 in enumerate(z_idx[client_idx]):
-                nat_params["np1"][idx1] += np_i["np1"][i]
+                np_q["np1"][..., idx1] += np_i["np1"][..., i]
                 for j, idx2 in enumerate(z_idx[client_idx]):
-                    nat_params["np2"][idx1, idx2] += np_i["np2"][i, j]
+                    np_q["np2"][..., idx1, idx2] += np_i["np2"][..., i, j]
 
         q = MultivariateGaussianDistributionWithZ(
-            nat_params=nat_params,
+            nat_params=np_q,
             inducing_locations=z,
             is_trainable=False,
             train_inducing=True

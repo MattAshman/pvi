@@ -27,7 +27,10 @@ class Server(ABC):
         self.p = p
 
         # Global posterior q(θ).
-        self.q = p.non_trainable_copy()
+        if hasattr(p, "non_trainable_copy"):
+            self.q = p.non_trainable_copy()
+        else:
+            self.q = p
 
         # Initial q(θ) for first client update.
         self.init_q = init_q
@@ -55,7 +58,8 @@ class Server(ABC):
         self.log["communications"].append(self.communications)
 
         # Evaluate performance of prior.
-        self.evaluate_performance()
+        if self.q is not None:
+            self.evaluate_performance()
 
     @property
     def config(self):

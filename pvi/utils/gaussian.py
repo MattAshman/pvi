@@ -84,8 +84,8 @@ def joint_from_marginal(qa, kab, kbb, kaa=None, ikaa=None, b_then_a=False):
     :param b_then_a: Order as q(b, a), rather than q(a, b).
     :return: q(a, b) = p(b | a) q(a).
     """
-    dima = kab.shape[0]
-    dimb = kab.shape[1]
+    dima = kab.shape[-2]
+    dimb = kab.shape[-1]
     dimab = dima + dimb
     qa_loc = qa.std_params["loc"]
     qa_cov = qa.std_params["covariance_matrix"]
@@ -96,29 +96,29 @@ def joint_from_marginal(qa, kab, kbb, kaa=None, ikaa=None, b_then_a=False):
         else:
             ikaa = psd_inverse(kaa)
 
-    a = kab.T.matmul(ikaa)
-
-    qab_loc = torch.zeros(dimab)
-    qab_cov = torch.zeros(dimab, dimab)
+    a = kab.transpose(-1, -2).matmul(ikaa)
+    at = a.transpose(-1, -2)
+    qab_loc = torch.zeros(*kbb.shape[:-2], dimab)
+    qab_cov = torch.zeros(*kbb.shape[:-2], dimab, dimab)
 
     if b_then_a:
-        qab_loc[dimb:] = qa_loc
-        qab_loc[:dimb] = a.matmul(qa_loc)
-        qab_cov[dimb:, dimb:] = qa_cov
-        qab_cov[dimb:, :dimb] = qa_cov.matmul(a.T)
-        qab_cov[:dimb, dimb:] = a.matmul(qa_cov)
-        qab_cov[:dimb, :dimb] = (
-                kbb + a.matmul(qa_cov).matmul(a.T) - a.matmul(kab))
+        qab_loc[..., dimb:] = qa_loc
+        qab_loc[..., :dimb] = a.matmul(qa_loc.unsqueeze(-1)).squeeze(-1)
+        qab_cov[..., dimb:, dimb:] = qa_cov
+        qab_cov[..., dimb:, :dimb] = qa_cov.matmul(at)
+        qab_cov[..., :dimb, dimb:] = a.matmul(qa_cov)
+        qab_cov[..., :dimb, :dimb] = (
+                kbb + a.matmul(qa_cov).matmul(at) - a.matmul(kab))
     else:
-        qab_loc[:dima] = qa_loc
-        qab_loc[dima:] = a.matmul(qa_loc)
-        qab_cov[:dima, :dima] = qa_cov
-        qab_cov[:dima, dima:] = qa_cov.matmul(a.T)
-        qab_cov[dima:, :dima] = a.matmul(qa_cov)
-        qab_cov[dima:, dima:] = (
-                kbb + a.matmul(qa_cov).matmul(a.T) - a.matmul(kab))
+        qab_loc[..., :dima] = qa_loc
+        qab_loc[..., dima:] = a.matmul(qa_loc.unsqueeze(-1)).squeeze(-1)
+        qab_cov[..., :dima, :dima] = qa_cov
+        qab_cov[..., :dima, dima:] = qa_cov.matmul(at)
+        qab_cov[..., dima:, :dima] = a.matmul(qa_cov)
+        qab_cov[..., dima:, dima:] = (
+                kbb + a.matmul(qa_cov).matmul(at) - a.matmul(kab))
 
-    assert torch.isclose(qab_cov, qab_cov.T).all()
+    assert torch.isclose(qab_cov, qab_cov.transpose(-1, -2)).all()
 
     return qab_loc, qab_cov
 
@@ -126,10 +126,11 @@ def joint_from_marginal(qa, kab, kbb, kaa=None, ikaa=None, b_then_a=False):
 def nat_from_std(std_params):
     loc = std_params["loc"]
     cov = std_params["covariance_matrix"]
+    # prec = psd_inverse(cov)
     prec = cov.inverse()
 
     nat = {
-        "np1": prec.matmul(loc),
+        "np1": prec.matmul(loc.unsqueeze(-1)).squeeze(-1),
         "np2": -0.5 * prec
     }
 
@@ -141,11 +142,12 @@ def std_from_nat(nat_params):
     np2 = nat_params["np2"]
 
     prec = -2. * np2
+    # cov = psd_inverse(prec)
     cov = prec.inverse()
 
     std = {
-        "loc": cov.matmul(np1),
-        "covariance_matrix": prec.inverse()
+        "loc": cov.matmul(np1.unsqueeze(-1)).squeeze(-1),
+        "covariance_matrix": cov
     }
 
     return std
