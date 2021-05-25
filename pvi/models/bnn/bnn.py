@@ -58,7 +58,7 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         # Predictive is a mixture of predictive distributions with equal
         # weights.
         mix = torch.distributions.Categorical(
-            logits=torch.ones(size=qy.batch_shape).to(x.device))
+            logits=torch.ones(size=qy.batch_shape).to(x))
         qy = torch.distributions.MixtureSameFamily(mix, qy)
 
         return qy
@@ -80,7 +80,7 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         for i, W in enumerate(theta):
             # Bias term.
             x = torch.cat(
-                [x, torch.ones((*x.shape[:-1], 1)).to(x.device)], dim=-1)
+                [x, torch.ones((*x.shape[:-1], 1)).to(x)], dim=-1)
             x = x.matmul(W)
 
             # Don't apply ReLU to final layer.
@@ -164,7 +164,7 @@ class ClassificationBNN(FullyConnectedBNN):
 
 class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
 
-    def local_repam_forward(self, x, q, samples_first=True, num_samples=None):
+    def local_repam_forward(self, x, q, num_samples=None):
         """
         Returns samples from the predictive posterior distribution of a
         Bayesian neural network, sampling activations instead of weights.
@@ -172,7 +172,6 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
         :param q: The approximate posterior distribution q(θ).
         :param num_samples: The number of samples to estimate the predictive
         posterior distribution with.
-        :param samples_first: Whether to have sample dimension first.
         :return: Samples from ∫ p(y | θ, x) q(θ) dθ.
         """
         if num_samples is None:
@@ -192,22 +191,25 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
 
             # Layer's q(h). Add jitter to scale to prevent numerical errors
             # during backward pass.
+            # (batch_size, dim_out).
             qh_loc = x.matmul(qw_loc)
             qh_scale = ((x ** 2).matmul(qw_scale ** 2) + 1e-6) ** 0.5
 
             # Use different random sample for each datapoint to reduce
             # covariance.
             if i == 0:
+                # (num_samples, batch_size, dim_out).
                 qh_eps = qh_loc.new(num_samples, *qh_loc.shape).normal_()
                 x = qh_loc + qh_scale * qh_eps
             else:
+                # (num_samples, batch_size, dim_out).
                 qh_eps = qh_loc.new(*qh_loc.shape).normal_()
                 x = qh_loc + qh_scale * qh_eps
 
             if i < self.config["num_layers"]:
                 x = self.activation(x)
 
-        return self.pred_dist_from_tensor(x, samples_first=samples_first)
+        return x
 
     # def forward(self, x, q, num_samples=None, **kwargs):
     #     """
@@ -243,8 +245,8 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
         x = data["x"]
         y = data["y"]
 
-        qy = self.local_repam_forward(x, q, samples_first=True,
-                                      num_samples=num_samples)
+        h = self.local_repam_forward(x, q, num_samples=num_samples)
+        qy = self.pred_dist_from_tensor(h, samples_first=True)
 
         return qy.log_prob(y).mean(0)
 

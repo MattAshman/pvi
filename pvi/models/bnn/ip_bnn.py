@@ -27,7 +27,7 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
         # (num_samples, m, dim_in - 1).
         z = torch.cat(num_samples * [z.unsqueeze(0)])
         for i in range(len(self.shapes)):
-            z = torch.cat([z, torch.ones((*z.shape[:2], 1))], dim=-1)
+            z = torch.cat([z, torch.ones((*z.shape[:-1], 1))], dim=-1)
 
             # Compute the distribution over weights and biases at this layer.
             qw = q.compute_dist(i, z)
