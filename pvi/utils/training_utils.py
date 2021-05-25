@@ -23,7 +23,7 @@ class EarlyStopping:
         """
         if len(scores) > self.patience:
             prev_scores = np.array(scores[-self.patience:])
-            ref_score = np.array(scores[-self.patience - 1])
+            ref_score = np.array(scores[-self.patience - 1]) + self.delta
 
             if np.all(prev_scores < ref_score):
                 return True

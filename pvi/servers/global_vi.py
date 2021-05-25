@@ -56,34 +56,34 @@ class GlobalVIServer(Server):
         else:
             q = self.q.trainable_copy()
 
-        # # Parameters are those of q(θ) and self.model.
-        # if self.config["train_model"]:
-        #     parameters = [
-        #         {"params": q.parameters()},
-        #         {"params": self.model.parameters(),
-        #          **self.config["model_optimiser_params"]}
-        #     ]
-        # else:
-        #     parameters = q.parameters()
-
-        # TODO: currently assumes Gaussian distribution.
         # Parameters are those of q(θ) and self.model.
-        # Try using different learning rate for σ than μ.
-        q_parameters = list(q.parameters())
         if self.config["train_model"]:
             parameters = [
-                {"params": q_parameters[0]},
-                {"params": q_parameters[1],
-                 **self.config["sigma_optimiser_params"]},
+                {"params": q.parameters()},
                 {"params": self.model.parameters(),
                  **self.config["model_optimiser_params"]}
             ]
         else:
-            parameters = [
-                {"params": q_parameters[0]},
-                {"params": q_parameters[1],
-                 **self.config["sigma_optimiser_params"]},
-            ]
+            parameters = q.parameters()
+
+        # TODO: currently assumes Gaussian distribution.
+        # # Parameters are those of q(θ) and self.model.
+        # # Try using different learning rate for σ than μ.
+        # q_parameters = list(q.parameters())
+        # if self.config["train_model"]:
+        #     parameters = [
+        #         {"params": q_parameters[0]},
+        #         {"params": q_parameters[1],
+        #          **self.config["sigma_optimiser_params"]},
+        #         {"params": self.model.parameters(),
+        #          **self.config["model_optimiser_params"]}
+        #     ]
+        # else:
+        #     parameters = [
+        #         {"params": q_parameters[0]},
+        #         {"params": q_parameters[1],
+        #          **self.config["sigma_optimiser_params"]},
+        #     ]
 
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
