@@ -98,7 +98,7 @@ class FederatedSGPClient(Client):
 
         # q(a, b) = q(b) p(a | b). Remember to order as q(a, b), not q(b, a).
         qab_loc, qab_cov = joint_from_marginal(
-            q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
+            q, kab.transpose(-1, -2), kbb=kaa, ikaa=ikbb, b_then_a=True)
 
         # q_cav(a, b) = q_cav(a) p(b | a).
         # qab_cav_loc, qab_cav_cov = joint_from_marginal(
@@ -111,8 +111,8 @@ class FederatedSGPClient(Client):
             "covariance_matrix": qab_cav_cov,
         })
 
-        qab_cav_np["np1"][:len(za)] -= self.t.nat_params["np1"]
-        qab_cav_np["np2"][:len(za), :len(za)] -= self.t.nat_params["np2"]
+        qab_cav_np["np1"][..., :len(za)] -= self.t.nat_params["np1"]
+        qab_cav_np["np2"][..., :len(za), :len(za)] -= self.t.nat_params["np2"]
 
 
         qab = type(q)(
@@ -184,7 +184,7 @@ class FederatedSGPClient(Client):
 
                 # q(a, b) = q(b) p(a | b).
                 qab_loc, qab_cov = joint_from_marginal(
-                    q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
+                    q, kab.transpose(-1, -2), kbb=kaa, ikaa=ikbb, b_then_a=True)
 
                 # q_cav(a, b) = q_cav(a) p(b | a).
                 # qab_cav_loc, qab_cav_cov = joint_from_marginal(
@@ -197,8 +197,8 @@ class FederatedSGPClient(Client):
                     "covariance_matrix": qab_cav_cov,
                 })
 
-                qab_cav_np["np1"][:len(za)] -= self.t.nat_params["np1"]
-                qab_cav_np["np2"][:len(za), :len(za)] -= self.t.nat_params[
+                qab_cav_np["np1"][..., :len(za)] -= self.t.nat_params["np1"]
+                qab_cav_np["np2"][..., :len(za), :len(za)] -= self.t.nat_params[
                     "np2"]
 
                 qab = type(q)(
@@ -289,16 +289,15 @@ class FederatedSGPClient(Client):
         tab_np = {k: (v.detach() - qab_old.nat_params[k].detach())
                   * self.config["damping_factor"]
                   for k, v in qab.nat_params.items()}
-        tab_np["np1"][:len(za)] += self.t.nat_params["np1"]
-        tab_np["np2"][:len(za), :len(za)] += self.t.nat_params["np2"]
+        tab_np["np1"][..., :len(za)] += self.t.nat_params["np1"]
+        tab_np["np2"][..., :len(za), :len(za)] += self.t.nat_params["np2"]
 
         # Marginalise to get t(b) = ∫ t(a, b) da.
-        # TODO: t(a, b) must be a valid distribution to do this.
         tab_std = std_from_nat(tab_np)
         tb_std = {
-            "loc": tab_std["loc"][len(za):],
+            "loc": tab_std["loc"][..., len(za):],
             "covariance_matrix": tab_std["covariance_matrix"][
-                                 len(za):, len(za):],
+                                 ..., len(za):, len(za):],
         }
 
         tb_np = nat_from_std(tb_std)
