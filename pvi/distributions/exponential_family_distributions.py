@@ -27,30 +27,54 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
 
         return log_a
 
+    # @staticmethod
+    # def _std_from_unc(unc_params):
+    #
+    #     loc = unc_params["loc"]
+    #     log_scale = unc_params["log_scale"]
+    #
+    #     std = {
+    #         "loc": loc,
+    #         "scale": torch.exp(log_scale)
+    #     }
+    #
+    #     return std
+    #
+    # @staticmethod
+    # def _unc_from_std(std_params):
+    #
+    #     loc = std_params["loc"].detach()
+    #     scale = std_params["scale"].detach()
+    #
+    #     unc = {
+    #         "loc": torch.nn.Parameter(loc),
+    #         "log_scale": torch.nn.Parameter(torch.log(scale))
+    #     }
+    #
+    #     return unc
+
     @staticmethod
     def _std_from_unc(unc_params):
-        
         loc = unc_params["loc"]
-        log_scale = unc_params["log_scale"]
-        
+        log_var = unc_params["log_var"]
+
         std = {
             "loc": loc,
-            "scale": torch.exp(log_scale)
+            "scale": torch.exp(log_var) ** 0.5
         }
-        
+
         return std
 
     @staticmethod
     def _unc_from_std(std_params):
-        
         loc = std_params["loc"].detach()
         scale = std_params["scale"].detach()
-        
+
         unc = {
             "loc": torch.nn.Parameter(loc),
-            "log_scale": torch.nn.Parameter(torch.log(scale))
+            "log_var": torch.nn.Parameter(2 * torch.log(scale))
         }
-        
+
         return unc
 
     @staticmethod
@@ -109,8 +133,9 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
 
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
+        cov = psd_inverse(-2 * np2)
         log_a = -0.5 * np.log(np.pi) * len(np1)
-        log_a += (-0.25 * np1.dot(np2.matmul(np1))
+        log_a += (0.25 * np1.dot(cov.matmul(np1))
                   - 0.5 * (psd_logdet(-2 * np2)))
 
         return log_a

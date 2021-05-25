@@ -11,7 +11,8 @@ class Server(ABC):
     """
     An abstract class for the server.
     """
-    def __init__(self, model, p, clients, config=None, init_q=None):
+    def __init__(self, model, p, clients, config=None, init_q=None,
+                 val_data=None):
 
         if config is None:
             config = {}
@@ -34,6 +35,15 @@ class Server(ABC):
         # Clients.
         self.clients = clients
 
+        # Union of clients data
+        self.data = {
+            k: torch.cat([client.data[k] for client in self.clients], dim=0)
+            for k in self.clients[0].data.keys()
+        }
+
+        # Validation dataset.
+        self.val_data = val_data
+
         # Internal iteration counter.
         self.iterations = 0
 
@@ -42,8 +52,10 @@ class Server(ABC):
 
         self.log = defaultdict(list)
 
-        self.log["q"].append(self.q.non_trainable_copy())
         self.log["communications"].append(self.communications)
+
+        # Evaluate performance of prior.
+        self.evaluate_performance()
 
     @property
     def config(self):
@@ -60,6 +72,8 @@ class Server(ABC):
             "hyper_optimiser": "SGD",
             "hyper_optimiser_params": {"lr": 1},
             "hyper_updates": 1,
+            "performance_metrics": lambda client, data: {},
+            "device": "cpu",
         }
 
     @abstractmethod
@@ -76,6 +90,33 @@ class Server(ABC):
         Defines when the server should stop running.
         """
         pass
+
+    def evaluate_performance(self, default_metrics=None):
+        if self.config["performance_metrics"] is not None:
+            if default_metrics is not None:
+                metrics = {
+                    **default_metrics,
+                    "communications": self.communications,
+                    "iterations": self.iterations,
+                }
+            else:
+                metrics = {
+                    "communications": self.communications,
+                    "iterations": self.iterations,
+                }
+
+            train_metrics = self.config["performance_metrics"](self, self.data)
+            for k, v in train_metrics.items():
+                metrics["train_" + k] = v
+
+
+            if self.val_data is not None:
+                val_metrics = self.config["performance_metrics"](
+                    self, self.val_data)
+                for k, v in val_metrics.items():
+                    metrics["val_" + k] = v
+
+            self.log["performance_metrics"].append(metrics)
 
     def update_hyperparameters(self):
         """

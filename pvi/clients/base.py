@@ -1,5 +1,6 @@
 import logging
 import torch
+import numpy as np
 
 from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
@@ -60,9 +61,12 @@ class Client:
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
+            "early_stopping": lambda elbo: False,
             "performance_metrics": None,
             "num_elbo_samples": 10,
-            "print_epochs": 1
+            "print_epochs": np.pi,
+            "device": "cpu",
+            "verbose": False,
         }
 
     def can_update(self):
@@ -71,6 +75,27 @@ class Client:
         one may not be is that they haven't finished optimisation.
         """
         return self._can_update
+
+    def evaluate_performance(self, default_metrics=None):
+        if default_metrics is not None:
+            metrics = {
+                **default_metrics,
+            }
+        else:
+            metrics = {}
+
+        if self.config["performance_metrics"] is not None:
+            train_metrics = self.config["performance_metrics"](self, self.data)
+            for k, v in train_metrics.items():
+                metrics["train_" + k] = v.item()
+
+            if self.val_data is not None:
+                val_metrics = self.config["performance_metrics"](
+                    self, self.val_data)
+                for k, v in val_metrics.items():
+                    metrics["val_" + k] = v.item()
+
+        return metrics
     
     def fit(self, q, init_q=None):
         """
@@ -152,36 +177,38 @@ class Client:
                             batch_size=self.config["batch_size"],
                             shuffle=True)
 
+        if self.config["device"] == "cuda":
+            loader.pin_memory = True
+
         # Dict for logging optimisation progress.
-        training_curve = defaultdict(list)
+        training_metrics = defaultdict(list)
 
         # Dict for logging performance progress.
-        performance_curve = defaultdict(list)
+        performance_metrics = defaultdict(list)
         
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
-                          leave=True)
+                          leave=True, disable=(not self.config["verbose"]))
+
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
-            epoch = {
-                "elbo" : 0,
-                "kl"   : 0,
-                "ll"   : 0,
-                "logt" : 0,
-            }
+            epoch = defaultdict(lambda: 0.)
             
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
+                x_batch = x_batch.to(self.config["device"])
+                y_batch = y_batch.to(self.config["device"])
+
                 optimiser.zero_grad()
 
                 batch = {
-                    "x" : x_batch,
-                    "y" : y_batch,
+                    "x": x_batch,
+                    "y": y_batch,
                 }
 
                 # TODO: Put this code inside a unit test.
                 # Compute KL divergence between q and q_old.
-                kl1 = q.kl_divergence(q_old).sum() / len(x)
+                # kl1 = q.kl_divergence(q_old).sum() / len(x)
 
                 # Compute KL divergence between q and q_old using
                 # torch.distribution.
@@ -198,7 +225,7 @@ class Client:
 
                 # Compute the KL divergence between q and q_cav, ignoring
                 # A(η_cav).
-                # kl5 = q.kl_divergence(q_cav, calc_log_ap=False).sum() / len(x)
+                kl5 = q.kl_divergence(q_cav, calc_log_ap=False).sum() / len(x)
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
@@ -206,11 +233,12 @@ class Client:
                 ll /= len(x_batch)
 
                 # Compute E_q[log t(θ)].
-                logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                logt /= len(x)
+                # logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                # logt /= len(x)
+                logt = torch.tensor(0.).to(self.config["device"])
 
                 # Negative local free energy is KL minus log-probability.
-                loss1 = kl1 + logt - ll
+                # loss1 = kl1 + logt - ll
                 # loss2 = kl2 + logt - ll
                 # loss3 = kl3 - ll
                 # loss4 = kl4 - ll
@@ -234,69 +262,59 @@ class Client:
                 #                 pdb.set_trace()
                 #                 raise ValueError("Gradients not equal!")
 
-                # Use loss 1.
-                loss1.backward()
+                # Use loss 5.
+                kl = kl5
+                loss = kl - ll + logt
+                loss.backward()
                 optimiser.step()
                 
-                # Keep track of quantities for current batch
-                # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss1.item() / len(loader)
-                epoch["kl"] += kl1.item() / len(loader)
+                # Keep track of quantities for current batch.
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
                 epoch["logt"] += logt.item() / len(loader)
-
-            # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["ll"].append(epoch["ll"])
-
-            if self.t is not None:
-                training_curve["logt"].append(epoch["logt"])
-
-            if i % self.config["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"log t: {epoch['logt']:.3f}, "
-                             f"Epochs: {i}.")
-
-                # Update global posterior before making predictions.
-                self.q = q.non_trainable_copy()
-
-                # Get training set performance.
-                report = f"Epochs: {i}. ELBO: {epoch['elbo']:.3f} " \
-                         f"LL: {epoch['ll']:.3f} KL: {epoch['kl']:.3f} "
-
-                if self.config["performance_metrics"] is not None:
-                    performance_curve["epoch"].append(i)
-                    train_metrics = self.config["performance_metrics"](
-                        self, self.data)
-
-                    for k, v in train_metrics.items():
-                        performance_curve["train_" + k].append(v.item())
-                        report += f"Train {k}: {v:.3f} "
-
-                    if self.val_data is not None:
-                        val_metrics = self.config["performance_metrics"](
-                            self, self.val_data)
-                        for k, v in val_metrics.items():
-                            performance_curve["val_" + k].append(v.item())
-                            report += f"Val {k}: {v:.3f} "
-
-                tqdm.write(report)
 
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                    ll=epoch["ll"], logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
 
+            # Log progress for current epoch
+            training_metrics["elbo"].append(epoch["elbo"])
+            training_metrics["kl"].append(epoch["kl"])
+            training_metrics["ll"].append(epoch["ll"])
+
+            if self.t is not None:
+                training_metrics["logt"].append(epoch["logt"])
+
+            if i > 0 and i % self.config["print_epochs"] == 0:
+                # Update global posterior before evaluating performance.
+                self.q = q.non_trainable_copy()
+
+                metrics = self.evaluate_performance({
+                    "epochs": i,
+                    "elbo": epoch["elbo"],
+                    "kl": epoch["kl"],
+                    "ll": epoch["ll"],
+                })
+
+                # Report performance.
+                report = ""
+                for k, v in metrics.items():
+                    report += f"{k}: {v:.3f} "
+                    performance_metrics[k].append(v)
+
+                tqdm.write(report)
+
             # Update learning rate.
             lr_scheduler.step()
 
-        # Log the training curves for this update.
-        self.log["training_curves"].append(training_curve)
+            # Check whether to stop early.
+            if self.config["early_stopping"](training_metrics["elbo"]):
+                break
 
-        # Log the performance curves for this update.
-        self.log["performance_curves"].append(performance_curve)
+        # Log the training curves for this update.
+        self.log["training_curves"].append(training_metrics)
+        self.log["performance_curves"].append(performance_metrics)
 
         # Create non-trainable copy to send back to server.
         q_new = q.non_trainable_copy()

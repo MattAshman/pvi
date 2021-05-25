@@ -52,7 +52,7 @@ class ContinualLearningSGPClient(Client):
         qa = q.non_trainable_copy()
         za = qa.inducing_locations
 
-        # Parameterise as q(b | a) N(b; mb + Aa, Sb), initialised as
+        # Parameterise as q(b | a) = N(b; mb + Aa, Sb), initialised as
         # q(b | a) = p(b | a).
         zb = self.inducing_locations
         mb = torch.zeros(len(zb))

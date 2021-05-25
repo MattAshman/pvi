@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from abc import abstractmethod
+from typing import List
 
 
 def _mul_broadcast_shape(*shapes, error_msg=None):
@@ -136,9 +137,11 @@ class Kernel(nn.Module):
             value = torch.as_tensor(value)
 
         if self.train_hypers:
-            self.log_lengthscale.data = value.log()
+            self.log_lengthscale.data = value.log().reshape(
+                self.log_lengthscale.shape)
         else:
-            self.log_lengthscale = value.log()
+            self.log_lengthscale = value.log().reshape(
+                self.log_lengthscale.shape)
 
     @property
     def outputscale(self):
@@ -243,3 +246,49 @@ class RBFKernel(Kernel):
         else:
             outputscales = outputscales.view(*outputscales.shape, 1, 1)
             return covar_dist.mul(outputscales)
+
+
+class KernelList(nn.ModuleList):
+    """
+    A list of kernels.
+    """
+    def __init__(self, kernels: List[Kernel]):
+        super().__init__(kernels)
+
+    def forward(self, *args, **kwargs):
+        """
+        Returns covariance matrices defined by each kernel in self.
+        """
+        covs = [kernel.forward(*args, **kwargs) for kernel in self.kernels]
+
+        return torch.stack(covs)
+
+    @property
+    def lengthscale(self):
+        return torch.stack([kernel.lengthscale for kernel in self.kernels])
+
+    @lengthscale.setter
+    def lengthscale(self, value):
+        if value.shape[0] == len(self.kernels):
+            # Lengthscale per kernel.
+            for kernel, val in zip(self.kernels, value):
+                kernel.lengthscale = val
+        else:
+            # Same lengthscale for all kernels.
+            for kernel in self.kernels:
+                kernel.lengthscale = value
+
+    @property
+    def outputscale(self):
+        return torch.stack([kernel.outputscale for kernel in self.kernels])
+
+    @outputscale.setter
+    def outputscale(self, value):
+        if value.shape[0] == len(self.kernels):
+            # Outputscale per kernel.
+            for kernel, val in zip(self.kernels, value):
+                kernel.outputscale = val
+        else:
+            # Same outputscale for all kernels.
+            for kernel in self.kernels:
+                kernel.outputscale = value

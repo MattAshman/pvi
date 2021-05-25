@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 
 
 class ContinualLearningServer(Server):
-    def __init__(self, model, p, clients, config=None, init_q=None):
-        super().__init__(model, p, clients, config, init_q)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # Loop through each client just once.
         self.config = {"max_iterations": len(self.clients)}
@@ -38,9 +38,7 @@ class ContinualLearningServer(Server):
             return False
 
         logger.debug("Getting client updates.")
-
         client = self.clients[self.client_idx]
-
         if client.can_update():
 
             if self.iterations == 0:
@@ -52,9 +50,6 @@ class ContinualLearningServer(Server):
             self.q = q_new.non_trainable_copy()
             self.communications += 1
 
-            self.log["q"].append(self.q.non_trainable_copy())
-            self.log["communications"].append(self.communications)
-
             if self.config["train_model"]:
                 self.log["model_state_dict"].append(
                     copy.deepcopy(self.model.state_dict()))
@@ -64,6 +59,10 @@ class ContinualLearningServer(Server):
 
         self.iterations += 1
         self.client_idx = (self.client_idx + 1) % len(self.clients)
+
+        # Log progress.
+        self.evaluate_performance()
+        self.log["communications"].append(self.communications)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
@@ -103,8 +102,8 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
             self.qeps = qeps_new.non_trainable_copy()
             self.communications += 1
 
-            self.log["q"].append(self.q.non_trainable_copy())
-            self.log["qeps"].append(self.qeps.non_trainable_copy())
+            # self.log["q"].append(self.q.non_trainable_copy())
+            # self.log["qeps"].append(self.qeps.non_trainable_copy())
             self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete."

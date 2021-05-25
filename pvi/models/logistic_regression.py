@@ -67,7 +67,8 @@ class LogisticRegressionModel(Model, nn.Module):
             q_loc = q.std_params["loc"]
 
             if self.include_bias:
-                x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
+                x_ = torch.cat(
+                    (x, torch.ones(len(x)).to(x).unsqueeze(-1)), dim=1)
             else:
                 x_ = x
 
@@ -91,7 +92,7 @@ class LogisticRegressionModel(Model, nn.Module):
 
             comp_ = self.likelihood_forward(x, thetas)
             comp = distributions.Bernoulli(logits=comp_.logits.T)
-            mix = distributions.Categorical(torch.ones(len(thetas),))
+            mix = distributions.Categorical(torch.ones(len(thetas),).to(x))
 
             return distributions.MixtureSameFamily(mix, comp)
 
@@ -106,7 +107,7 @@ class LogisticRegressionModel(Model, nn.Module):
         assert len(theta.shape) in [1, 2], "theta must be (*, D)."
 
         if self.include_bias:
-            x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
+            x_ = torch.cat((x, torch.ones(len(x)).to(x).unsqueeze(-1)), dim=1)
         else:
             x_ = x
 

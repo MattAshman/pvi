@@ -15,12 +15,12 @@ class AsynchronousServer(Server):
     inversely proportional to the amount of data on each client, and updates
     them one after another (i.e. incorporating the previous clients updates).
     """
-    def __init__(self, model, p, clients, config=None, client_probs=None,
-                 init_q=None):
-        super().__init__(model, p, clients, config, init_q)
+    def __init__(self, client_probs=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         if client_probs is None:
-            client_probs = [1 / len(client.data["x"]) for client in clients]
+            client_probs = [1 / len(client.data["x"])
+                            for client in self.clients]
 
         self.client_probs = [prob / sum(client_probs) for prob in client_probs]
 
@@ -35,9 +35,6 @@ class AsynchronousServer(Server):
             return False
 
         logger.debug("Getting client updates.")
-
-        clients_updated = 0
-
         for i in tqdm(range(len(self.clients)), leave=False):
 
             available_clients = [client.can_update() for client in
@@ -47,19 +44,20 @@ class AsynchronousServer(Server):
                 logger.info('All clients report to be finished. Stopping.')
                 break
 
-            client_index = int(
+            client_idx = int(
                 np.random.choice(len(self.clients), 1, replace=False,
                                  p=self.client_probs))
-            logger.debug(f"Selected Client {client_index}")
-            client = self.clients[client_index]
+            logger.debug(f"Selected Client {client_idx}")
+            client = self.clients[client_idx]
 
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_old = client.t
 
-                # TODO: keep track of which clients have been visited so can
-                #  pass self.init_q at correct moment.
-                _, t_new = client.fit(self.q)
+                if self.communications == 0:
+                    _, t_new = client.fit(self.q, self.init_q)
+                else:
+                    _, t_new = client.fit(self.q)
 
                 logger.debug(
                     "Received client updates. Updating global posterior.")
@@ -68,21 +66,14 @@ class AsynchronousServer(Server):
                 self.q = self.q.replace_factor(t_old, t_new,
                                                is_trainable=False)
 
-                clients_updated += 1
                 self.communications += 1
 
-                # Log q after each update.
-                self.log["q"].append(self.q.non_trainable_copy())
-                self.log["communications"].append(self.communications)
-
             else:
-                logger.debug(f"Skipping client {client_index}, client not "
+                logger.debug(f"Skipping client {client_idx}, client not "
                              "avalible to update.")
                 continue
 
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
-
+        logger.debug(f"Iteration {self.iterations} complete.")
         self.iterations += 1
 
         # Update hyperparameters.
@@ -91,7 +82,8 @@ class AsynchronousServer(Server):
             self.update_hyperparameters()
 
         # Log progress.
-        self.log["clients_updated"].append(clients_updated)
+        self.evaluate_performance()
+        self.log["communications"].append(self.communications)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
@@ -137,17 +129,22 @@ class AsynchronousServerBayesianHypers(ServerBayesianHypers):
                 logger.info('All clients report to be finished. Stopping.')
                 break
 
-            client_index = int(
+            client_idx = int(
                 np.random.choice(len(self.clients), 1, replace=False,
                                  p=self.client_probs))
-            logger.debug(f"Selected Client {client_index}")
-            client = self.clients[client_index]
+            logger.debug(f"Selected Client {client_idx}")
+            client = self.clients[client_idx]
 
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_old = client.t
                 teps_old = client.teps
-                _, _, t_new, teps_new = client.fit(self.q, self.qeps)
+
+                if self.communications == 0:
+                    _, _, t_new, teps_new = client.fit(
+                        self.q, self.qeps, self.init_q, self.init_qeps)
+                else:
+                    _, _, t_new, teps_new = client.fit(self.q, self.qeps)
 
                 logger.debug(
                     "Received client updates. Updating global posterior.")
@@ -161,12 +158,12 @@ class AsynchronousServerBayesianHypers(ServerBayesianHypers):
                 self.communications += 1
 
                 # Log q after each update.
-                self.log["q"].append(self.q.non_trainable_copy())
-                self.log["qeps"].append(self.qeps.non_trainable_copy())
+                # self.log["q"].append(self.q.non_trainable_copy())
+                # self.log["qeps"].append(self.qeps.non_trainable_copy())
                 self.log["communications"].append(self.communications)
 
             else:
-                logger.debug(f"Skipping client {client_index}, client not "
+                logger.debug(f"Skipping client {client_idx}, client not "
                              "avalible to update.")
                 continue
 

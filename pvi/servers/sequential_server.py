@@ -20,10 +20,7 @@ class SequentialServer(Server):
             return False
 
         logger.debug("Getting client updates.")
-
-        clients_updated = 0
-
-        for i, client in enumerate(self.clients):
+        for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_old = client.t
@@ -40,12 +37,7 @@ class SequentialServer(Server):
                 # Update global posterior.
                 self.q = self.q.replace_factor(t_old, t_new,
                                                is_trainable=False)
-                clients_updated += 1
                 self.communications += 1
-
-                # Log q after each update.
-                self.log["q"].append(self.q.non_trainable_copy())
-                self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
 
@@ -56,7 +48,9 @@ class SequentialServer(Server):
                 self.iterations % self.config["model_update_freq"] == 0:
             self.update_hyperparameters()
 
-        self.log["clients_updated"].append(clients_updated)
+        # Log progress.
+        self.evaluate_performance()
+        self.log["communications"].append(self.communications)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
@@ -103,8 +97,8 @@ class SequentialServerBayesianHypers(ServerBayesianHypers):
                 self.communications += 1
 
                 # Log q after each update.
-                self.log["q"].append(self.q.non_trainable_copy())
-                self.log["qeps"].append(self.qeps.non_trainable_copy())
+                # self.log["q"].append(self.q.non_trainable_copy())
+                # self.log["qeps"].append(self.qeps.non_trainable_copy())
                 self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")

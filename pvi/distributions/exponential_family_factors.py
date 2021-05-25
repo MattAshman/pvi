@@ -36,19 +36,6 @@ class MeanFieldGaussianFactor(ExponentialFamilyFactor):
         
         return npf
 
-    def eqlogt(self, q, num_samples=1):
-
-        np1 = self.nat_params["np1"]
-        np2 = self.nat_params["np2"]
-
-        loc = q.std_params["loc"]
-        scale = q.std_params["scale"]
-
-        eqlogt = np1.dot(loc) + np2.dot(scale ** 2 + loc ** 2)
-        eqlogt += self.log_coeff
-
-        return eqlogt
-
     def nat_from_dist(self, q):
         
         loc = q.loc.detach()
@@ -110,24 +97,6 @@ class MultivariateGaussianFactor(ExponentialFamilyFactor):
         npf = npf + torch.sum(thetas * torch.mm(thetas, np2), dim=1)
         
         return npf
-
-    def eqlogt(self, q, num_samples=1):
-        """
-        E_q[log t(θ)] = nu.T E_q[f(θ)] + const (assumed independent of θ).
-        """
-        np1 = self.nat_params["np1"]
-        np2 = self.nat_params["np2"].flatten()
-
-        loc = q.std_params["loc"]
-        cov = q.std_params["covariance_matrix"]
-
-        m1 = loc
-        m2 = (cov + loc.matmul(loc.T)).flatten()
-
-        eqlogt = np1.dot(m1) + np2.dot(m2)
-        eqlogt += self.log_coeff
-
-        return eqlogt
 
     def nat_from_dist(self, q):
         
