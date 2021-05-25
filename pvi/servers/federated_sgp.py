@@ -35,6 +35,11 @@ class SGPServer(Server):
             "damping_factor": 1.,
             "optimiser": "Adam",
             "optimiser_params": {"lr": 1e-2},
+            "lr_scheduler": "MultiplicativeLR",
+            "lr_scheduler_params": {
+                "lr_lambda": lambda epoch: 1.
+            },
+            "early_stopping": lambda elbo: False,
             "epochs": 100,
         }
 
@@ -268,10 +273,13 @@ class SGPServer(Server):
 
             optimiser = getattr(torch.optim, self.config["optimiser"])(
                 q.parameters(), **self.config["optimiser_params"])
+            lr_scheduler = getattr(torch.optim.lr_scheduler,
+                                   self.config["lr_scheduler"])(
+                optimiser, **self.config["lr_scheduler_params"])
             optimiser.zero_grad()
 
             # Dict for logging optimisation progress.
-            training_curve = defaultdict(list)
+            training_metrics = defaultdict(list)
 
             # Gradient-based optimisation loop.
             epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
@@ -350,18 +358,25 @@ class SGPServer(Server):
                 epoch["logt_new"] = logt_new.item()
                 epoch["logt_old"] = logt_old.item()
 
-                # Log progress for current epoch
-                training_curve["elbo"].append(epoch["elbo"])
-                training_curve["kl"].append(epoch["kl"])
-                training_curve["logt_new"].append(epoch["logt_new"])
-                training_curve["logt_old"].append(epoch["logt_old"])
-
                 epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                        logt_new=epoch["logt_new"],
                                        logt_old=epoch["logt_old"])
 
+                # Log progress for current epoch
+                training_metrics["elbo"].append(epoch["elbo"])
+                training_metrics["kl"].append(epoch["kl"])
+                training_metrics["logt_new"].append(epoch["logt_new"])
+                training_metrics["logt_old"].append(epoch["logt_old"])
+
+                # Update learning rate.
+                lr_scheduler.step()
+
+                # Check whether to stop early.
+                if self.config["early_stopping"](training_metrics["elbo"]):
+                    break
+
             # Log the training curves for this update
-            self.log["training_curves"].append(training_curve)
+            self.log["training_curves"].append(training_metrics)
 
             # Create non-trainable copy to send back to server.
             q_new = q.non_trainable_copy()
