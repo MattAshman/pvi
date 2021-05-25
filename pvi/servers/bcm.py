@@ -31,8 +31,6 @@ class BayesianCommitteeMachineSame(Server):
         logger.debug("Getting client updates.")
 
         nps = []
-        clients_updated = 0
-
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
@@ -45,7 +43,6 @@ class BayesianCommitteeMachineSame(Server):
                 # Store natural parameters.
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
-                clients_updated += 1
                 self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
@@ -56,15 +53,12 @@ class BayesianCommitteeMachineSame(Server):
 
         self.q = self.q.create_new(nat_params=q_nps, is_trainable=False)
 
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
-
+        logger.debug(f"Iteration {self.iterations} complete.")
         self.iterations += 1
 
         # Log progress.
-        # self.log["q"].append(self.q.non_trainable_copy())
+        self.evaluate_performance()
         self.log["communications"].append(self.communications)
-        self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
@@ -81,10 +75,10 @@ class BayesianCommitteeMachineSplit(Server):
 
     q_k(θ) ≅ p(θ | D_k) = p(θ)^{N_k / N} p(D_k | θ) / p(D_k).
     """
-    def __init__(self, model, p, clients, config=None, init_q=None):
-        super().__init__(model, p, clients, config, init_q)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        nk = [client.data["x"].shape[0] for client in clients]
+        nk = [client.data["x"].shape[0] for client in self.clients]
         client_props = [n / sum(nk) for n in nk]
         self.client_props = client_props
 
@@ -99,10 +93,7 @@ class BayesianCommitteeMachineSplit(Server):
             return False
 
         logger.debug("Getting client updates.")
-
         nps = []
-        clients_updated = 0
-
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
@@ -120,7 +111,6 @@ class BayesianCommitteeMachineSplit(Server):
                 # Store natural parameters.
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
-                clients_updated += 1
                 self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
@@ -137,9 +127,8 @@ class BayesianCommitteeMachineSplit(Server):
         self.iterations += 1
 
         # Log progress.
-        # self.log["q"].append(self.q.non_trainable_copy())
+        self.evaluate_performance()
         self.log["communications"].append(self.communications)
-        self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1

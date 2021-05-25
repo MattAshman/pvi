@@ -1,4 +1,5 @@
 import logging
+import numpy as np
 import torch
 
 from torch.utils.data import TensorDataset, DataLoader
@@ -15,20 +16,11 @@ logger = logging.getLogger(__name__)
 
 
 class GlobalVIServer(Server):
-    def __init__(self, model, p, clients, config=None, init_q=None,
-                 val_data=None):
-        super().__init__(model, p, clients, config, init_q)
-
-        # Global VI server has access to the entire dataset.
-        self.data = {k: torch.cat([client.data[k] for client in self.clients],
-                                  dim=0)
-                     for k in self.clients[0].data.keys()}
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # Tracks number of epochs.
         self.epochs = 0
-
-        # Validation dataset.
-        self.val_data = val_data
 
     def get_default_config(self):
         return {
@@ -44,11 +36,10 @@ class GlobalVIServer(Server):
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
-            "performance_metrics": None,
+            "early_stopping": lambda elbo: False,
             "num_elbo_samples": 10,
-            "print_epochs": 1,
+            "print_epochs": np.pi,
             "homogenous_split": True,
-            "device": "cpu",
         }
 
     def tick(self):
@@ -65,15 +56,34 @@ class GlobalVIServer(Server):
         else:
             q = self.q.trainable_copy()
 
+        # # Parameters are those of q(θ) and self.model.
+        # if self.config["train_model"]:
+        #     parameters = [
+        #         {"params": q.parameters()},
+        #         {"params": self.model.parameters(),
+        #          **self.config["model_optimiser_params"]}
+        #     ]
+        # else:
+        #     parameters = q.parameters()
+
+        # TODO: currently assumes Gaussian distribution.
         # Parameters are those of q(θ) and self.model.
+        # Try using different learning rate for σ than μ.
+        q_parameters = list(q.parameters())
         if self.config["train_model"]:
             parameters = [
-                {"params": q.parameters()},
+                {"params": q_parameters[0]},
+                {"params": q_parameters[1],
+                 **self.config["sigma_optimiser_params"]},
                 {"params": self.model.parameters(),
                  **self.config["model_optimiser_params"]}
             ]
         else:
-            parameters = q.parameters()
+            parameters = [
+                {"params": q_parameters[0]},
+                {"params": q_parameters[1],
+                 **self.config["sigma_optimiser_params"]},
+            ]
 
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
@@ -114,10 +124,7 @@ class GlobalVIServer(Server):
             loader.pin_memory = True
 
         # Dict for logging optimisation progress.
-        training_curve = defaultdict(list)
-
-        # Dict for logging performance progress.
-        performance_curve = defaultdict(list)
+        training_metrics = defaultdict(list)
 
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
@@ -162,49 +169,40 @@ class GlobalVIServer(Server):
                                    lr=optimiser.param_groups[0]["lr"])
 
             # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["ll"].append(epoch["ll"])
+            training_metrics["elbo"].append(epoch["elbo"])
+            training_metrics["kl"].append(epoch["kl"])
+            training_metrics["ll"].append(epoch["ll"])
 
             if i % self.config["print_epochs"] == 0 \
                     or i == (self.config["epochs"] - 1):
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"Epochs: {i}.")
-
-                # Update global posterior before making predictions.
+                # Update global posterior before evaluating performance.
                 self.q = q.non_trainable_copy()
 
-                # Get training set performance.
-                report = f"Epochs: {i}. ELBO: {epoch['elbo']:.3f} "\
-                         f"LL: {epoch['ll']:.3f} KL: {epoch['kl']:.3f} "
+                self.evaluate_performance({
+                    "epochs": i,
+                    "elbo": epoch["elbo"],
+                    "kl": epoch["kl"],
+                    "ll": epoch["ll"],
+                })
 
-                if self.config["performance_metrics"] is not None:
-                    performance_curve["epoch"].append(i)
-                    train_metrics = self.config["performance_metrics"](
-                        self, self.data)
-
-                    for k, v in train_metrics.items():
-                        performance_curve["train_" + k].append(v.item())
-                        report += f"Train {k}: {v:.3f} "
-
-                    if self.val_data is not None:
-                        val_metrics = self.config["performance_metrics"](
-                            self, self.val_data)
-                        for k, v in val_metrics.items():
-                            performance_curve["val_" + k].append(v.item())
-                            report += f"Val {k}: {v:.3f} "
+                # Report performance.
+                report = ""
+                for k, v in self.log["performance_metrics"][-1].items():
+                    if k not in ["communications", "iterations"]:
+                        report += f"{k}: {v:.3f} "
 
                 tqdm.write(report)
 
             # Log q so we can track performance each epoch.
-            # self.log["q"].append(q.non_trainable_copy())
             self.log["communications"].append(self.communications)
             self.epochs += 1
 
             # Update learning rate.
             lr_scheduler.step()
+
+            # Check whether to stop early.
+            if self.config["early_stopping"](training_metrics["elbo"]):
+                break
 
         # Update global posterior.
         self.q = q.non_trainable_copy()
@@ -212,10 +210,7 @@ class GlobalVIServer(Server):
         self.iterations += 1
 
         # Log training.
-        self.log["training_curves"].append(training_curve)
-
-        # Log performance.
-        self.log["performance_curves"].append(performance_curve)
+        self.log["training_curves"].append(training_metrics)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1

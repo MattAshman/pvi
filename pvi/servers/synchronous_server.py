@@ -19,9 +19,6 @@ class SynchronousServer(Server):
             return False
 
         logger.debug("Getting client updates.")
-
-        clients_updated = 0
-
         t_olds = []
         t_news = []
         for i, client in tqdm(enumerate(self.clients), leave=False):
@@ -38,7 +35,6 @@ class SynchronousServer(Server):
                 t_olds.append(t_old)
                 t_news.append(t_new)
 
-                clients_updated += 1
                 self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
@@ -48,7 +44,6 @@ class SynchronousServer(Server):
             self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
-
         self.iterations += 1
 
         # Update hyperparameters.
@@ -57,9 +52,8 @@ class SynchronousServer(Server):
             self.update_hyperparameters()
 
         # Log progress.
-        # self.log["q"].append(self.q.non_trainable_copy())
+        self.evaluate_performance()
         self.log["communications"].append(self.communications)
-        self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
