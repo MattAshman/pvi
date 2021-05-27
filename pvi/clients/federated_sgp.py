@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
-JITTER = 1e-4
+JITTER = 1e-6
 
 
 class FederatedSGPClient(Client):
@@ -198,8 +198,8 @@ class FederatedSGPClient(Client):
                 })
 
                 qab_cav_np["np1"][..., :len(za)] -= self.t.nat_params["np1"]
-                qab_cav_np["np2"][..., :len(za), :len(za)] -= self.t.nat_params[
-                    "np2"]
+                qab_cav_np["np2"][
+                    ..., :len(za), :len(za)] -= self.t.nat_params["np2"]
 
                 qab = type(q)(
                     inducing_locations=z,

@@ -11,6 +11,7 @@ from pvi.distributions import MultivariateGaussianDistributionWithZ
 logger = logging.getLogger(__name__)
 
 JITTER = 1e-4
+MIN_EIGVAL = 1e-3
 
 
 class SGPServer(Server):
@@ -79,6 +80,39 @@ class SGPServer(Server):
                 np_q["np1"][..., idx1] += np_i["np1"][..., i]
                 for j, idx2 in enumerate(z_idx[client_idx]):
                     np_q["np2"][..., idx1, idx2] += np_i["np2"][..., i, j]
+
+        # # TODO: what effects does this have?
+        # # Now constrain to be valid distribution.
+        # if len(np_q["np1"].shape) == 2:
+        #     for i in range(len(np_q["np2"])):
+        #         (eigvals_, eigvecs) = np_q["np2"][i].eig(eigenvectors=True)
+        #
+        #         #  Assume all real eigenvalues.
+        #         eigvals = eigvals_[:, 0]
+        #
+        #         # Constrain to be negative.
+        #         eigvals[eigvals >= 0] = -MIN_EIGVAL
+        #
+        #         # Reconstruct np2.
+        #         np_q["np2"][i] = eigvecs.matmul(
+        #             eigvals.diag_embed().matmul(eigvecs.T))
+        #
+        # elif len(np_q["np1"].shape) == 1:
+        #     (eigvals_, eigvecs) = np_q["np2"].eig(eigenvectors=True)
+        #
+        #     #  Assume all real eigenvalues.
+        #     eigvals = eigvals_[:, 0]
+        #
+        #     # Constrain to be negative.
+        #     eigvals[eigvals >= 0] = -MIN_EIGVAL
+        #
+        #     # Reconstruct np2.
+        #     np_q["np2"] = eigvecs.matmul(
+        #         eigvals.diag_embed().matmul(eigvecs.T))
+        #
+        # else:
+        #     raise ValueError("Not implemented for more than a single batch "
+        #                      "dimension.")
 
         q = MultivariateGaussianDistributionWithZ(
             nat_params=np_q,
