@@ -42,9 +42,9 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
                 log_qw.append(qw.log_prob(w.transpose(-1, -2)).sum(-1))
 
                 if p is not None:
-                    # pw. = p.compute_dist(i, self.activation(z))
-                    pw = p.compute_dist(i, z)
-                    log_pw.append(pw.log_prob(w.transpose(-1, -2)).sum(-1))
+                    log_pw.append(p.log_prob(layer=i, act_z=z, theta=w))
+                    # pw = p.compute_dist(i, z)
+                    # log_pw.append(pw.log_prob(w.transpose(-1, -2)).sum(-1))
 
             # Propagate inducing locations forward.
             # z = self.activation(z).matmul(w)
@@ -61,13 +61,8 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
         return theta
 
     def forward(self, x, q, **kwargs):
-        thetas = []
-        for _ in range(self.config["num_predictive_samples"]):
-            theta = self.sample_weights(q)
-            thetas.append(theta)
-
-        thetas = [torch.stack([theta[i] for theta in thetas])
-                  for i in range(len(thetas[0]))]
+        thetas = self.sample_weights(
+            q, num_samples=self.config["num_predictive_samples"])
 
         qy = self.likelihood_forward(x, thetas, samples_first=False)
 
@@ -129,18 +124,46 @@ class FullyConnectedIPBNN(FullyConnectedBNN):
                 x = self.activation(x)
 
         qy = self.pred_dist_from_tensor(x, samples_first=True)
-        ll = qy.log_prob(y).sum(-1).mean()
+        ll = qy.log_prob(y).squeeze(-1).sum(-1).mean()
 
         return ll, kl
 
 
 class RegressionIPBNN(FullyConnectedIPBNN):
 
-    def pred_dist_from_tensor(self, tensor, samples_first=True):
-        loc = tensor[:, :, :self.output_dim]
-        scale = torch.exp(tensor[:, :, self.output_dim:])
+    def forward(self, x, q, **kwargs):
+        thetas = self.sample_weights(
+            q, num_samples=self.config["num_predictive_samples"])
 
-        return torch.distributions.normal.Normal(loc=loc, scale=scale)
+        # (S, N, output_dim)
+        qy = self.likelihood_forward(x, thetas, samples_first=False)
+
+        return qy
+
+    def pred_dist_from_tensor(self, tensor, samples_first=True):
+        # (S, N, output_dim).
+        loc = tensor[:, :, :self.config["output_dim"]]
+        scale = torch.exp(tensor[:, :, self.config["output_dim"]:])
+
+        return torch.distributions.Normal(loc=loc, scale=scale)
+
+    @property
+    def shapes(self):
+        shapes = []
+        for i in range(self.config["num_layers"] + 1):
+            if i == 0:
+                shapes.append((self.config["D"] + 1,
+                               self.config["latent_dim"]))
+            elif i == self.config["num_layers"]:
+                # Weight matrix.
+                shapes.append((self.config["latent_dim"] + 1,
+                               self.config["output_dim"] * 2))
+            else:
+                # Weight matrix.
+                shapes.append((self.config["latent_dim"] + 1,
+                               self.config["latent_dim"]))
+
+        return shapes
 
 
 class ClassificationIPBNN(FullyConnectedIPBNN):

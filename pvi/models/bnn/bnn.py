@@ -113,7 +113,6 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
     @property
     def shapes(self):
         shapes = []
-
         for i in range(self.config["num_layers"] + 1):
             if i == 0:
                 shapes.append((self.config["D"] + 1,
@@ -144,11 +143,28 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         
 class RegressionBNN(FullyConnectedBNN):
 
+    @property
+    def shapes(self):
+        shapes = []
+        for i in range(self.config["num_layers"] + 1):
+            if i == 0:
+                shapes.append((self.config["D"] + 1,
+                               self.config["latent_dim"]))
+            elif i == self.config["num_layers"]:
+                # Weight matrix.
+                shapes.append((self.config["latent_dim"] + 1,
+                               self.config["output_dim"] * 2))
+            else:
+                # Weight matrix.
+                shapes.append((self.config["latent_dim"] + 1,
+                               self.config["latent_dim"]))
+
+        return shapes
+
     def pred_dist_from_tensor(self, tensor, samples_first=True):
-        
-        loc = tensor[:, :, :self.output_dim]
-        scale = torch.exp(tensor[:, :, self.output_dim:])
-        
+        loc = tensor[:, :, :self.config["output_dim"]]
+        scale = torch.exp(tensor[:, :, self.config["output_dim"]:])
+
         return torch.distributions.normal.Normal(loc=loc, scale=scale)
 
 
