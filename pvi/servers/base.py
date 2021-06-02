@@ -59,7 +59,10 @@ class Server(ABC):
 
         # Evaluate performance of prior.
         if self.q is not None:
-            self.evaluate_performance()
+            try:
+                self.evaluate_performance()
+            except:
+                pass
 
     @property
     def config(self):
