@@ -17,13 +17,17 @@ class IPBNNClient(Client):
         self._can_update = False
 
         # Copy the approximate posterior, make non-trainable.
-        q_cav = p.non_trainable_copy()
+        if init_q is None:
+            q_cav = p.non_trainable_copy()
+            q = p.non_trainable_copy()
+        else:
+            q_cav = init_q.non_trainable_copy()
+            q = init_q.non_trainable_copy()
+
         q_cav, t_idx = q_cav.form_cavity(self.t)
 
-        # Special form for q.
-        t_new = self.t.trainable_copy()
-        q = p.non_trainable_copy()
         # Replace old factor with new (optimisable) factor.
+        t_new = self.t.trainable_copy()
         q.ts[t_idx] = t_new
 
         # Parameters are those of t_new(θ) and self.model.
@@ -59,19 +63,17 @@ class IPBNNClient(Client):
                             batch_size=self.config["batch_size"],
                             shuffle=True)
 
-        # Dict for logging optimisation progress
-        training_curve = defaultdict(list)
+        # Dict for logging optimisation progress.
+        training_metrics = defaultdict(list)
+
+        # Dict for logging performance progress.
+        performance_metrics = defaultdict(list)
 
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
                           leave=True)
         for i in epoch_iter:
-            epoch = {
-                "elbo": 0,
-                "kl": 0,
-                "ll": 0,
-                "logt": 0,
-            }
+            epoch = defaultdict(lambda: 0.)
 
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
@@ -98,30 +100,43 @@ class IPBNNClient(Client):
                 epoch["kl"] += kl.item() / len(loader)
                 epoch["ll"] += ll.item() / len(loader)
 
-            # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["ll"].append(epoch["ll"])
-
-            if self.t is not None:
-                training_curve["logt"].append(epoch["logt"])
-
-            if i % self.config["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"log t: {epoch['logt']:.3f}, "
-                             f"Epochs: {i}.")
-
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], logt=epoch["logt"],
-                                   lr=optimiser.param_groups[0]["lr"])
+                                   ll=epoch["ll"])
+
+            # Log progress for current epoch
+            training_metrics["elbo"].append(epoch["elbo"])
+            training_metrics["kl"].append(epoch["kl"])
+            training_metrics["ll"].append(epoch["ll"])
+
+            if i > 0 and i % self.config["print_epochs"] == 0:
+                # Update global posterior before evaluating performance.
+                self.q = q.non_trainable_copy()
+
+                metrics = self.evaluate_performance({
+                    "epochs": i,
+                    "elbo": epoch["elbo"],
+                    "kl": epoch["kl"],
+                    "ll": epoch["ll"],
+                })
+
+                # Report performance.
+                report = ""
+                for k, v in metrics.items():
+                    report += f"{k}: {v:.3f} "
+                    performance_metrics[k].append(v)
+
+                tqdm.write(report)
 
             # Update learning rate.
             lr_scheduler.step()
 
+            # Check whether to stop early.
+            if self.config["early_stopping"](training_metrics["elbo"]):
+                break
+
         # Log the training curves for this update
-        self.log["training_curves"].append(training_curve)
+        self.log["training_curves"].append(training_metrics)
+        self.log["performance_curves"].append(performance_metrics)
 
         # Create non-trainable copy to send back to server.
         q_new = q.non_trainable_copy()
