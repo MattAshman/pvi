@@ -111,6 +111,23 @@ class Model(ABC):
         thetas = q.rsample((num_samples,))
         return self.likelihood_log_prob(data, thetas).mean(0)
 
+    def elbo(self, data, q, p, num_samples=1):
+        """
+        Computes the evidence lower bound
+        ELBO = E[log p(y | x, θ)] - KL(q(θ) || p(θ)).
+
+        :param data: The data.
+        :param q: Current global posterior q(θ).
+        :param p: Prior p(θ).
+        :param num_samples: The number of samples to estimate the expected
+        log-likelihood with.
+        :return:
+        """
+        kl = q.kl_divergence(p, calc_log_ap=False).sum()
+        ll = self.expected_log_likelihood(data, q, num_samples).sum()
+
+        return kl, ll
+
     @property
     @abstractmethod
     def conjugate_family(self):
