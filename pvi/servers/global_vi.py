@@ -6,6 +6,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from collections import defaultdict
 from .base import Server
 from pvi.utils.dataset import ListDataset
+from pvi.utils.training_utils import EarlyStopping
 from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class GlobalVIServer(Server):
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
-            "early_stopping": lambda elbo: False,
+            "early_stopping": EarlyStopping(-1),
             "num_elbo_samples": 10,
             "print_epochs": np.pi,
             "homogenous_split": True,
@@ -56,34 +57,34 @@ class GlobalVIServer(Server):
         else:
             q = self.q.trainable_copy()
 
-        # Parameters are those of q(θ) and self.model.
-        if self.config["train_model"]:
-            parameters = [
-                {"params": q.parameters()},
-                {"params": self.model.parameters(),
-                 **self.config["model_optimiser_params"]}
-            ]
-        else:
-            parameters = q.parameters()
-
-        # TODO: currently assumes Gaussian distribution.
         # # Parameters are those of q(θ) and self.model.
-        # # Try using different learning rate for σ than μ.
-        # q_parameters = list(q.parameters())
         # if self.config["train_model"]:
         #     parameters = [
-        #         {"params": q_parameters[0]},
-        #         {"params": q_parameters[1],
-        #          **self.config["sigma_optimiser_params"]},
+        #         {"params": q.parameters()},
         #         {"params": self.model.parameters(),
         #          **self.config["model_optimiser_params"]}
         #     ]
         # else:
-        #     parameters = [
-        #         {"params": q_parameters[0]},
-        #         {"params": q_parameters[1],
-        #          **self.config["sigma_optimiser_params"]},
-        #     ]
+        #     parameters = q.parameters()
+
+        # TODO: currently assumes Gaussian distribution.
+        # Parameters are those of q(θ) and self.model.
+        # Try using different learning rate for σ than μ.
+        q_parameters = list(q.parameters())
+        if self.config["train_model"]:
+            parameters = [
+                {"params": q_parameters[0]},
+                {"params": q_parameters[1],
+                 **self.config["sigma_optimiser_params"]},
+                {"params": self.model.parameters(),
+                 **self.config["model_optimiser_params"]}
+            ]
+        else:
+            parameters = [
+                {"params": q_parameters[0]},
+                {"params": q_parameters[1],
+                 **self.config["sigma_optimiser_params"]},
+            ]
 
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
@@ -125,6 +126,10 @@ class GlobalVIServer(Server):
 
         # Dict for logging optimisation progress.
         training_metrics = defaultdict(list)
+
+        # Reset early stopping.
+        self.config["early_stopping"](scores=None,
+                                      model=q.non_trainable_copy())
 
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
@@ -188,7 +193,7 @@ class GlobalVIServer(Server):
                 # Report performance.
                 report = ""
                 for k, v in self.log["performance_metrics"][-1].items():
-                    if k not in ["communications", "iterations"]:
+                    if k not in ["communications", "iterations", "npq"]:
                         report += f"{k}: {v:.3f} "
 
                 tqdm.write(report)
@@ -201,11 +206,15 @@ class GlobalVIServer(Server):
             lr_scheduler.step()
 
             # Check whether to stop early.
-            if self.config["early_stopping"](training_metrics["elbo"]):
+            if self.config["early_stopping"](training_metrics,
+                                             model=q.non_trainable_copy()):
                 break
 
-        # Update global posterior.
-        self.q = q.non_trainable_copy()
+        # Create non-trainable copy to send back to server.
+        if self.config["early_stopping"].stash_model:
+            self.q = self.config["early_stopping"].best_model
+        else:
+            self.q = q.non_trainable_copy()
 
         self.iterations += 1
 
