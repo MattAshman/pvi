@@ -259,36 +259,36 @@ class KernelList(nn.ModuleList):
         """
         Returns covariance matrices defined by each kernel in self.
         """
-        covs = [kernel.forward(*args, **kwargs) for kernel in self.kernels]
+        covs = [kernel.forward(*args, **kwargs) for kernel in self]
 
         return torch.stack(covs)
 
     @property
     def lengthscale(self):
-        return torch.stack([kernel.lengthscale for kernel in self.kernels])
+        return torch.stack([kernel.lengthscale for kernel in self])
 
     @lengthscale.setter
     def lengthscale(self, value):
-        if value.shape[0] == len(self.kernels):
+        if value.shape[0] == len(self):
             # Lengthscale per kernel.
-            for kernel, val in zip(self.kernels, value):
+            for kernel, val in zip(self, value):
                 kernel.lengthscale = val
         else:
             # Same lengthscale for all kernels.
-            for kernel in self.kernels:
+            for kernel in self:
                 kernel.lengthscale = value
 
     @property
     def outputscale(self):
-        return torch.stack([kernel.outputscale for kernel in self.kernels])
+        return torch.stack([kernel.outputscale for kernel in self])
 
     @outputscale.setter
     def outputscale(self, value):
-        if value.shape[0] == len(self.kernels):
+        if value.shape[0] == len(self):
             # Outputscale per kernel.
-            for kernel, val in zip(self.kernels, value):
+            for kernel, val in zip(self, value):
                 kernel.outputscale = val
         else:
             # Same outputscale for all kernels.
-            for kernel in self.kernels:
+            for kernel in self:
                 kernel.outputscale = value

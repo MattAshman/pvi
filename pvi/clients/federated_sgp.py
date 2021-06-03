@@ -11,7 +11,7 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
-JITTER = 1e-4
+JITTER = 1e-6
 
 
 class FederatedSGPClient(Client):
@@ -62,7 +62,9 @@ class FederatedSGPClient(Client):
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
-        optimiser.zero_grad()
+        lr_scheduler = getattr(torch.optim.lr_scheduler,
+                               self.config["lr_scheduler"])(
+            optimiser, **self.config["lr_scheduler_params"])
 
         # Set up data
         x = self.data["x"]
@@ -73,8 +75,11 @@ class FederatedSGPClient(Client):
                             batch_size=self.config["batch_size"],
                             shuffle=True)
 
-        # Dict for logging optimisation progress
-        training_curve = defaultdict(list)
+        # Dict for logging optimisation progress.
+        training_metrics = defaultdict(list)
+
+        # Dict for logging performance progress.
+        performance_metrics = defaultdict(list)
 
         # Stay fixed throughout optimisation as model hyperparameters are
         # only updated by the server.
@@ -93,7 +98,7 @@ class FederatedSGPClient(Client):
 
         # q(a, b) = q(b) p(a | b). Remember to order as q(a, b), not q(b, a).
         qab_loc, qab_cov = joint_from_marginal(
-            q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
+            q, kab.transpose(-1, -2), kbb=kaa, ikaa=ikbb, b_then_a=True)
 
         # q_cav(a, b) = q_cav(a) p(b | a).
         # qab_cav_loc, qab_cav_cov = joint_from_marginal(
@@ -106,8 +111,8 @@ class FederatedSGPClient(Client):
             "covariance_matrix": qab_cav_cov,
         })
 
-        qab_cav_np["np1"][:len(za)] -= self.t.nat_params["np1"]
-        qab_cav_np["np2"][:len(za), :len(za)] -= self.t.nat_params["np2"]
+        qab_cav_np["np1"][..., :len(za)] -= self.t.nat_params["np1"]
+        qab_cav_np["np2"][..., :len(za), :len(za)] -= self.t.nat_params["np2"]
 
 
         qab = type(q)(
@@ -179,7 +184,7 @@ class FederatedSGPClient(Client):
 
                 # q(a, b) = q(b) p(a | b).
                 qab_loc, qab_cov = joint_from_marginal(
-                    q, kab.T, kbb=kaa, ikaa=ikbb, b_then_a=True)
+                    q, kab.transpose(-1, -2), kbb=kaa, ikaa=ikbb, b_then_a=True)
 
                 # q_cav(a, b) = q_cav(a) p(b | a).
                 # qab_cav_loc, qab_cav_cov = joint_from_marginal(
@@ -192,9 +197,9 @@ class FederatedSGPClient(Client):
                     "covariance_matrix": qab_cav_cov,
                 })
 
-                qab_cav_np["np1"][:len(za)] -= self.t.nat_params["np1"]
-                qab_cav_np["np2"][:len(za), :len(za)] -= self.t.nat_params[
-                    "np2"]
+                qab_cav_np["np1"][..., :len(za)] -= self.t.nat_params["np1"]
+                qab_cav_np["np2"][
+                    ..., :len(za), :len(za)] -= self.t.nat_params["np2"]
 
                 qab = type(q)(
                     inducing_locations=z,
@@ -220,24 +225,44 @@ class FederatedSGPClient(Client):
                 epoch["ll"] += ll.item() / len(loader)
                 # epoch["logt"] += logt.item() / len(loader)
 
-            # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["ll"].append(epoch["ll"])
-            training_curve["logt"].append(epoch["logt"])
-
-            if i % self.config["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"log t: {epoch['logt']:.3f}, "
-                             f"Epochs: {i}.")
-
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                    ll=epoch["ll"], logt=epoch["logt"])
 
-        # Log the training curves for this update
-        self.log["training_curves"].append(training_curve)
+            # Log progress for current epoch
+            training_metrics["elbo"].append(epoch["elbo"])
+            training_metrics["kl"].append(epoch["kl"])
+            training_metrics["ll"].append(epoch["ll"])
+            training_metrics["logt"].append(epoch["logt"])
+
+            if i > 0 and i % self.config["print_epochs"] == 0:
+                # Update global posterior before evaluating performance.
+                self.q = q.non_trainable_copy()
+
+                metrics = self.evaluate_performance({
+                    "epochs": i,
+                    "elbo": epoch["elbo"],
+                    "kl": epoch["kl"],
+                    "ll": epoch["ll"],
+                })
+
+                # Report performance.
+                report = ""
+                for k, v in metrics.items():
+                    report += f"{k}: {v:.3f} "
+                    performance_metrics[k].append(v)
+
+                tqdm.write(report)
+
+            # Update learning rate.
+            lr_scheduler.step()
+
+            # Check whether to stop early.
+            if self.config["early_stopping"](training_metrics):
+                break
+
+        # Log the training curves for this update.
+        self.log["training_curves"].append(training_metrics)
+        self.log["performance_curves"].append(performance_metrics)
 
         # Create non-trainable copy to send back to server.
         q_new = q.non_trainable_copy()
@@ -264,16 +289,15 @@ class FederatedSGPClient(Client):
         tab_np = {k: (v.detach() - qab_old.nat_params[k].detach())
                   * self.config["damping_factor"]
                   for k, v in qab.nat_params.items()}
-        tab_np["np1"][:len(za)] += self.t.nat_params["np1"]
-        tab_np["np2"][:len(za), :len(za)] += self.t.nat_params["np2"]
+        tab_np["np1"][..., :len(za)] += self.t.nat_params["np1"]
+        tab_np["np2"][..., :len(za), :len(za)] += self.t.nat_params["np2"]
 
         # Marginalise to get t(b) = ∫ t(a, b) da.
-        # TODO: t(a, b) must be a valid distribution to do this.
         tab_std = std_from_nat(tab_np)
         tb_std = {
-            "loc": tab_std["loc"][len(za):],
+            "loc": tab_std["loc"][..., len(za):],
             "covariance_matrix": tab_std["covariance_matrix"][
-                                 len(za):, len(za):],
+                                 ..., len(za):, len(za):],
         }
 
         tb_np = nat_from_std(tb_std)

@@ -11,6 +11,7 @@ from pvi.distributions import MultivariateGaussianDistributionWithZ
 logger = logging.getLogger(__name__)
 
 JITTER = 1e-4
+MIN_EIGVAL = 1e-3
 
 
 class SGPServer(Server):
@@ -35,6 +36,11 @@ class SGPServer(Server):
             "damping_factor": 1.,
             "optimiser": "Adam",
             "optimiser_params": {"lr": 1e-2},
+            "lr_scheduler": "MultiplicativeLR",
+            "lr_scheduler_params": {
+                "lr_lambda": lambda epoch: 1.
+            },
+            "early_stopping": lambda elbo: False,
             "epochs": 100,
         }
 
@@ -60,22 +66,56 @@ class SGPServer(Server):
 
         # Prior distribution p(u).
         kzz = self.model.kernel(z, z).detach()
-        std_params = {
-            "loc": torch.zeros(z.shape[0]), # Assumes zero mean.
+        std_q = {
+            "loc": torch.zeros(kzz.shape[:-1]),
             "covariance_matrix": kzz,
         }
 
         # Compute q(u) = p(u) Π_m t_m(u_m).
-        nat_params = nat_from_std(std_params)
+        np_q = nat_from_std(std_q)
+
         for client_idx, client in enumerate(self.clients):
             np_i = client.t.nat_params
             for i, idx1 in enumerate(z_idx[client_idx]):
-                nat_params["np1"][idx1] += np_i["np1"][i]
+                np_q["np1"][..., idx1] += np_i["np1"][..., i]
                 for j, idx2 in enumerate(z_idx[client_idx]):
-                    nat_params["np2"][idx1, idx2] += np_i["np2"][i, j]
+                    np_q["np2"][..., idx1, idx2] += np_i["np2"][..., i, j]
+
+        # # TODO: what effects does this have?
+        # # Now constrain to be valid distribution.
+        # if len(np_q["np1"].shape) == 2:
+        #     for i in range(len(np_q["np2"])):
+        #         (eigvals_, eigvecs) = np_q["np2"][i].eig(eigenvectors=True)
+        #
+        #         #  Assume all real eigenvalues.
+        #         eigvals = eigvals_[:, 0]
+        #
+        #         # Constrain to be negative.
+        #         eigvals[eigvals >= 0] = -MIN_EIGVAL
+        #
+        #         # Reconstruct np2.
+        #         np_q["np2"][i] = eigvecs.matmul(
+        #             eigvals.diag_embed().matmul(eigvecs.T))
+        #
+        # elif len(np_q["np1"].shape) == 1:
+        #     (eigvals_, eigvecs) = np_q["np2"].eig(eigenvectors=True)
+        #
+        #     #  Assume all real eigenvalues.
+        #     eigvals = eigvals_[:, 0]
+        #
+        #     # Constrain to be negative.
+        #     eigvals[eigvals >= 0] = -MIN_EIGVAL
+        #
+        #     # Reconstruct np2.
+        #     np_q["np2"] = eigvecs.matmul(
+        #         eigvals.diag_embed().matmul(eigvecs.T))
+        #
+        # else:
+        #     raise ValueError("Not implemented for more than a single batch "
+        #                      "dimension.")
 
         q = MultivariateGaussianDistributionWithZ(
-            nat_params=nat_params,
+            nat_params=np_q,
             inducing_locations=z,
             is_trainable=False,
             train_inducing=True
@@ -268,10 +308,13 @@ class SGPServer(Server):
 
             optimiser = getattr(torch.optim, self.config["optimiser"])(
                 q.parameters(), **self.config["optimiser_params"])
+            lr_scheduler = getattr(torch.optim.lr_scheduler,
+                                   self.config["lr_scheduler"])(
+                optimiser, **self.config["lr_scheduler_params"])
             optimiser.zero_grad()
 
             # Dict for logging optimisation progress.
-            training_curve = defaultdict(list)
+            training_metrics = defaultdict(list)
 
             # Gradient-based optimisation loop.
             epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
@@ -350,18 +393,25 @@ class SGPServer(Server):
                 epoch["logt_new"] = logt_new.item()
                 epoch["logt_old"] = logt_old.item()
 
-                # Log progress for current epoch
-                training_curve["elbo"].append(epoch["elbo"])
-                training_curve["kl"].append(epoch["kl"])
-                training_curve["logt_new"].append(epoch["logt_new"])
-                training_curve["logt_old"].append(epoch["logt_old"])
-
                 epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                        logt_new=epoch["logt_new"],
                                        logt_old=epoch["logt_old"])
 
+                # Log progress for current epoch
+                training_metrics["elbo"].append(epoch["elbo"])
+                training_metrics["kl"].append(epoch["kl"])
+                training_metrics["logt_new"].append(epoch["logt_new"])
+                training_metrics["logt_old"].append(epoch["logt_old"])
+
+                # Update learning rate.
+                lr_scheduler.step()
+
+                # Check whether to stop early.
+                if self.config["early_stopping"](training_metrics):
+                    break
+
             # Log the training curves for this update
-            self.log["training_curves"].append(training_curve)
+            self.log["training_curves"].append(training_metrics)
 
             # Create non-trainable copy to send back to server.
             q_new = q.non_trainable_copy()

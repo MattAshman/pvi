@@ -357,15 +357,23 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         """
         assert type(p) == type(self), "Distributions must be the same type."
 
+        # Log-partition function.
+        log_a = self.log_a()
+        batch_dims = len(log_a.shape)
+
         # Stack natural parameters into single vector.
-        np1 = torch.cat([np.flatten() for np in self.nat_params.values()])
-        np2 = torch.cat([np.flatten() for np in p.nat_params.values()])
+        np1 = torch.cat([np.flatten(start_dim=batch_dims)
+                         for np in self.nat_params.values()], dim=-1)
+        np2 = torch.cat([np.flatten(start_dim=batch_dims)
+                         for np in p.nat_params.values()], dim=-1)
 
         # Stack mean parameters of q.
-        m1 = torch.cat([mp.flatten() for mp in self.mean_params.values()])
+        m1 = torch.cat([mp.flatten(start_dim=batch_dims)
+                        for mp in self.mean_params.values()], dim=-1)
 
         # Compute KL-divergence.
-        kl = (np1 - np2).dot(m1) - self.log_a()
+        kl = (np1 - np2).unsqueeze(-2).matmul(m1.unsqueeze(-1)).squeeze()
+        kl -= log_a
 
         if calc_log_ap:
             kl += p.log_a()

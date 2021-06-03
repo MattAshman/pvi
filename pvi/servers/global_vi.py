@@ -6,6 +6,7 @@ from torch.utils.data import TensorDataset, DataLoader
 from collections import defaultdict
 from .base import Server
 from pvi.utils.dataset import ListDataset
+from pvi.utils.training_utils import EarlyStopping
 from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,7 @@ class GlobalVIServer(Server):
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
-            "early_stopping": lambda elbo: False,
+            "early_stopping": EarlyStopping(-1),
             "num_elbo_samples": 10,
             "print_epochs": np.pi,
             "homogenous_split": True,
@@ -126,6 +127,10 @@ class GlobalVIServer(Server):
         # Dict for logging optimisation progress.
         training_metrics = defaultdict(list)
 
+        # Reset early stopping.
+        self.config["early_stopping"](scores=None,
+                                      model=q.non_trainable_copy())
+
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
         # for i in range(self.config["epochs"]):
@@ -188,7 +193,7 @@ class GlobalVIServer(Server):
                 # Report performance.
                 report = ""
                 for k, v in self.log["performance_metrics"][-1].items():
-                    if k not in ["communications", "iterations"]:
+                    if k not in ["communications", "iterations", "npq"]:
                         report += f"{k}: {v:.3f} "
 
                 tqdm.write(report)
@@ -201,11 +206,15 @@ class GlobalVIServer(Server):
             lr_scheduler.step()
 
             # Check whether to stop early.
-            if self.config["early_stopping"](training_metrics["elbo"]):
+            if self.config["early_stopping"](training_metrics,
+                                             model=q.non_trainable_copy()):
                 break
 
-        # Update global posterior.
-        self.q = q.non_trainable_copy()
+        # Create non-trainable copy to send back to server.
+        if self.config["early_stopping"].stash_model:
+            self.q = self.config["early_stopping"].best_model
+        else:
+            self.q = q.non_trainable_copy()
 
         self.iterations += 1
 
