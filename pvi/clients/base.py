@@ -5,6 +5,7 @@ import numpy as np
 from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm.auto import tqdm
+from pvi.utils.training_utils import EarlyStopping
 
 logger = logging.getLogger(__name__)
 
@@ -61,8 +62,9 @@ class Client:
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
-            "early_stopping": lambda elbo: False,
+            "early_stopping": EarlyStopping(-1),
             "performance_metrics": None,
+            "track_q": False,
             "num_elbo_samples": 10,
             "print_epochs": np.pi,
             "device": "cpu",
@@ -77,12 +79,9 @@ class Client:
         return self._can_update
 
     def evaluate_performance(self, default_metrics=None):
+        metrics = {}
         if default_metrics is not None:
-            metrics = {
-                **default_metrics,
-            }
-        else:
-            metrics = {}
+            metrics = {**default_metrics, **metrics}
 
         if self.config["performance_metrics"] is not None:
             train_metrics = self.config["performance_metrics"](self, self.data)
@@ -185,11 +184,14 @@ class Client:
 
         # Dict for logging performance progress.
         performance_metrics = defaultdict(list)
-        
+
+        # Reset early stopping.
+        self.config["early_stopping"](scores=None,
+                                      model=q.non_trainable_copy())
+
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
                           leave=True, disable=(not self.config["verbose"]))
-
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = defaultdict(lambda: 0.)
@@ -309,7 +311,8 @@ class Client:
             lr_scheduler.step()
 
             # Check whether to stop early.
-            if self.config["early_stopping"](training_metrics["elbo"]):
+            if self.config["early_stopping"](scores=training_metrics,
+                                             model=q.non_trainable_copy()):
                 break
 
         # Log the training curves for this update.
@@ -317,7 +320,10 @@ class Client:
         self.log["performance_curves"].append(performance_metrics)
 
         # Create non-trainable copy to send back to server.
-        q_new = q.non_trainable_copy()
+        if self.config["early_stopping"].stash_model:
+            q_new = self.config["early_stopping"].best_model
+        else:
+            q_new = q.non_trainable_copy()
 
         # Finished optimisation, can now update.
         self._can_update = True
@@ -325,7 +331,7 @@ class Client:
         if self.t is not None:
             # Compute new local contribution from old distributions
             t_new = self.t.compute_refined_factor(
-                q, q_old, damping=self.config["damping_factor"],
+                q_new, q_old, damping=self.config["damping_factor"],
                 valid_dist=self.config["valid_factors"],
                 update_log_coeff=self.config["update_log_coeff"])
 
