@@ -246,7 +246,7 @@ class ContinualLearningSGPClient(Client):
             lr_scheduler.step()
 
             # Check whether to stop early.
-            if self.config["early_stopping"](training_metrics["elbo"]):
+            if self.config["early_stopping"](training_metrics):
                 break
 
         # Log the training curves for this update.

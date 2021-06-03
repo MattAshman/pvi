@@ -77,6 +77,7 @@ class Server(ABC):
             "hyper_optimiser_params": {"lr": 1},
             "hyper_updates": 1,
             "performance_metrics": lambda client, data: {},
+            "track_q": False,
             "device": "cpu",
         }
 
@@ -96,23 +97,18 @@ class Server(ABC):
         pass
 
     def evaluate_performance(self, default_metrics=None):
-        if self.config["performance_metrics"] is not None:
-            if default_metrics is not None:
-                metrics = {
-                    **default_metrics,
-                    "communications": self.communications,
-                    "iterations": self.iterations,
-                }
-            else:
-                metrics = {
-                    "communications": self.communications,
-                    "iterations": self.iterations,
-                }
+        metrics = {
+            "communications": self.communications,
+            "iterations": self.iterations,
+        }
 
+        if default_metrics is not None:
+            metrics = {**default_metrics, **metrics}
+
+        if self.config["performance_metrics"] is not None:
             train_metrics = self.config["performance_metrics"](self, self.data)
             for k, v in train_metrics.items():
                 metrics["train_" + k] = v
-
 
             if self.val_data is not None:
                 val_metrics = self.config["performance_metrics"](
@@ -120,7 +116,12 @@ class Server(ABC):
                 for k, v in val_metrics.items():
                     metrics["val_" + k] = v
 
-            self.log["performance_metrics"].append(metrics)
+        if self.config["track_q"]:
+            # Store current q(θ) natural parameters.
+            metrics["npq"] = {k: v.detach().cpu()
+                              for k, v in self.q.nat_params.items()}
+
+        self.log["performance_metrics"].append(metrics)
 
     def update_hyperparameters(self):
         """
