@@ -51,7 +51,7 @@ def main(args, rng_seed, dataset_folder):
     np.random.seed(rng_seed)
 
     client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
-            None, args.clients, args.rho, args.kappa, dataset_folder=dataset_folder
+            None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder
             )
     x_train, x_valid, y_train, y_valid = full_data_split
 
@@ -224,8 +224,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--clients', default=4, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=5, type=int, help="when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes throuhg local data on each client update iteration")
-    parser.add_argument('-rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
-    parser.add_argument('-kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
+    parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
+    parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=1., type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--sampling_type', default='swor', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
 
