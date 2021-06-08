@@ -42,7 +42,11 @@ def main(args, rng_seed, dataset_folder):
         dataset_folder : (str) path to data containing x.npy and y.npy files for input and target
     """
 
-    logger.info(f"Starting PVI run with data folder: {dataset_folder}, sampling type: {args.sampling_type}")
+    logger.info(f"Starting PVI run with data folder: {dataset_folder}")
+    if args.sampling_type in ['seq','swor']:
+        logger.info(f'Using {args.sampling_type} with sampling batch size {args.batch_size}')
+    elif args.sampling_type == 'poisson':
+        logger.info(f'Using {args.sampling_type} with sampling fraction {args.sampling_frac_q}')
 
     np.random.seed(rng_seed)
 
@@ -65,7 +69,7 @@ def main(args, rng_seed, dataset_folder):
         #"num_predictive_samples"   : 10, # only used when use_probit_approximation = False
     }
     model_config = {
-            "use_probit_approximation" : True,
+            "use_probit_approximation" : False, 
             "num_predictive_samples"   : 10, # only used when use_probit_approximation = False
             }
 
@@ -100,7 +104,7 @@ def main(args, rng_seed, dataset_folder):
     }
 
     # Initialise clients, q and server
-    clients = set_up_clients(model, client_data, init_nat_params, client_config)
+    clients = set_up_clients(model, client_data, init_nat_params, client_config, args)
 
     q = MeanFieldGaussianDistribution(std_params=prior_std_params,
                                       is_trainable=False)
@@ -207,14 +211,12 @@ def plot_training_curves(client_train_res, clients):
 
 
 
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
+    parser.add_argument('--n_global_updates', default=10, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
-    parser.add_argument('--sampling_frac_q', default=[.05], type=list, help="sampling fraction; only used if sampling_type is 'poisson'")
+    parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson'")
     parser.add_argument('--dp_sigma', default=0.0, type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=200.0, type=float, help='gradient norm bound')
 
@@ -225,7 +227,7 @@ if __name__ == '__main__':
     parser.add_argument('-rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=1., type=float, help='damping factor in (0,1], 1=no damping')
-    parser.add_argument('--sampling_type', default='seq', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
+    parser.add_argument('--sampling_type', default='swor', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
 
 
     args = parser.parse_args()

@@ -143,6 +143,18 @@ class Client(ABC):
             n_samples = len(loader)
 
         elif self.config['sampling_type'] == 'poisson':
+            # JATKA: implementoi tämä ja testaa
+            # ehkä kannattaa tehdä oma poisson sampler class pytorchin luokista
+            # draw batch size b
+            # sit random sampler wrapattuna batch sampleriin annetulla b
+
+            b = np.random.binom()
+
+            
+            n_epochs = 1
+            n_samples = self.config['epochs']
+
+
             raise NotImplementedError('poisson not done yet!')
 
         elif self.config['sampling_type'] == 'swor':

@@ -28,14 +28,17 @@ handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def set_up_clients(model, client_data, init_nat_params, config):
+def set_up_clients(model, client_data, init_nat_params, config, args):
 
     clients = []
+    expected_batch = []
     # Create clients
     for i,_client_data in enumerate(client_data):
         # Data of ith client
         data = {k : torch.tensor(v).float() for k, v in _client_data.items()}
         #logger.debug(f"Client {i} data {data['x'].shape}, {data['y'].shape}")
+        if args.sampling_type == 'poisson':
+            expected_batch.append(args.sampling_frac_q*data['x'].shape[0])
 
         # Approximating likelihood term of ith client
         t = MeanFieldGaussianFactor(nat_params=init_nat_params)
@@ -43,6 +46,9 @@ def set_up_clients(model, client_data, init_nat_params, config):
         # Create client and store
         client = Client(data=data, model=model, t=t, config=config)
         clients.append(client)
+
+    if args.sampling_type == 'poisson':
+        logger.info(f'Expected batch sizes: {expected_batch}')
         
     return clients
 
