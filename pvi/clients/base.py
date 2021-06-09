@@ -9,6 +9,7 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
+logger.setLevel(logging.DEBUG)
 
 # =============================================================================
 # Client class
@@ -148,7 +149,7 @@ class Client(ABC):
             # draw batch size b
             # sit random sampler wrapattuna batch sampleriin annetulla b
 
-            b = np.random.binom()
+            #b = np.random.binom()
 
             
             n_epochs = 1
@@ -218,7 +219,7 @@ class Client(ABC):
                 try:
                     kl = q.kl_divergence(q_cav).sum() / len(x)
                 except:
-                    # NOTE: dirty fix: q_cav guaranteed to give proper std, shouldn't give errors at the moment
+                    # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
                     print('exception in KL')
                     #print(q._unc_params['log_scale'])
                     print(q_cav)
@@ -239,10 +240,22 @@ class Client(ABC):
                     logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
                     logt /= len(x)
 
+                # note: this shouldn't work with global vi where there are no t-factors
                 # Negative local free energy is KL minus log-probability.
-                # loss = kl - ll + logt
-                loss = kl - ll
+                loss = kl - ll + logt
+                #loss = kl - ll
                 loss.backward()
+
+                # NOTE: assume that all parameters for dp are from q
+                if self.config['use_dpsgd'] and self.config['dp_sigma'] > 0:
+                    #for p in filter(lambda p: p.requires_grad, parameters ):
+                    for _p, p_ in enumerate(q.parameters()):
+                        if p_.grad is not None:
+                            #print(f'i: {i} p_: {p_}')
+                            #print(f"p_.grad: {p_.grad}")
+                            p_.grad += self.config['dp_sigma']*torch.randn_like(p_.grad)
+
+
                 optimiser.step()
                 
                 # Keep track of quantities for current batch

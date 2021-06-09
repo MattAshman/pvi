@@ -40,23 +40,26 @@ def short_test(_log):
     # static parameters
     sampling_type = 'swor' # sampling type for clients: 'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR
     folder = '../../data/data/adult/' # data folder
-    clients = 4
-    model_type = 'pvi' # method: pvi, distr_vi, shared_vi
-    n_rng_seeds = 1 # number of repeats to do for a given experiment; initial seed from sacred
+    clients = 10
+    #model_type = 'pvi' # method: pvi, distr_vi, shared_vi
+    n_rng_seeds = 5 # number of repeats to do for a given experiment; initial seed from sacred
     #parallel_updates = True # parallel or sequential updates; for distr_vi can only use True
     #prior_sharing = 'same' # 'same' or 'split': for distr_vi, whether to use same or split prior in BCM
+    use_dpsgd = True # if True use DP-SGD for privacy, otherwise clip & add noise to parameters directly
     job_id = 0 # id that defines arg combination to use, in [0,nbo of combinations-1]; replace this by command line arg
 
     # dynamic parameters; choose which combination to run by job_id
-    batch_size =  [200] # batch size; only used when sampling_type is 'swor' or 'seq
+    batch_size =  [1] # batch size; only used when sampling_type is 'swor' or 'seq
     n_global_updates = [10] # number of global updates
-    n_steps = [5] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
-    damping_factor = [1.] # damping factor in (0,1], 1=no damping
-    learning_rate = [1e-2]
+    n_steps = [100] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
+    damping_factor = [.5] # damping factor in (0,1], 1=no damping
+    learning_rate = [1e-3]
     sampling_frac_q = [1e-2] # sampling fraction; only used if sampling_type is 'poisson'
     data_bal = [(0,0)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
-    dp_sigma = [1.0] # dp noise std factor; noise magnitude will be C*sigma
-    dp_C = [2.] # max grad norm
+
+    # DP not implemented yet! To test sensitivity to noise, instead use dp_sigma directly to add Gaussian noise to parameters/gradients
+    dp_sigma = [1.] # dp noise std factor; noise magnitude will be C*sigma
+    dp_C = [None] # max grad norm
     
     # get dynamic configuration, this will raise TypeError if params have already been set by some named config
     try:
@@ -141,16 +144,16 @@ def dp_pvi_config_handler(_config, _seed):
 
     ss = SeedSequence(_seed)
     rng_seed_list = ss.spawn(1)[0].generate_state(_config['n_rng_seeds'])
-    ex.info['generated rng seeds'] = rng_seed_list
+    ex.info['generated_rng_seeds'] = rng_seed_list
     logger.info(f'Main sacred seed: {_seed}, got generated seeds: {rng_seed_list}')
     for i_seed, rng_seed in enumerate(rng_seed_list):
         logger.info('########## Starting seed {}/{} ##########\n'.format(i_seed+1, len(rng_seed_list)))
         res = main(args, rng_seed, dataset_folder=_config['folder'])
 
-        ex.info['validation_res'] = res[0]
-        ex.info['train_res'] = res[1]
-        ex.info['client_train_res'] = res[2]
-        ex.info['prop_positive'] = res[3]
+        ex.info[f'validation_res_seed{i_seed}'] = res[0]
+        ex.info[f'train_res_seed{i_seed}'] = res[1]
+        ex.info[f'client_train_res_seed{i_seed}'] = res[2]
+        ex.info[f'prop_positive_seed{i_seed}'] = res[3]
 
     logger.info('Sacred test finished.')
 

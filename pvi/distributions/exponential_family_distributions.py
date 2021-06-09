@@ -70,10 +70,11 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
         
-        # NOTE: added quick&dirty fix for negative variances
         std = {
             "loc" : - 0.5 * np1 / np2,
-            "scale" : (- 0.5 / -np.abs(np2)) ** 0.5
+            # NOTE: could add quick&dirty fix for negative variances here if needed
+            #"scale" : (- 0.5 / -np.abs(np2)) ** 0.5
+            "scale" : (- 0.5 / np2) ** 0.5
         }
         
         return std

@@ -70,7 +70,7 @@ def main(args, rng_seed, dataset_folder):
     }
     model_config = {
             "use_probit_approximation" : False, 
-            "num_predictive_samples"   : 10, # only used when use_probit_approximation = False
+            "num_predictive_samples"   : 100, # only used when use_probit_approximation = False
             }
 
     model = LogisticRegressionModel(hyperparameters=model_hyperparameters, config=model_config)
@@ -86,18 +86,21 @@ def main(args, rng_seed, dataset_folder):
         'optimiser_params' : {'lr' : args.learning_rate},
         'lr_scheduler' : 'MultiplicativeLR',
         'lr_scheduler_params' : { 'lr_lambda' : lambda epoch: 1.},
-        'num_elbo_samples' : 1, # possible to break if this is low?
+        'num_elbo_samples' : 10, # possible to break if this is low?
         'print_epochs' : 1, # ?
         'train_model' : False, # no need for having trainable model on client
         'update_log_coeff' : False, # no need for log coeff in t factors
         'sampling_type' : args.sampling_type, # sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'SWOR' for sampling size b batch without replacement. For DP, need either Poisson or SWOR
+        'use_dpsgd' : args.use_dpsgd, # if True use DP-SGD for privacy, otherwise clip & noisyfy parameters directly
+        'dp_C' : args.dp_C, # clipping constant
+        'dp_sigma' : args.dp_sigma, # noise std
     }
-    # prior params, use data dim+1 assuming model adds extra bias dim
+    # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
         "loc"   : torch.zeros(x_train.shape[1]+1),
         "scale" : torch.ones(x_train.shape[1]+1),
     }
-    # initial t-factor params, not proper distributions
+    # initial t-factor params, not proper distributions, dims as above
     init_nat_params = {
         "np1" : torch.zeros(x_train.shape[1] + 1),
         "np2" : torch.zeros(x_train.shape[1] + 1),
@@ -217,7 +220,7 @@ if __name__ == '__main__':
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
     parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson'")
-    parser.add_argument('--dp_sigma', default=0.0, type=float, help='DP noise magnitude')
+    parser.add_argument('--dp_sigma', default=1.0, type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=200.0, type=float, help='gradient norm bound')
 
     parser.add_argument('--folder', default='data/adult/', type=str, help='path to combined train-test adult data folder')
@@ -228,6 +231,7 @@ if __name__ == '__main__':
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=1., type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--sampling_type', default='swor', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
+    parser.add_argument('--use_dpsgd', default=True, type=bool, help="use dp-sgd or clip & noisify parameters")
 
 
     args = parser.parse_args()
