@@ -67,7 +67,7 @@ class SGPServer(Server):
         # Prior distribution p(u).
         kzz = self.model.kernel(z, z).detach()
         std_q = {
-            "loc": torch.zeros(kzz.shape[:-1]),
+            "loc": torch.zeros(kzz.shape[:-1]).double(),
             "covariance_matrix": kzz,
         }
 
