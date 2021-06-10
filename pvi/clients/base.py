@@ -202,71 +202,143 @@ class Client(ABC):
                     (x_batch, y_batch) = tmp.next()
                 except StopIteration as err:
                     tmp = iter(loader)
+                    (x_batch, y_batch) = tmp.next()
 
-                #print(f"{i_step}: {x_batch[0][:3]}")
+                if self.config['use_dpsgd']:
+                    # simple DP-SGD implementation
 
-                optimiser.zero_grad()
+                    # initialise grad accumulator
+                    cum_grads = {}
+                    for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
+                        #if p_.grad is not None:
+                        cum_grads[str(i_weight)] = torch.zeros_like(p_)
 
-                batch = {
-                    "x" : x_batch,
-                    "y" : y_batch,
-                }
+                    # quick hack for DP-SGD: process each sample separately
+                    for x_single, y_single in zip(x_batch,y_batch):
+                        optimiser.zero_grad()
+
+                        batch = {
+                            "x" : torch.unsqueeze(x_single,0),
+                            "y" : torch.unsqueeze(y_single,0),
+                        }
+                        #print(batch['x'].shape, batch['y'].shape)
+                        #sys.exit()
+                        # Compute KL divergence between q and q_old.
+                        # kl = q.kl_divergence(q_old).sum() / len(x)
+
+                        # Compute KL divergence between q and q_cav.
+                        try:
+                            kl = q.kl_divergence(q_cav).sum()/ len(x)
+                            #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
+                            #print(kl)
+                        except:
+                            # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
+                            print('exception in KL')
+                            #print(q._unc_params['log_scale'])
+                            print(q_cav)
+                            print('nat params')
+                            print(q_cav.nat_params)
+                            print('std params')
+                            print(q_cav.std_params)
+
+                            sys.exit()
+
+                        # Sample θ from q and compute p(y | θ, x) for each θ
+                        ll = self.model.expected_log_likelihood(
+                            batch, q, self.config["num_elbo_samples"]).sum()
+
+                        if self.t is not None:
+                            # Compute E_q[log t(θ)].
+                            logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                            logt /= len(x)
+
+                        # note: this shouldn't work with global vi where there are no t-factors
+                        # Negative local free energy is KL minus log-probability.
+                        loss = kl - ll + logt
+                        #loss = kl - ll
+                        loss.backward()
+
+                        # NOTE: assume that all parameters for dp are from q
+                        if self.config['use_dpsgd']:
+                            g_norm = torch.zeros(1)
+                            for p_ in filter(lambda p_: p_.requires_grad, q.parameters()):
+                                #if p_.grad is not None:
+                                g_norm += torch.sum(p_.grad**2)
+                            g_norm = torch.sqrt(g_norm)
+                            #print(f'grad_norm: {g_norm}')
+                            
+                            # clip and accumulate grads
+                            for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
+                                #if p_.grad is not None:
+                                cum_grads[str(i_weight)] += p_.grad/torch.clamp(g_norm/self.config['dp_C'], min=1)
+                            # check that clipping is ok
+                            #g_norm = torch.zeros(1)
+                            #for k in cum_grads:
+                            #    g_norm += torch.sum(cum_grads[k]**2)
+                            #g_norm = torch.sqrt(g_norm)
+                            #print(f'grad_norm: {g_norm}')
+
+                            #print(list(q.parameters()))
+                        #print(f'cum grad:\n{cum_grads}')
+                        #sys.exit()
                 
-                # Compute KL divergence between q and q_old.
-                # kl = q.kl_divergence(q_old).sum() / len(x)
+                    # Keep track of quantities for current batch
+                    # Will be very slow if training on GPUs.
+                    epoch["elbo"] += -loss.item() / len(loader)
+                    epoch["kl"] += kl.item() / len(loader)
+                    epoch["ll"] += ll.item() / len(loader)
 
-                # Compute KL divergence between q and q_cav.
-                try:
-                    kl = q.kl_divergence(q_cav).sum() / len(x)
-                except:
-                    # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
-                    print('exception in KL')
-                    #print(q._unc_params['log_scale'])
-                    print(q_cav)
-                    print('nat params')
-                    print(q_cav.nat_params)
-                    print('std params')
-                    print(q_cav.std_params)
+                    if self.t is not None:
+                        epoch["logt"] += logt.item() / len(loader)
+                
+                # no dp
+                else:
+                    optimiser.zero_grad()
+                    batch = {
+                        "x" : x_batch,
+                        "y" : y_batch,
+                    }
+                    # Compute KL divergence between q and q_old.
+                    # kl = q.kl_divergence(q_old).sum() / len(x)
+                    # Compute KL divergence between q and q_cav.
+                    try:
+                        kl = q.kl_divergence(q_cav).sum() / len(x)
+                    except:
+                        # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
+                        print('exception in KL')
+                        #print(q._unc_params['log_scale'])
+                        print(q_cav)
+                        print('nat params')
+                        print(q_cav.nat_params)
+                        print('std params')
+                        print(q_cav.std_params)
 
-                    sys.exit()
+                        sys.exit()
 
-                # Sample θ from q and compute p(y | θ, x) for each θ
-                ll = self.model.expected_log_likelihood(
-                    batch, q, self.config["num_elbo_samples"]).sum()
-                ll /= len(x_batch)
+                    # Sample θ from q and compute p(y | θ, x) for each θ
+                    ll = self.model.expected_log_likelihood(
+                        batch, q, self.config["num_elbo_samples"]).sum()
+                    ll /= len(x_batch)
 
-                if self.t is not None:
-                    # Compute E_q[log t(θ)].
-                    logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                    logt /= len(x)
+                    if self.t is not None:
+                        # Compute E_q[log t(θ)].
+                        logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
+                        logt /= len(x)
 
-                # note: this shouldn't work with global vi where there are no t-factors
-                # Negative local free energy is KL minus log-probability.
-                loss = kl - ll + logt
-                #loss = kl - ll
-                loss.backward()
+                    # note: this shouldn't work with global vi where there are no t-factors
+                    # Negative local free energy is KL minus log-probability.
+                    loss = kl - ll + logt
+                    #loss = kl - ll
+                    loss.backward()
 
-                # NOTE: assume that all parameters for dp are from q
-                if self.config['use_dpsgd'] and self.config['dp_sigma'] > 0:
-                    #for p in filter(lambda p: p.requires_grad, parameters ):
-                    for _p, p_ in enumerate(q.parameters()):
-                        if p_.grad is not None:
-                            #print(f'i: {i} p_: {p_}')
-                            #print(f"p_.grad: {p_.grad}")
-                            p_.grad += self.config['dp_sigma']*torch.randn_like(p_.grad)
-
+                # add noise to clipped grads
+                if self.config['use_dpsgd']:
+                    for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
+                        #print(f'grad before: {p_.grad}')
+                        p_.grad = self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
+                        #print(f'grad after: {p_.grad}')
 
                 optimiser.step()
-                
-                # Keep track of quantities for current batch
-                # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item() / len(loader)
-                epoch["kl"] += kl.item() / len(loader)
-                epoch["ll"] += ll.item() / len(loader)
-
-                if self.t is not None:
-                    epoch["logt"] += logt.item() / len(loader)
-
                 i_step += 1
 
             # Log progress for current epoch

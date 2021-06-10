@@ -78,6 +78,7 @@ def main(args, rng_seed, dataset_folder):
     # note: for DP need to change to use actual sampling, no full data passes
     client_config = {
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
+        'batch_proc_size': args.batch_proc_size, # for DP-SGD
         'sampling_frac_q' : args.sampling_frac_q, # sampling fraction, only used with Poisson random sampling type
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment?
@@ -216,12 +217,13 @@ def plot_training_curves(client_train_res, clients):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('--n_global_updates', default=10, type=int, help='number of global updates')
+    parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
+    parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson'")
     parser.add_argument('--dp_sigma', default=1.0, type=float, help='DP noise magnitude')
-    parser.add_argument('--dp_C', default=200.0, type=float, help='gradient norm bound')
+    parser.add_argument('--dp_C', default=1., type=float, help='gradient norm bound')
 
     parser.add_argument('--folder', default='data/adult/', type=str, help='path to combined train-test adult data folder')
 
@@ -231,7 +233,7 @@ if __name__ == '__main__':
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=1., type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--sampling_type', default='swor', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
-    parser.add_argument('--use_dpsgd', default=True, type=bool, help="use dp-sgd or clip & noisify parameters")
+    parser.add_argument('--use_dpsgd', default=False, type=bool, help="use dp-sgd or clip & noisify parameters")
 
 
     args = parser.parse_args()
