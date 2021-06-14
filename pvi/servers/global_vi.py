@@ -37,7 +37,7 @@ class GlobalVIServer(Server):
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
-            "early_stopping": EarlyStopping(-1),
+            "early_stopping": EarlyStopping(np.inf),
             "num_elbo_samples": 10,
             "print_epochs": np.pi,
             "homogenous_split": True,
