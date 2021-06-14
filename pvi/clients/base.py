@@ -62,13 +62,14 @@ class Client:
             "lr_scheduler_params": {
                 "lr_lambda": lambda epoch: 1.
             },
-            "early_stopping": EarlyStopping(-1),
+            "early_stopping": EarlyStopping(np.inf),
             "performance_metrics": None,
             "track_q": False,
             "num_elbo_samples": 10,
             "print_epochs": np.pi,
             "device": "cpu",
             "verbose": False,
+            "no_step_first_epoch": False,
         }
 
     def can_update(self):
@@ -189,7 +190,7 @@ class Client:
         self.config["early_stopping"](scores=None,
                                       model=q.non_trainable_copy())
 
-        # Gradient-based optimisation loop -- loop over epochs
+        # Gradient-based optimisation loop -- loop over epochs.
         epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
                           leave=True, disable=(not self.config["verbose"]))
         # for i in range(self.config["epochs"]):
@@ -267,8 +268,15 @@ class Client:
                 # Use loss 5.
                 kl = kl5
                 loss = kl - ll + logt
-                loss.backward()
-                optimiser.step()
+
+                # Only perform gradient steps after 1st epoch.
+                if self.config["no_step_first_epoch"]:
+                    if i > 0:
+                        loss.backward()
+                        optimiser.step()
+                else:
+                    loss.backward()
+                    optimiser.step()
                 
                 # Keep track of quantities for current batch.
                 epoch["elbo"] += -loss.item() / len(loader)
@@ -308,7 +316,12 @@ class Client:
                 tqdm.write(report)
 
             # Update learning rate.
-            lr_scheduler.step()
+            # Only update after 1st epoch.
+            if self.config["no_step_first_epoch"]:
+                if i > 0:
+                    lr_scheduler.step()
+            else:
+                lr_scheduler.step()
 
             # Check whether to stop early.
             if self.config["early_stopping"](scores=training_metrics,

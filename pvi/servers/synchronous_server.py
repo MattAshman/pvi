@@ -35,7 +35,8 @@ class SynchronousServer(Server):
                 t_olds.append(t_old)
                 t_news.append(t_new)
 
-                self.communications += 1
+        # Single communication per iteration.
+        self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
 
