@@ -58,8 +58,8 @@ class Server(ABC):
         self.log["communications"].append(self.communications)
 
         # Evaluate performance of prior.
-        if self.q is not None:
-            self.evaluate_performance()
+        #if self.q is not None:
+        #    self.evaluate_performance()
 
     @property
     def config(self):
