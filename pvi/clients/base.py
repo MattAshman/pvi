@@ -284,6 +284,12 @@ class Client:
                 epoch["ll"] += ll.item() / len(loader)
                 epoch["logt"] += logt.item() / len(loader)
 
+                epoch["elbos"].append(loss.item())
+                epoch["kls"].append(kl.item())
+                epoch["lls"].append(ll.item())
+                epoch["logts"].append(logt.item())
+
+
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                    ll=epoch["ll"], logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
@@ -292,9 +298,13 @@ class Client:
             training_metrics["elbo"].append(epoch["elbo"])
             training_metrics["kl"].append(epoch["kl"])
             training_metrics["ll"].append(epoch["ll"])
+            training_metrics["elbos"].append(epoch["elbos"])
+            training_metrics["kls"].append(epoch["kls"])
+            training_metrics["lls"].append(epoch["lls"])
 
             if self.t is not None:
                 training_metrics["logt"].append(epoch["logt"])
+                training_metrics["logts"].append(epoch["logts"])
 
             if i > 0 and i % self.config["print_epochs"] == 0:
                 # Update global posterior before evaluating performance.
