@@ -12,6 +12,7 @@ class SynchronousServer(Server):
         return {
             **super().get_default_config(),
             "max_iterations": 25,
+            "shared_factor_iterations": 0,
         }
 
     def tick(self):
@@ -43,6 +44,18 @@ class SynchronousServer(Server):
         # Update global posterior.
         for t_old, t_new in zip(t_olds, t_news):
             self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
+
+        if self.iterations < self.config["shared_factor_iterations"]:
+            # Update shared factor.
+            n = len(self.clients)
+            t_np = {k: v * (1 / n) for k, v in t_news[0].nat_params.items()}
+            for t_new in t_news[1:]:
+                for k, v in t_new.nat_params.items():
+                    t_np[k] += v * (1 / n)
+
+            # Set clients factor to shared factor.
+            for client in self.clients:
+                client.t.nat_params = t_np
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
         self.iterations += 1

@@ -12,7 +12,8 @@ class SequentialServer(Server):
         return {
             **super().get_default_config(),
             "max_iterations": 25,
-            "damping_factor": 1.,
+            "shared_factor_iterations": 0,
+            "init_q_to_all": False
         }
 
     def tick(self):
@@ -25,19 +26,38 @@ class SequentialServer(Server):
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_old = client.t
 
-                if self.communications == 0:
+                if (not self.config["init_q_to_all"] and self.communications
+                    == 0) or (self.config["init_q_to_all"] and
+                              self.iterations == 0):
                     # First iteration. Pass q_init(θ) to client.
                     _, t_new = client.fit(self.q, self.init_q)
                 else:
                     _, t_new = client.fit(self.q)
 
+                if self.iterations < self.config["shared_factor_iterations"]:
+                    # Update shared factor.
+                    n = len(self.clients)
+                    t_np = {k: (v * (1 - 1 / n) +
+                                t_new.nat_params[k] * (1 / n))
+                            for k, v in t_old.nat_params.items()}
+
+                    # Set clients factor to shared factor.
+                    for j in range(len(self.clients)):
+                        self.clients[j].t.nat_params = t_np
+
+                # Only update global posterior.
+                self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
+
                 logger.debug(
                     "Received client update. Updating global posterior.")
 
-                # Update global posterior.
-                self.q = self.q.replace_factor(t_old, t_new,
-                                               is_trainable=False)
                 self.communications += 1
+
+                # Evaluate performance after every posterior update for first
+                # iteration.
+                if self.iterations == 0:
+                    self.evaluate_performance()
+                    self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
 
@@ -48,7 +68,7 @@ class SequentialServer(Server):
                 self.iterations % self.config["model_update_freq"] == 0:
             self.update_hyperparameters()
 
-        # Log progress.
+        # Evaluate performance after every iteration.
         self.evaluate_performance()
         self.log["communications"].append(self.communications)
 
@@ -62,7 +82,6 @@ class SequentialServerBayesianHypers(ServerBayesianHypers):
         return {
             **super().get_default_config(),
             "max_iterations": 5,
-            "damping_factor": 1.,
         }
 
     def tick(self):

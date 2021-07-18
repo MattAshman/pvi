@@ -196,6 +196,10 @@ class Client:
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = defaultdict(lambda: 0.)
+            epoch["elbos"] = []
+            epoch["kls"] = []
+            epoch["lls"] = []
+            epoch["logts"] = []
             
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):

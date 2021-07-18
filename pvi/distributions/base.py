@@ -137,6 +137,16 @@ class ExponentialFamilyFactor(ABC):
     def valid_nat_from_nat(self, nat_params):
         return nat_params
 
+    def copy(self):
+        """
+        :return: A copy with identical parameters.
+        """
+        nat_params = {k: v.detach().clone()
+                      for k, v in self.nat_params.items()}
+        log_coeff = self.log_coeff
+
+        return type(self)(nat_params, log_coeff)
+
 
 # =============================================================================
 # Base exponential family distribution
