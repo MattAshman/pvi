@@ -1,179 +1,120 @@
 import logging
 import numpy as np
+import ray
 
 from tqdm.auto import tqdm
 from .base import *
+from pvi.clients.base import Client
 
 logger = logging.getLogger(__name__)
 
 
-class AsynchronousServer(Server):
-    """
-    Similar to Mrinank's and Michael's implementation.
-
-    In every round, this server samples M (total number of clients) clients,
-    inversely proportional to the amount of data on each client, and updates
-    them one after another (i.e. incorporating the previous clients updates).
-    """
-    def __init__(self, client_probs=None, *args, **kwargs):
+class SynchronousRayServer(Server):
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        if client_probs is None:
-            client_probs = [1 / len(client.data["x"])
-                            for client in self.clients]
-
-        self.client_probs = [prob / sum(client_probs) for prob in client_probs]
-
-    def get_default_config(self):
-        return {
-            **super().get_default_config(),
-            "max_iterations": 25,
-        }
+        self.server_worker = ServerWorker.remote(self.q)
 
     def tick(self):
-        if self.should_stop():
-            return False
+        q = self.server_worker.get_current_q.remote()
 
-        logger.debug("Getting client updates.")
-        for i in tqdm(range(len(self.clients)), leave=False):
+        while not self.should_stop():
+            # Pass current q to clients.
+            working_clients = [
+                    client.update_client.remote(q, self.init_q)
+                    for client in self.clients
+            ]
 
-            available_clients = [client.can_update() for client in
-                                 self.clients]
+            # Apply change in factors.
+            q = self.server_worker.update_q.remote(*working_clients)
+            self.communications += len(self.clients)
+            self.iterations += 1
 
-            if not np.any(available_clients):
-                logger.info('All clients report to be finished. Stopping.')
-                break
+            # Evaluate current posterior.
+            self.q = ray.get(q)
+            self.evaluate_performance()
+            self.log["communications"].append(self.communications)
 
-            client_idx = int(
-                np.random.choice(len(self.clients), 1, replace=False,
-                                 p=self.client_probs))
-            logger.debug(f"Selected Client {client_idx}")
-            client = self.clients[client_idx]
-
-            if client.can_update():
-                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_old = client.t
-
-                if self.communications == 0:
-                    _, t_new = client.fit(self.q, self.init_q)
-                else:
-                    _, t_new = client.fit(self.q)
-
-                logger.debug(
-                    "Received client updates. Updating global posterior.")
-
-                # Update global posterior.
-                self.q = self.q.replace_factor(t_old, t_new,
-                                               is_trainable=False)
-
-                self.communications += 1
-
-            else:
-                logger.debug(f"Skipping client {client_idx}, client not "
-                             "avalible to update.")
-                continue
-
-        logger.debug(f"Iteration {self.iterations} complete.")
-        self.iterations += 1
-
-        # Update hyperparameters.
-        if self.config["train_model"] and \
-                self.iterations % self.config["model_update_freq"] == 0:
-            self.update_hyperparameters()
-
-        # Log progress.
-        self.evaluate_performance()
-        self.log["communications"].append(self.communications)
+            metrics = self.log["performance_metrics"][-1]
+            print("Communications: {}.".format(self.communications))
+            print("Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                metrics["val_mll"], metrics["val_acc"]))
+            print("Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                metrics["train_mll"], metrics["train_acc"]))
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
 
 
-class AsynchronousServerBayesianHypers(ServerBayesianHypers):
-    """
-    Similar to Mrinank's and Michael's implementation.
+class AsynchronousRayServer(Server):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-    In every round, this server samples M (total number of clients) clients,
-    inversely proportional to the amount of data on each client, and updates
-    them one after another (i.e. incorporating the previous clients updates).
-    """
-    def __init__(self, model, p, peps, clients, config=None, client_probs=None,
-                 init_q=None, init_qeps=None):
-        super().__init__(model, p, peps, clients, config, init_q, init_qeps)
-
-        if client_probs is None:
-            client_probs = [1 / len(client.data["x"]) for client in clients]
-
-        self.client_probs = [prob / sum(client_probs) for prob in client_probs]
-
-    def get_default_config(self):
-        return {
-            **super().get_default_config(),
-            "max_iterations": 5,
-        }
+        self.server_worker = ServerWorker.remote(self.q)
 
     def tick(self):
-        if self.should_stop():
-            return False
+        working_clients = {}
+        q = self.server_worker.get_current_q.remote()
+        for client in self.clients:
+            working_clients[
+                    client.update_client.remote(q, self.init_q)] = client
 
-        logger.debug("Getting client updates.")
+        while not self.should_stop():
+            ready_clients, _ = ray.wait(list(working_clients))
+            ready_client_id = ready_clients[0]
+            client = working_clients.pop(ready_client_id)
 
-        clients_updated = 0
+            # Apply change in factors.
+            q = self.server_worker.update_q.remote(*[ready_client_id])
 
-        for i in tqdm(range(len(self.clients)), leave=False):
+            # Get client training again.
+            working_clients[client.update_client.remote(q)] = client
 
-            available_clients = [client.can_update() for client in
-                                 self.clients]
-
-            if not np.any(available_clients):
-                logger.info('All clients report to be finished. Stopping.')
-                break
-
-            client_idx = int(
-                np.random.choice(len(self.clients), 1, replace=False,
-                                 p=self.client_probs))
-            logger.debug(f"Selected Client {client_idx}")
-            client = self.clients[client_idx]
-
-            if client.can_update():
-                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
-                t_old = client.t
-                teps_old = client.teps
-
-                if self.communications == 0:
-                    _, _, t_new, teps_new = client.fit(
-                        self.q, self.qeps, self.init_q, self.init_qeps)
-                else:
-                    _, _, t_new, teps_new = client.fit(self.q, self.qeps)
-
-                logger.debug(
-                    "Received client updates. Updating global posterior.")
-                # TODO: check parameter update results in valid distribution.
-                self.q = self.q.replace_factor(t_old, t_new,
-                                               is_trianable=False)
-                self.qeps = self.qeps.replace_factor(teps_old, teps_new,
-                                                     is_trainable=False)
-
-                clients_updated += 1
-                self.communications += 1
-
-                # Log q after each update.
-                # self.log["q"].append(self.q.non_trainable_copy())
-                # self.log["qeps"].append(self.qeps.non_trainable_copy())
+            self.communications += 1
+            if self.communications % len(self.clients) == 0:
+                # Evaluate current posterior.
+                self.q = ray.get(q)
+                self.evaluate_performance()
                 self.log["communications"].append(self.communications)
 
-            else:
-                logger.debug(f"Skipping client {client_idx}, client not "
-                             "avalible to update.")
-                continue
-
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
-
-        self.iterations += 1
-
-        # Log progress.
-        self.log["clients_updated"].append(clients_updated)
+                metrics = self.log["performance_metrics"][-1]
+                print("Communications: {}.".format(self.communications))
+                print("Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                    metrics["val_mll"], metrics["val_acc"]))
+                print("Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                    metrics["train_mll"], metrics["train_acc"]))
 
     def should_stop(self):
-        return self.iterations > self.config["max_iterations"] - 1
+        return self.communications > self.config["max_communications"] - 1
+
+
+@ray.remote
+class ServerWorker():
+
+    def __init__(self, q):
+        self.q = q
+
+    def update_q(self, *ts):
+        for t in ts:
+            t_old, t_new = t
+
+            # Update global posterior.
+            self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
+
+        return self.q
+
+    def get_current_q(self):
+        return self.q
+
+
+@ray.remote
+class RayClient(Client):
+
+    def update_client(self, q, init_q=None):
+        print(f"Updating client {id(self)}.")
+
+        t_old = self.t
+        _, t_new = self.fit(q, init_q)
+
+        return t_old, t_new
+

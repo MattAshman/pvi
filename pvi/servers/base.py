@@ -12,7 +12,7 @@ class Server(ABC):
     An abstract class for the server.
     """
     def __init__(self, model, p, clients, config=None, init_q=None,
-                 val_data=None):
+                 data=None, val_data=None):
 
         if config is None:
             config = {}
@@ -39,10 +39,13 @@ class Server(ABC):
         self.clients = clients
 
         # Union of clients data
-        self.data = {
-            k: torch.cat([client.data[k] for client in self.clients], dim=0)
-            for k in self.clients[0].data.keys()
-        }
+        if data is None:
+            self.data = {
+                k: torch.cat([client.data[k] for client in self.clients], dim=0)
+                for k in self.clients[0].data.keys()
+            }
+        else:
+            self.data = data
 
         # Validation dataset.
         self.val_data = val_data
