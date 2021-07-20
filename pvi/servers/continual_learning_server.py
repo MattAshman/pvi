@@ -31,6 +31,7 @@ class ContinualLearningServer(Server):
     def get_default_config(self):
         return {
             **super().get_default_config(),
+            "init_q_always": False,
         }
 
     def tick(self):
@@ -41,7 +42,7 @@ class ContinualLearningServer(Server):
         client = self.clients[self.client_idx]
         if client.can_update():
 
-            if self.iterations == 0:
+            if self.iterations == 0 or self.config["init_q_always"]:
                 # First iteration. Pass q_init(θ) to client.
                 q_new, _ = client.fit(self.q, self.init_q)
             else:

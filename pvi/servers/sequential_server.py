@@ -13,7 +13,8 @@ class SequentialServer(Server):
             **super().get_default_config(),
             "max_iterations": 25,
             "shared_factor_iterations": 0,
-            "init_q_to_all": False
+            "init_q_to_all": False,
+            "init_q_always": False,
         }
 
     def tick(self):
@@ -27,14 +28,19 @@ class SequentialServer(Server):
                 t_old = client.t
 
                 if (not self.config["init_q_to_all"] and self.communications
-                    == 0) or (self.config["init_q_to_all"] and
-                              self.iterations == 0):
+                    == 0) or \
+                    (self.config["init_q_to_all"] and self.iterations == 0) \
+                    or self.config["init_q_always"]:
                     # First iteration. Pass q_init(θ) to client.
                     _, t_new = client.fit(self.q, self.init_q)
                 else:
                     _, t_new = client.fit(self.q)
 
+
+
                 if self.iterations < self.config["shared_factor_iterations"]:
+                    t_new = t_new.copy()
+
                     # Update shared factor.
                     n = len(self.clients)
                     t_np = {k: (v * (1 - 1 / n) +

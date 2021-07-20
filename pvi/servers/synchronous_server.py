@@ -13,6 +13,7 @@ class SynchronousServer(Server):
             **super().get_default_config(),
             "max_iterations": 25,
             "shared_factor_iterations": 0,
+            "init_q_always": False,
         }
 
     def tick(self):
@@ -27,7 +28,7 @@ class SynchronousServer(Server):
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_old = client.t
 
-                if self.iterations == 0:
+                if self.iterations == 0 or self.config["init_q_always"]:
                     # First iteration. Pass q_init(θ) to client.
                     _, t_new = client.fit(self.q, self.init_q)
                 else:

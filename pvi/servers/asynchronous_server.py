@@ -88,7 +88,7 @@ class AsynchronousRayServer(Server):
         return self.communications > self.config["max_communications"] - 1
 
 
-@ray.remote
+@ray.remote(num_gpus=.1)
 class ServerWorker():
 
     def __init__(self, q):
@@ -107,11 +107,14 @@ class ServerWorker():
         return self.q
 
 
-@ray.remote
+@ray.remote(num_gpus=.1)
 class RayClient(Client):
 
+    def get_log(self):
+        return self.log
+
     def update_client(self, q, init_q=None):
-        print(f"Updating client {id(self)}.")
+        print(f"Updating client {str(id(self))[-3:]}.")
 
         t_old = self.t
         _, t_new = self.fit(q, init_q)

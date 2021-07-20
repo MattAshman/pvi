@@ -13,7 +13,8 @@ class StreamingVBServer(Server):
             **super().get_default_config(),
             "max_iterations": 25,
             "shared_factor_iterations": 0,
-            "init_q_to_all": False
+            "init_q_to_all": False,
+            "init_q_always": False,
         }
 
     def tick(self):
@@ -28,13 +29,14 @@ class StreamingVBServer(Server):
                 # In streaming VB, we set t(Θ) to 1 so data is recounted.
                 # Equivalent to sequential PVI with no deletion.
                 client.t.nat_params = {k: torch.zeros_like(v)
-                                       for k, v in client.t.nat_params}
+                                       for k, v in client.t.nat_params.items()}
 
                 t_old = client.t
 
                 if (not self.config["init_q_to_all"] and self.communications
-                    == 0) or (self.config["init_q_to_all"] and
-                              self.iterations == 0):
+                    == 0) or \
+                    (self.config["init_q_to_all"] and self.iterations == 0) \
+                    or self.config["init_q_always"]:
                     # First iteration. Pass q_init(θ) to client.
                     _, t_new = client.fit(self.q, self.init_q)
                 else:
