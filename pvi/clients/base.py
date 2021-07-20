@@ -87,13 +87,13 @@ class Client:
         if self.config["performance_metrics"] is not None:
             train_metrics = self.config["performance_metrics"](self, self.data)
             for k, v in train_metrics.items():
-                metrics["train_" + k] = v.item()
+                metrics["train_" + k] = v
 
             if self.val_data is not None:
                 val_metrics = self.config["performance_metrics"](
                     self, self.val_data)
                 for k, v in val_metrics.items():
-                    metrics["val_" + k] = v.item()
+                    metrics["val_" + k] = v
 
         return metrics
     
@@ -323,9 +323,14 @@ class Client:
 
                 # Report performance.
                 report = ""
+                report += f"epochs: {metrics['epochs']} "
+                report += f"elbo: {metrics['elbo']:.3f} "
+                report += f"ll: {metrics['ll']:.3f} "
+                report += f"kl: {metrics['kl']:.3f} \n"
                 for k, v in metrics.items():
-                    report += f"{k}: {v:.3f} "
                     performance_metrics[k].append(v)
+                    if "mll" in k or "acc" in k:
+                        report += f"{k}: {v:.3f} "
 
                 tqdm.write(report)
 
