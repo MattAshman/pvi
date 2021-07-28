@@ -31,6 +31,9 @@ class Client:
         # Set likelihood approximating term
         self.t = t
 
+        # Maintain optimised approximate posterior.
+        self.q = None
+
         # Validation dataset.
         self.val_data = val_data
         
@@ -115,12 +118,12 @@ class Client:
         if str(type(q)) == str(self.model.conjugate_family) \
                 and not self.config["train_model"]:
             # No need to make q trainable.
-            q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
+            self.q, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
             # Pass a trainable copy to optimise.
-            q_new, self.t = self.gradient_based_update(p=q, init_q=init_q)
+            self.q, self.t = self.gradient_based_update(p=q, init_q=init_q)
 
-        return q_new, self.t
+        return self.q, self.t
 
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.

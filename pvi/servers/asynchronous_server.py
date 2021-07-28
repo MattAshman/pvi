@@ -88,7 +88,7 @@ class AsynchronousRayServer(Server):
         return self.communications > self.config["max_communications"] - 1
 
 
-@ray.remote(num_gpus=.1)
+@ray.remote
 class ServerWorker():
 
     def __init__(self, q):
@@ -107,7 +107,7 @@ class ServerWorker():
         return self.q
 
 
-@ray.remote(num_gpus=.1)
+@ray.remote
 class RayClient(Client):
 
     def get_log(self):
