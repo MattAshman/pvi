@@ -1,7 +1,9 @@
 import logging
+import time
+import torch
 
 from tqdm.auto import tqdm
-from .base import *
+from pvi.servers import Server
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +23,11 @@ class StreamingVBServer(Server):
         if self.should_stop():
             return False
 
+        if self.t0 is None:
+            self.t0 = time.time()
+            self.pc0 = time.perf_counter()
+            self.pt0 = time.process_time()
+
         logger.debug("Getting client updates.")
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
@@ -36,7 +43,7 @@ class StreamingVBServer(Server):
                 if (not self.config["init_q_to_all"] and self.communications
                     == 0) or \
                     (self.config["init_q_to_all"] and self.iterations == 0) \
-                    or self.config["init_q_always"]:
+                        or self.config["init_q_always"]:
                     # First iteration. Pass q_init(θ) to client.
                     _, t_new = client.fit(self.q, self.init_q)
                 else:
@@ -54,7 +61,8 @@ class StreamingVBServer(Server):
                         self.clients[j].t.nat_params = t_np
 
                 # Only update global posterior.
-                self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
+                self.q = self.q.replace_factor(t_old, t_new,
+                                               is_trainable=False)
 
                 logger.debug(
                     "Received client update. Updating global posterior.")
@@ -62,8 +70,9 @@ class StreamingVBServer(Server):
                 self.communications += 1
 
                 # Evaluate performance after every posterior update.
-                self.evaluate_performance()
-                self.log["communications"].append(self.communications)
+                if self.iterations == 0:
+                    self.evaluate_performance()
+                    self.log["communications"].append(self.communications)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
 
@@ -73,6 +82,60 @@ class StreamingVBServer(Server):
         if self.config["train_model"] and \
                 self.iterations % self.config["model_update_freq"] == 0:
             self.update_hyperparameters()
+
+        self.evaluate_performance()
+        self.log["communications"].append(self.communications)
+
+    def should_stop(self):
+        return self.iterations > self.config["max_iterations"] - 1
+
+
+class StreamingVBServerVCL(Server):
+
+    def get_default_config(self):
+        return {
+            **super().get_default_config(),
+            "init_q_always": False,
+        }
+
+    def tick(self):
+        if self.should_stop():
+            return False
+
+        logger.debug("Getting client updates.")
+        for i, client in tqdm(enumerate(self.clients), leave=False):
+            if client.can_update():
+                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
+
+                if self.iterations == 0 or self.config["init_q_always"]:
+                    # First iteration. Pass q_init(θ) to client.
+                    q_new, _ = client.fit(self.q, self.init_q)
+                else:
+                    q_new, _ = client.fit(self.q)
+
+                self.q = q_new.non_trainable_copy()
+                
+                logger.debug(
+                    "Received client update. Updating global posterior.")
+
+                self.communications += 1
+
+                # Evaluate performance after every posterior update.
+                if self.iterations == 0:
+                    self.evaluate_performance()
+                    self.log["communications"].append(self.communications)
+
+            logger.debug(f"Iteration {self.iterations} complete.\n")
+
+            self.iterations += 1
+
+            # Update hyperparameters.
+            if self.config["train_model"] and \
+                    self.iterations % self.config["model_update_freq"] == 0:
+                self.update_hyperparameters()
+
+        self.evaluate_performance()
+        self.log["communications"].append(self.communications)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1

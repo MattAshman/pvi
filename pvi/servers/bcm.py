@@ -1,4 +1,5 @@
 import logging
+import time
 
 from tqdm.auto import tqdm
 from .base import Server
@@ -27,6 +28,11 @@ class BayesianCommitteeMachineSame(Server):
     def tick(self):
         if self.should_stop():
             return False
+
+        if self.t0 is None:
+            self.t0 = time.time()
+            self.pc0 = time.perf_counter()
+            self.pt0 = time.process_time()
 
         logger.debug("Getting client updates.")
 
@@ -91,6 +97,11 @@ class BayesianCommitteeMachineSplit(Server):
     def tick(self):
         if self.should_stop():
             return False
+
+        if self.t0 is None:
+            self.t0 = time.time()
+            self.pc0 = time.perf_counter()
+            self.pt0 = time.process_time()
 
         logger.debug("Getting client updates.")
         nps = []

@@ -1,4 +1,5 @@
 import logging
+import time
 import numpy as np
 import torch
 
@@ -49,6 +50,11 @@ class GlobalVIServer(Server):
         """
         if self.should_stop():
             return False
+
+        # Start timer.
+        self.t0 = time.time()
+        self.pc0 = time.perf_counter()
+        self.pt0 = time.process_time()
 
         p = self.p.non_trainable_copy()
 
@@ -192,8 +198,13 @@ class GlobalVIServer(Server):
 
                 # Report performance.
                 report = ""
+                metrics = self.log["performance_metrics"][-1]
+                report += f"epochs: {metrics['epochs']} "
+                report += f"elbo: {metrics['elbo']:.3f} "
+                report += f"ll: {metrics['ll']:.3f} "
+                report += f"kl: {metrics['kl']:.3f} \n"
                 for k, v in self.log["performance_metrics"][-1].items():
-                    if k not in ["communications", "iterations", "npq"]:
+                    if "mll" in k or "acc" in k:
                         report += f"{k}: {v:.3f} "
 
                 tqdm.write(report)
