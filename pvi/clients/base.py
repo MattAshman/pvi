@@ -70,6 +70,8 @@ class Client:
             "device": "cpu",
             "verbose": False,
             "no_step_first_epoch": False,
+            "log_training": True,
+            "log_performance": True,
         }
 
     def can_update(self):
@@ -87,16 +89,16 @@ class Client:
         if self.config["performance_metrics"] is not None:
             train_metrics = self.config["performance_metrics"](self, self.data)
             for k, v in train_metrics.items():
-                metrics["train_" + k] = v.item()
+                metrics["train_" + k] = v
 
             if self.val_data is not None:
                 val_metrics = self.config["performance_metrics"](
                     self, self.val_data)
                 for k, v in val_metrics.items():
-                    metrics["val_" + k] = v.item()
+                    metrics["val_" + k] = v
 
         return metrics
-    
+
     def fit(self, q, init_q=None):
         """
         Computes the refined approximating posterior (q) and associated
@@ -125,7 +127,7 @@ class Client:
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
         self._can_update = False
-        
+
         # Copy the approximate posterior, make non-trainable.
         q_old = p.non_trainable_copy()
         q_cav = p.non_trainable_copy()
@@ -200,7 +202,7 @@ class Client:
             epoch["kls"] = []
             epoch["lls"] = []
             epoch["logts"] = []
-            
+
             # Loop over batches in current epoch
             for (x_batch, y_batch) in iter(loader):
                 x_batch = x_batch.to(self.config["device"])
@@ -281,7 +283,7 @@ class Client:
                 else:
                     loss.backward()
                     optimiser.step()
-                
+
                 # Keep track of quantities for current batch.
                 epoch["elbo"] += -loss.item() / len(loader)
                 epoch["kl"] += kl.item() / len(loader)
@@ -293,7 +295,6 @@ class Client:
                 epoch["lls"].append(ll.item())
                 epoch["logts"].append(logt.item())
 
-
             epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
                                    ll=epoch["ll"], logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
@@ -302,13 +303,9 @@ class Client:
             training_metrics["elbo"].append(epoch["elbo"])
             training_metrics["kl"].append(epoch["kl"])
             training_metrics["ll"].append(epoch["ll"])
-            training_metrics["elbos"].append(epoch["elbos"])
-            training_metrics["kls"].append(epoch["kls"])
-            training_metrics["lls"].append(epoch["lls"])
 
             if self.t is not None:
                 training_metrics["logt"].append(epoch["logt"])
-                training_metrics["logts"].append(epoch["logts"])
 
             if i > 0 and i % self.config["print_epochs"] == 0:
                 # Update global posterior before evaluating performance.
@@ -323,9 +320,14 @@ class Client:
 
                 # Report performance.
                 report = ""
+                report += f"epochs: {metrics['epochs']} "
+                report += f"elbo: {metrics['elbo']:.3f} "
+                report += f"ll: {metrics['ll']:.3f} "
+                report += f"kl: {metrics['kl']:.3f} \n"
                 for k, v in metrics.items():
-                    report += f"{k}: {v:.3f} "
                     performance_metrics[k].append(v)
+                    if "mll" in k or "acc" in k:
+                        report += f"{k}: {v:.3f} "
 
                 tqdm.write(report)
 
@@ -343,8 +345,10 @@ class Client:
                 break
 
         # Log the training curves for this update.
-        self.log["training_curves"].append(training_metrics)
-        self.log["performance_curves"].append(performance_metrics)
+        if self.config["log_training"]:
+            self.log["training_curves"].append(training_metrics)
+        if self.config["log_performance"]:
+            self.log["performance_curves"].append(performance_metrics)
 
         # Create non-trainable copy to send back to server.
         if self.config["early_stopping"].stash_model:
