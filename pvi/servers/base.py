@@ -1,4 +1,5 @@
 import logging
+import time
 import torch
 
 from abc import ABC, abstractmethod
@@ -64,6 +65,11 @@ class Server(ABC):
         #if self.q is not None:
         #    self.evaluate_performance()
 
+        # Will initialise these in self.tick().
+        self.t0 = None
+        self.pc0 = None
+        self.pt0 = None
+
     @property
     def config(self):
         return self._config
@@ -101,6 +107,9 @@ class Server(ABC):
 
     def evaluate_performance(self, default_metrics=None):
         metrics = {
+            "time": time.time() - self.t0,
+            "perf_counter": time.perf_counter() - self.pc0,
+            "process_time": time.process_time() - self.pt0,
             "communications": self.communications,
             "iterations": self.iterations,
         }
@@ -125,6 +134,11 @@ class Server(ABC):
                               for k, v in self.q.nat_params.items()}
 
         self.log["performance_metrics"].append(metrics)
+
+        # Reset timers.
+        self.t0 = time.time()
+        self.pc0 = time.perf_counter()
+        self.pt0 = time.process_time()
 
     def update_hyperparameters(self):
         """
