@@ -328,21 +328,184 @@ class SynchronousRayFactory(Server):
         return iter_test or perf_test
 
 
+class BCMSameRayFactory(Server):
+    def get_default_config(self):
+        return {
+            **super().get_default_config(),
+            "max_iterations": 1,
+        }
+
+    def tick(self):
+
+        if self.t0 is None:
+            self.t0 = time.time()
+            self.pc0 = time.perf_counter()
+            self.pt0 = time.process_time()
+
+        working_clients = []
+        for i, client in enumerate(self.clients):
+            working_clients.append(
+                update_client.options(**self.config["ray_options"]).remote(
+                    client, self.q, self.init_q, i
+                )
+            )
+
+        while not self.should_stop():
+            # Pass current q to clients.
+            if self.iterations == 0:
+                working_clients = [
+                    update_client.options(**self.config["ray_options"]).remote(
+                        client, self.q, self.init_q, i
+                    )
+                    for i, client in enumerate(self.clients)
+                ]
+            else:
+                working_clients = [
+                    update_client.options(**self.config["ray_options"]).remote(
+                        client, self.q, client_idx=i
+                    )
+                    for i, client in enumerate(self.clients)
+                ]
+
+            # Get natural parameters of each clients posterior.
+            nps = []
+            for i, working_client in enumerate(working_clients):
+                self.clients[i], q_i, _, _ = ray.get(working_client)
+                nps.append({k: v.detach().clone() for k, v in q_i.nat_params.items()})
+
+            # Update global posterior.
+            q_nps = {
+                k: sum([x[k] for x in nps]) - (len(self.clients) - 1) * v
+                for k, v in self.q.nat_params.items()
+            }
+
+            self.q = self.q.create_new(nat_params=q_nps, is_trainable=False)
+
+            self.communications += len(self.clients)
+            self.iterations += 1
+
+            # Evaluate current posterior.
+            self.evaluate_performance()
+            self.log["communications"].append(self.communications)
+
+            metrics = self.log["performance_metrics"][-1]
+            print("Communications: {}.".format(self.communications))
+            print(
+                "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                    metrics["val_mll"], metrics["val_acc"]
+                )
+            )
+            print(
+                "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                    metrics["train_mll"], metrics["train_acc"]
+                )
+            )
+
+    def should_stop(self):
+        return self.iterations > self.config["max_iterations"] - 1
+
+
+class BCMSplitRayFactory(Server):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        nk = [client.data["x"].shape[0] for client in self.clients]
+        client_props = [n / sum(nk) for n in nk]
+        self.client_props = client_props
+
+    def get_default_config(self):
+        return {
+            **super().get_default_config(),
+            "max_iterations": 1,
+        }
+
+    def tick(self):
+
+        if self.t0 is None:
+            self.t0 = time.time()
+            self.pc0 = time.perf_counter()
+            self.pt0 = time.process_time()
+
+        working_clients = []
+        for i, client in enumerate(self.clients):
+            working_clients.append(
+                update_client.options(**self.config["ray_options"]).remote(
+                    client, self.q, self.init_q, i
+                )
+            )
+
+        while not self.should_stop():
+            # Pass current q to clients.
+            working_clients = []
+            for i, client in enumerate(self.clients):
+                p_i_nps = {
+                    k: v * self.client_props[i] for k, v in self.q.nat_params.items()
+                }
+                p_i = self.q.create_new(nat_params=p_i_nps, is_trainable=False)
+
+                if self.iterations == 0:
+                    working_clients.append(
+                        update_client.options(**self.config["ray_options"]).remote(
+                            client, p_i, self.init_q, i
+                        )
+                    )
+                else:
+                    working_clients.append(
+                        update_client.options(**self.config["ray_options"]).remote(
+                            client, p_i, client_indx=i
+                        )
+                    )
+
+            # Get natural parameters of each clients posterior.
+            nps = []
+            for i, working_client in enumerate(working_clients):
+                self.clients[i], q_i, _, _ = ray.get(working_client)
+                nps.append({k: v.detach().clone() for k, v in q_i.nat_params.items()})
+
+            # Update global posterior.
+            q_nps = {k: sum([x[k] for x in nps]) for k, v in self.q.nat_params.items()}
+
+            self.q = self.q.create_new(nat_params=q_nps, is_trainable=False)
+
+            self.communications += len(self.clients)
+            self.iterations += 1
+
+            # Evaluate current posterior.
+            self.evaluate_performance()
+            self.log["communications"].append(self.communications)
+
+            metrics = self.log["performance_metrics"][-1]
+            print("Communications: {}.".format(self.communications))
+            print(
+                "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                    metrics["val_mll"], metrics["val_acc"]
+                )
+            )
+            print(
+                "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                    metrics["train_mll"], metrics["train_acc"]
+                )
+            )
+
+    def should_stop(self):
+        return self.iterations > self.config["max_iterations"] - 1
+
+
 @ray.remote
 def update_client(client, q, init_q=None, client_idx=None):
     if client_idx is not None:
         print(f"Updating client {client_idx}.")
 
     t_old = client.t
-    _, t_new = client.fit(q, init_q)
+    q_new, t_new = client.fit(q, init_q)
 
-    return client, t_old, t_new
+    return client, q_new, t_old, t_new
 
 
 @ray.remote
 def update_q(q, *ts):
     for t in ts:
-        _, t_old, t_new = t
+        _, _, t_old, t_new = t
 
         # Update posterior.
         q = q.replace_factor(t_old, t_new, is_trainable=False)
