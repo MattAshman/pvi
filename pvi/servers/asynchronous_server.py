@@ -14,7 +14,18 @@ class SynchronousRayServer(Server):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.server_worker = ServerWorker.remote(self.q)
+        self.server_worker = ServerWorker.options(**self.config["ray_options"]).remote(
+            self.q
+        )
+
+    def get_default_config(self):
+        return {
+            **super().get_default_config(),
+            "ray_options": {
+                "num_cpus": 0.1,
+                "num_gpus": 0.0,
+            },
+        }
 
     def tick(self):
         q = self.server_worker.get_current_q.remote()
@@ -22,8 +33,7 @@ class SynchronousRayServer(Server):
         while not self.should_stop():
             # Pass current q to clients.
             working_clients = [
-                    client.update_client.remote(q, self.init_q)
-                    for client in self.clients
+                client.update_client.remote(q, self.init_q) for client in self.clients
             ]
 
             # Apply change in factors.
@@ -38,10 +48,16 @@ class SynchronousRayServer(Server):
 
             metrics = self.log["performance_metrics"][-1]
             print("Communications: {}.".format(self.communications))
-            print("Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                metrics["val_mll"], metrics["val_acc"]))
-            print("Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                metrics["train_mll"], metrics["train_acc"]))
+            print(
+                "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                    metrics["val_mll"], metrics["val_acc"]
+                )
+            )
+            print(
+                "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                    metrics["train_mll"], metrics["train_acc"]
+                )
+            )
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
@@ -51,14 +67,24 @@ class AsynchronousRayServer(Server):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        self.server_worker = ServerWorker.remote(self.q)
+        self.server_worker = ServerWorker.options(**self.config["ray_options"]).remote(
+            self.q
+        )
+
+    def get_default_config(self):
+        return {
+            **super().get_default_config(),
+            "ray_options": {
+                "num_cpus": 0.1,
+                "num_gpus": 0.0,
+            },
+        }
 
     def tick(self):
         working_clients = {}
         q = self.server_worker.get_current_q.remote()
         for client in self.clients:
-            working_clients[
-                    client.update_client.remote(q, self.init_q)] = client
+            working_clients[client.update_client.remote(q, self.init_q)] = client
 
         while not self.should_stop():
             ready_clients, _ = ray.wait(list(working_clients))
@@ -80,18 +106,23 @@ class AsynchronousRayServer(Server):
 
                 metrics = self.log["performance_metrics"][-1]
                 print("Communications: {}.".format(self.communications))
-                print("Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                    metrics["val_mll"], metrics["val_acc"]))
-                print("Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                    metrics["train_mll"], metrics["train_acc"]))
+                print(
+                    "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                        metrics["val_mll"], metrics["val_acc"]
+                    )
+                )
+                print(
+                    "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                        metrics["train_mll"], metrics["train_acc"]
+                    )
+                )
 
     def should_stop(self):
         return self.communications > self.config["max_communications"] - 1
 
 
 @ray.remote
-class ServerWorker():
-
+class ServerWorker:
     def __init__(self, q):
         self.q = q
 
@@ -110,7 +141,6 @@ class ServerWorker():
 
 @ray.remote
 class RayClient(Client):
-
     def get_log(self):
         return self.log
 
@@ -133,6 +163,10 @@ class AsynchronousRayFactory(Server):
         return {
             **super().get_default_config(),
             "init_q_always": False,
+            "ray_options": {
+                "num_cpus": 0.1,
+                "num_gpus": 0,
+            },
         }
 
     def tick(self):
@@ -144,8 +178,11 @@ class AsynchronousRayFactory(Server):
 
         working_clients = []
         for i, client in enumerate(self.clients):
-            working_clients.append(update_client.remote(
-                client, self.q, self.init_q, i))
+            working_clients.append(
+                update_client.options(**self.config["ray_options"]).remote(
+                    client, self.q, self.init_q, i
+                )
+            )
 
         while not self.should_stop():
             ready_clients, _ = ray.wait(list(working_clients))
@@ -154,16 +191,21 @@ class AsynchronousRayFactory(Server):
 
             # Apply change in factors.
             self.clients[client_idx], t_old, t_new = ray.get(client_id)
-            self.q = update_q.remote(self.q, *[client_id])
+            self.q = update_q.options(**self.config["ray_options"]).remote(
+                self.q, *[client_id]
+            )
 
             # Get client training again.
             if self.config["init_q_always"]:
-                working_clients[client_idx] = update_client.remote(
-                    self.clients[client_idx], self.q, self.init_q,
-                    client_idx=client_idx)
+                working_clients[client_idx] = update_client.options(
+                    **self.config["ray_options"]
+                ).remote(
+                    self.clients[client_idx], self.q, self.init_q, client_idx=client_idx
+                )
             else:
-                working_clients[client_idx] = update_client.remote(
-                    self.clients[client_idx], self.q, client_idx=client_idx)
+                working_clients[client_idx] = update_client.options(
+                    **self.config["ray_options"]
+                ).remote(self.clients[client_idx], self.q, client_idx=client_idx)
 
             self.communications += 1
             if self.communications % len(self.clients) == 0:
@@ -175,10 +217,16 @@ class AsynchronousRayFactory(Server):
 
                 metrics = self.log["performance_metrics"][-1]
                 print("Communications: {}.".format(self.communications))
-                print("Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                    metrics["val_mll"], metrics["val_acc"]))
-                print("Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                    metrics["train_mll"], metrics["train_acc"]))
+                print(
+                    "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                        metrics["val_mll"], metrics["val_acc"]
+                    )
+                )
+                print(
+                    "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                        metrics["train_mll"], metrics["train_acc"]
+                    )
+                )
 
     def should_stop(self):
         com_test = self.communications > self.config["max_communications"] - 1
@@ -201,6 +249,10 @@ class SynchronousRayFactory(Server):
         return {
             **super().get_default_config(),
             "init_q_always": False,
+            "ray_options": {
+                "num_cpus": 0.1,
+                "num_gpus": 0,
+            },
         }
 
     def tick(self):
@@ -212,24 +264,40 @@ class SynchronousRayFactory(Server):
 
         working_clients = []
         for i, client in enumerate(self.clients):
-            working_clients.append(update_client.remote(
-                client, self.q, self.init_q, i))
+            working_clients.append(
+                update_client.options(**self.config["ray_options"]).remote(
+                    client, self.q, self.init_q, i
+                )
+            )
 
         while not self.should_stop():
             # Pass current q to clients.
             if self.iterations == 0 or self.config["init_q_always"]:
                 working_clients = [
-                    update_client.remote(client, self.q, self.init_q, i)
-                    for i, client in enumerate(self.clients)]
+                    update_client.options(**self.config["ray_options"]).remote(
+                        client, self.q, self.init_q, i
+                    )
+                    for i, client in enumerate(self.clients)
+                ]
             else:
                 working_clients = [
-                    update_client.remote(client, self.q, client_idx=i)
-                    for i, client in enumerate(self.clients)]
+                    update_client.options(**self.config["ray_options"]).remote(
+                        client, self.q, client_idx=i
+                    )
+                    for i, client in enumerate(self.clients)
+                ]
 
             # Apply change in factors.
-            self.q = update_q.remote(self.q, *working_clients)
-            self.communications += len(self.clients)
+            self.q = update_q.options(**self.config["ray_options"]).remote(
+                self.q, *working_clients
+            )
+
+            self.communications += 1
             self.iterations += 1
+
+            # Update stored clients.
+            for i, working_client in enumerate(working_clients):
+                self.clients[i] = ray.get(working_client)[0]
 
             # Evaluate current posterior.
             self.q = ray.get(self.q)
@@ -238,10 +306,16 @@ class SynchronousRayFactory(Server):
 
             metrics = self.log["performance_metrics"][-1]
             print("Communications: {}.".format(self.communications))
-            print("Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                metrics["val_mll"], metrics["val_acc"]))
-            print("Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                metrics["train_mll"], metrics["train_acc"]))
+            print(
+                "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                    metrics["val_mll"], metrics["val_acc"]
+                )
+            )
+            print(
+                "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                    metrics["train_mll"], metrics["train_acc"]
+                )
+            )
 
     def should_stop(self):
         iter_test = self.iterations > self.config["max_iterations"] - 1
