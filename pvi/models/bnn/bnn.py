@@ -258,4 +258,7 @@ class ClassificationBNNLocalRepam(FullyConnectedBNNLocalRepam):
         if not samples_first:
             tensor = torch.transpose(tensor, 0, 1)
 
-        return torch.distributions.Categorical(logits=tensor)
+        if tensor.shape[-1] == 1:
+            return torch.distributions.Bernoulli(logits=tensor)
+        else:
+            return torch.distributions.Categorical(logits=tensor)
