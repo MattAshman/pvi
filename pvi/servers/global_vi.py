@@ -1,4 +1,5 @@
 import logging
+import time
 import numpy as np
 import torch
 
@@ -49,6 +50,11 @@ class GlobalVIServer(Server):
         """
         if self.should_stop():
             return False
+
+        # Start timer.
+        self.t0 = time.time()
+        self.pc0 = time.perf_counter()
+        self.pt0 = time.process_time()
 
         p = self.p.non_trainable_copy()
 

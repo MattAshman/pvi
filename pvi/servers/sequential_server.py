@@ -1,4 +1,5 @@
 import logging
+import time
 
 from tqdm.auto import tqdm
 from .base import *
@@ -21,6 +22,11 @@ class SequentialServer(Server):
         if self.should_stop():
             return False
 
+        if self.t0 is None:
+            self.t0 = time.time()
+            self.pc0 = time.perf_counter()
+            self.pt0 = time.process_time()
+
         logger.debug("Getting client updates.")
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
@@ -30,13 +36,11 @@ class SequentialServer(Server):
                 if (not self.config["init_q_to_all"] and self.communications
                     == 0) or \
                     (self.config["init_q_to_all"] and self.iterations == 0) \
-                    or self.config["init_q_always"]:
+                        or self.config["init_q_always"]:
                     # First iteration. Pass q_init(θ) to client.
                     _, t_new = client.fit(self.q, self.init_q)
                 else:
                     _, t_new = client.fit(self.q)
-
-
 
                 if self.iterations < self.config["shared_factor_iterations"]:
                     t_new = t_new.copy()
@@ -52,7 +56,8 @@ class SequentialServer(Server):
                         self.clients[j].t.nat_params = t_np
 
                 # Only update global posterior.
-                self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
+                self.q = self.q.replace_factor(t_old, t_new,
+                                               is_trainable=False)
 
                 logger.debug(
                     "Received client update. Updating global posterior.")

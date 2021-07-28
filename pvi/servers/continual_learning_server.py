@@ -1,4 +1,5 @@
 import logging
+import time
 import copy
 
 from .base import *
@@ -37,6 +38,11 @@ class ContinualLearningServer(Server):
     def tick(self):
         if self.should_stop():
             return False
+
+        if self.t0 is None:
+            self.t0 = time.time()
+            self.pc0 = time.perf_counter()
+            self.pt0 = time.process_time()
 
         logger.debug("Getting client updates.")
         client = self.clients[self.client_idx]
