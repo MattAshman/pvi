@@ -190,7 +190,7 @@ class AsynchronousRayFactory(Server):
             client_idx = working_clients.index(client_id)
 
             # Apply change in factors.
-            self.clients[client_idx], t_old, t_new = ray.get(client_id)
+            self.clients[client_idx], _,  t_old, t_new = ray.get(client_id)
             self.q = update_q.options(**self.config["ray_options"]).remote(
                 self.q, *[client_id]
             )
@@ -261,14 +261,6 @@ class SynchronousRayFactory(Server):
             self.t0 = time.time()
             self.pc0 = time.perf_counter()
             self.pt0 = time.process_time()
-
-        working_clients = []
-        for i, client in enumerate(self.clients):
-            working_clients.append(
-                update_client.options(**self.config["ray_options"]).remote(
-                    client, self.q, self.init_q, i
-                )
-            )
 
         while not self.should_stop():
             # Pass current q to clients.
@@ -381,7 +373,7 @@ class BCMSameRayFactory(Server):
 
             self.q = self.q.create_new(nat_params=q_nps, is_trainable=False)
 
-            self.communications += len(self.clients)
+            self.communications += 1
             self.iterations += 1
 
             # Evaluate current posterior.
@@ -467,7 +459,7 @@ class BCMSplitRayFactory(Server):
 
             self.q = self.q.create_new(nat_params=q_nps, is_trainable=False)
 
-            self.communications += len(self.clients)
+            self.communications += 1
             self.iterations += 1
 
             # Evaluate current posterior.
