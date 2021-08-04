@@ -49,7 +49,6 @@ class BayesianCommitteeMachineSame(Server):
                 # Store natural parameters.
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
-                self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
 
@@ -61,6 +60,7 @@ class BayesianCommitteeMachineSame(Server):
 
         logger.debug(f"Iteration {self.iterations} complete.")
         self.iterations += 1
+        self.communications += 1
 
         # Log progress.
         self.evaluate_performance()
@@ -122,7 +122,6 @@ class BayesianCommitteeMachineSplit(Server):
                 # Store natural parameters.
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
-                self.communications += 1
 
         logger.debug("Received client updates. Updating global posterior.")
 
@@ -136,6 +135,7 @@ class BayesianCommitteeMachineSplit(Server):
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
 
         self.iterations += 1
+        self.communications += 1
 
         # Log progress.
         self.evaluate_performance()
