@@ -11,7 +11,6 @@ import numpy as np
 
 
 class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
-
     @property
     def torch_dist_class(self):
         return torch.distributions.Normal
@@ -22,8 +21,14 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
 
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
-        log_a = -0.5 * np.log(np.pi) * len(np1)
-        log_a += (- np1 ** 2 / (4 * np2) - 0.5 * (-2 * np2).log()).sum()
+
+        if len(np1.shape) == 0:
+            d = 1
+        else:
+            d = len(np1)
+
+        log_a = -0.5 * np.log(np.pi) * d
+        log_a += (-(np1 ** 2) / (4 * np2) - 0.5 * (-2 * np2).log()).sum()
 
         return log_a
 
@@ -32,10 +37,7 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         loc = unc_params["loc"]
         log_var = unc_params["log_var"]
 
-        std = {
-            "loc": loc,
-            "scale": torch.exp(log_var) ** 0.5
-        }
+        std = {"loc": loc, "scale": torch.exp(log_var) ** 0.5}
 
         return std
 
@@ -46,35 +48,29 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
 
         unc = {
             "loc": torch.nn.Parameter(loc),
-            "log_var": torch.nn.Parameter(2 * torch.log(scale))
+            "log_var": torch.nn.Parameter(2 * torch.log(scale)),
         }
 
         return unc
 
     @staticmethod
     def _nat_from_std(std_params):
-        
+
         loc = std_params["loc"]
         scale = std_params["scale"]
-        
-        nat = {
-            "np1": loc * scale ** -2,
-            "np2": -0.5 * scale ** -2
-        }
-        
+
+        nat = {"np1": loc * scale ** -2, "np2": -0.5 * scale ** -2}
+
         return nat
-    
+
     @staticmethod
     def _std_from_nat(nat_params):
-        
+
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
-        
-        std = {
-            "loc": - 0.5 * np1 / np2,
-            "scale": (- 0.5 / np2) ** 0.5
-        }
-        
+
+        std = {"loc": -0.5 * np1 / np2, "scale": (-0.5 / np2) ** 0.5}
+
         return std
 
     @staticmethod
@@ -89,14 +85,13 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
 
         return mp
 
-    
+
 # =============================================================================
 # Multivariate gaussian distribution
 # =============================================================================
 
 
 class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
-
     @property
     def torch_dist_class(self):
         return torch.distributions.MultivariateNormal
@@ -109,24 +104,23 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         np2 = nat_params["np2"]
         cov = psd_inverse(-2 * np2)
         log_a = -0.5 * np.log(np.pi) * np1.shape[-1]
-        log_a += (0.25 * np1.unsqueeze(-2).matmul(
-            cov.matmul(np1.unsqueeze(-1))).squeeze()
-                  - 0.5 * (psd_logdet(-2 * np2)))
+        log_a += 0.25 * np1.unsqueeze(-2).matmul(
+            cov.matmul(np1.unsqueeze(-1))
+        ).squeeze() - 0.5 * (psd_logdet(-2 * np2))
 
         return log_a
 
     @staticmethod
     def _std_from_unc(unc_params):
-        
+
         loc = unc_params["loc"]
         scale_tril = unc_params["scale_tril"]
-        
+
         std = {
             "loc": loc,
-            "covariance_matrix": scale_tril.matmul(
-                scale_tril.transpose(-1, -2))
+            "covariance_matrix": scale_tril.matmul(scale_tril.transpose(-1, -2)),
         }
-        
+
         return std
 
     @staticmethod
@@ -134,44 +128,41 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
 
         loc = std_params["loc"].detach()
         cov = std_params["covariance_matrix"].detach()
-        
+
         scale_tril = torch.cholesky(cov)
-        
+
         unc = {
             "loc": torch.nn.Parameter(loc),
-            "scale_tril": torch.nn.Parameter(scale_tril)
+            "scale_tril": torch.nn.Parameter(scale_tril),
         }
-        
+
         return unc
-    
+
     @staticmethod
     def _nat_from_std(std_params):
-        
+
         loc = std_params["loc"]
         cov = std_params["covariance_matrix"]
         prec = psd_inverse(cov)
-        
-        nat = {
-            "np1": prec.matmul(loc.unsqueeze(-1)).squeeze(-1),
-            "np2": -0.5 * prec
-        }
-        
+
+        nat = {"np1": prec.matmul(loc.unsqueeze(-1)).squeeze(-1), "np2": -0.5 * prec}
+
         return nat
-    
+
     @staticmethod
     def _std_from_nat(nat_params):
-        
+
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
-        
-        prec = -2. * np2
+
+        prec = -2.0 * np2
         cov = psd_inverse(prec)
-        
+
         std = {
             "loc": cov.matmul(np1.unsqueeze(-1)).squeeze(-1),
-            "covariance_matrix": cov
+            "covariance_matrix": cov,
         }
-        
+
         return std
 
     @staticmethod
@@ -193,7 +184,6 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
 
 
 class DirichletDistribution(ExponentialFamilyDistribution):
-
     @property
     def torch_dist_class(self):
         return torch.distributions.Dirichlet
@@ -204,128 +194,116 @@ class DirichletDistribution(ExponentialFamilyDistribution):
 
     @staticmethod
     def _std_from_unc(unc_params):
-        
+
         log_conc = unc_params["up1"]
-        
-        std = {
-            "concentration": torch.exp(log_conc)
-        }
-        
+
+        std = {"concentration": torch.exp(log_conc)}
+
         return std
 
     @staticmethod
     def _unc_from_std(std_params):
-        
+
         conc = std_params["concentration"].detach()
         log_conc = torch.exp(conc)
-        
-        unc = {
-            "up1": torch.nn.Parameter(log_conc)
-        }
-        
+
+        unc = {"up1": torch.nn.Parameter(log_conc)}
+
         return unc
 
     @staticmethod
     def _nat_from_std(std_params):
-        
+
         conc = std_params["concentration"]
-        
-        nat = {
-            "np1": conc - 1.
-        }
-        
+
+        nat = {"np1": conc - 1.0}
+
         return nat
 
     @staticmethod
     def _std_from_nat(nat_params):
-        
+
         conc_minus_one = nat_params["np1"]
-        
-        std = {
-            "concentration": conc_minus_one + 1.
-        }
-        
+
+        std = {"concentration": conc_minus_one + 1.0}
+
         return std
 
     @staticmethod
     def _mean_from_std(std_params):
         raise NotImplementedError
 
-    
+
 # =============================================================================
 # Multinomial distribution
 # =============================================================================
 
 
 class MultinomialDistribution(ExponentialFamilyDistribution):
-
     @property
     def mean_params(self):
         raise NotImplementedError
 
     @staticmethod
     def _std_from_unc(unc_params):
-        
+
         # First parameter is the number of trials and therefore not learnable
         up1 = unc_params["up1"]
         up2 = unc_params["up2"]
-        
+
         p = torch.exp(up2)
         p = p / p.sum()
-        
+
         std = {
             "total_count": up1,
             "probs": p,
         }
-        
+
         return std
 
     @staticmethod
     def _unc_from_std(std_params):
-        
+
         # First parameter is the number of trials and therefore not learnable
         sp1 = std_params["total_count"]
         sp2 = std_params["probs"]
-        
+
         n = sp1
         log_p = torch.log(sp2)
-        
+
         unc = {
             "up1": torch.nn.Parameter(n, requires_grad=False).int(),
             "up2": torch.nn.Parameter(log_p),
         }
-        
+
         return unc
 
     @staticmethod
     def _nat_from_std(std_params):
-        
+
         # First parameter is the number of trials and therefore not learnable
         sp1 = std_params["total_count"]
         sp2 = std_params["probs"]
-        
+
         log_p = torch.log(sp2)
-        
+
         nat = {
             "np1": sp1,
             "np2": log_p,
         }
-        
+
         return nat
 
     @staticmethod
     def _std_from_nat(nat_params):
-        
+
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
-        
+
         p = torch.exp(np2)
         p = p / p.sum()
-        
-        std = {
-            "total_count": np1,
-            "probs": p
-        }
+
+        std = {"total_count": np1, "probs": p}
 
         return std
 
@@ -344,7 +322,6 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
 
 
 class GammaDistribution(ExponentialFamilyDistribution):
-
     @property
     def mean_params(self):
         raise NotImplementedError
@@ -357,10 +334,7 @@ class GammaDistribution(ExponentialFamilyDistribution):
         concentration = log_alpha.exp()
         rate = 1 / log_beta.exp()
 
-        std = {
-            "concentration": concentration,
-            "rate": rate
-        }
+        std = {"concentration": concentration, "rate": rate}
 
         return std
 
@@ -371,7 +345,7 @@ class GammaDistribution(ExponentialFamilyDistribution):
 
         unc = {
             "log_alpha": torch.nn.Parameter(concentration.log()),
-            "log_beta": torch.nn.Parameter((1 / rate).log())
+            "log_beta": torch.nn.Parameter((1 / rate).log()),
         }
 
         return unc
@@ -382,7 +356,7 @@ class GammaDistribution(ExponentialFamilyDistribution):
         rate = std_params["rate"]
 
         np1 = concentration - 1
-        np2 = - 1 / rate
+        np2 = -1 / rate
 
         nat = {
             "np1": np1,
@@ -399,10 +373,7 @@ class GammaDistribution(ExponentialFamilyDistribution):
         concentration = np1 + 1
         rate = -1 / np2
 
-        std = {
-            "concentration": concentration,
-            "rate": rate
-        }
+        std = {"concentration": concentration, "rate": rate}
 
         return std
 
@@ -421,7 +392,6 @@ class GammaDistribution(ExponentialFamilyDistribution):
 
 
 class LogNormalDistribution(MeanFieldGaussianDistribution):
-
     @property
     def torch_dist_class(self):
         return torch.distributions.LogNormal

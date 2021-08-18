@@ -48,8 +48,7 @@ class Client:
     def config(self, config):
         self._config = {**self._config, **config}
 
-    @classmethod
-    def get_default_config(cls):
+    def get_default_config(self):
         return {
             "train_model": False,
             "damping_factor": 1.,

@@ -2,6 +2,7 @@ class HyperparameterDistribution:
     """
     Maintains the distributions over hyperparameters.
     """
+
     def __init__(self, distributions=None):
         """
         :param distributions: A dictionary of (hyperparameter, distribution)
@@ -16,20 +17,16 @@ class HyperparameterDistribution:
     def non_trainable_copy(self):
         return type(self)(
             distributions={
-                k: v.non_trainable_copy()
-                for k, v in self.distributions.items()
+                k: v.non_trainable_copy() for k, v in self.distributions.items()
             }
         )
 
     def trainable_copy(self):
         return type(self)(
-            distributions={
-                k: v.trainable_copy()
-                for k, v in self.distributions.items()
-            }
+            distributions={k: v.trainable_copy() for k, v in self.distributions.items()}
         )
 
-    def replace_factor(self, t_old, t_new, **kwargs):
+    def replace_factor(self, t_old=None, t_new=None, **kwargs):
         """
         Forms a new distribution by replacing the natural parameters of
         t_old(ε) with t_new(ε).
@@ -38,40 +35,64 @@ class HyperparameterDistribution:
         :param kwargs: Passed to self.create_new()
         :return: Updated distribution.
         """
-        new_distributions = {
-            k: self.distributions[k].replace_factor(
-                t_old.factors[k], t_new.factors[k], **kwargs)
-            for k in self.distributions.keys()
+        if t_old is not None and t_new is not None:
+            new_distributions = {
+                k: self.distributions[k].replace_factor(
+                    t_old.factors[k], t_new.factors[k], **kwargs
+                )
+                for k in self.distributions.keys()
+            }
+        elif t_old is None and t_new is not None:
+            new_distributions = {
+                k: self.distributions[k].replace_factor(
+                    None, t_new.factors[k], **kwargs
+                )
+                for k in self.distributions.keys()
+            }
+        elif t_old is not None and t_new is None:
+            new_distributions = {
+                k: self.distributions[k].replace_factor(
+                    t_old.factors[k], None, **kwargs
+                )
+                for k in self.distributions.keys()
+            }
+        else:
+            raise ValueError("Both t_old and t_new are None")
+
+        return self.create_new(distributions=new_distributions, **kwargs)
+
+    def kl_divergence(self, other, **kwargs):
+        return {
+            k: v.kl_divergence(other.distributions[k], **kwargs)
+            for k, v in self.distributions.items()
         }
 
-        return type(self)(distributions=new_distributions)
-
-    def kl_divergence(self, other):
-        return {k: v.kl_divergence(other.distributions[k])
-                for k, v in self.distributions.items()}
-
     def log_prob(self, args_dict, kwargs_dict):
-        return {k: v.log_prob(**args_dict[k], **kwargs_dict[k])
-                for k, v in self.distributions.items()}
+        return {
+            k: v.log_prob(**args_dict[k], **kwargs_dict[k])
+            for k, v in self.distributions.items()
+        }
 
     def sample(self, *args, **kwargs):
-        return {k: v.sample(*args, **kwargs)
-                for k, v in self.distributions.items()}
+        return {k: v.sample(*args, **kwargs) for k, v in self.distributions.items()}
 
     def rsample(self, *args, **kwargs):
-        return {k: v.rsample(*args, **kwargs)
-                for k, v in self.distributions.items()}
+        return {k: v.rsample(*args, **kwargs) for k, v in self.distributions.items()}
 
     def parameters(self):
-        parameters = [list(v.parameters())
-                      for v in self.distributions.values()]
+        parameters = [list(v.parameters()) for v in self.distributions.values()]
         return [item for sublist in parameters for item in sublist]
+
+    @classmethod
+    def create_new(cls, **kwargs):
+        return cls(**kwargs)
 
 
 class HyperparameterFactor:
     """
     Maintains the factors over hyperparameters.
     """
+
     def __init__(self, factors=None):
         """
         :param factors: A dictionary of (hyperparameter, factor)
@@ -79,12 +100,14 @@ class HyperparameterFactor:
         """
         self.factors = factors
 
-    def compute_refined_factor(self, q1, q2, damping=1., valid_dist=False):
+    def compute_refined_factor(self, q1, q2, **kwargs):
         return type(self)(
             factors={
                 k: v.compute_refined_factor(
-                    q1.distributions[k], q2.distributions[k], damping=damping,
-                    valid_dist=valid_dist)
+                    q1.distributions[k],
+                    q2.distributions[k],
+                    **kwargs
+                )
                 for k, v in self.factors.items()
             }
         )
@@ -103,12 +126,13 @@ class HyperparameterFactor:
         return {k: v.npf(thetas[k]) for k, v in self.factors.items()}
 
     def eqlogt(self, q, num_samples=1):
-        return {k: v.eqlogt(q.distributions[k], num_samples)
-                for k, v in self.factors.items()}
+        return {
+            k: v.eqlogt(q.distributions[k], num_samples)
+            for k, v in self.factors.items()
+        }
 
     def nat_from_dist(self, q):
-        return {k: v.nat_from_dist(q.distributions[k])
-                for k, v in self.factors.items()}
+        return {k: v.nat_from_dist(q.distributions[k]) for k, v in self.factors.items()}
 
     def dist_from_nat(self, np):
         return {k: v.dist_from_nat(np[k]) for k, v in self.factors.items()}
