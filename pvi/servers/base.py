@@ -16,8 +16,7 @@ class Server(ABC):
         if config is None:
             config = {}
 
-        self._config = self.get_default_config()
-        self.config = config
+        self._config = config
 
         # Shared probabilistic model.
         self.model = model

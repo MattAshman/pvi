@@ -155,7 +155,6 @@ class Client(ABC):
             n_epochs = 1
             n_samples = self.config['epochs']
 
-
             raise NotImplementedError('poisson not done yet!')
 
         elif self.config['sampling_type'] == 'swor':
@@ -231,17 +230,16 @@ class Client(ABC):
                             kl = q.kl_divergence(q_cav).sum()/ len(x)
                             #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                             #print(kl)
-                        except:
+                        except ValueError as err:
                             # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
-                            print('exception in KL')
+                            print('\nException in KL: probably caused by invalid cavity distribution')
                             #print(q._unc_params['log_scale'])
                             print(q_cav)
                             print('nat params')
                             print(q_cav.nat_params)
                             print('std params')
                             print(q_cav.std_params)
-
-                            sys.exit()
+                            raise err
 
                         # Sample θ from q and compute p(y | θ, x) for each θ
                         ll = self.model.expected_log_likelihood(
@@ -259,26 +257,26 @@ class Client(ABC):
                         loss.backward()
 
                         # NOTE: assume that all parameters for dp are from q
-                        if self.config['use_dpsgd']:
-                            g_norm = torch.zeros(1)
-                            for p_ in filter(lambda p_: p_.requires_grad, q.parameters()):
-                                #if p_.grad is not None:
-                                g_norm += torch.sum(p_.grad**2)
-                            g_norm = torch.sqrt(g_norm)
-                            #print(f'grad_norm: {g_norm}')
-                            
-                            # clip and accumulate grads
-                            for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
-                                #if p_.grad is not None:
-                                cum_grads[str(i_weight)] += p_.grad/torch.clamp(g_norm/self.config['dp_C'], min=1)
-                            # check that clipping is ok
-                            #g_norm = torch.zeros(1)
-                            #for k in cum_grads:
-                            #    g_norm += torch.sum(cum_grads[k]**2)
-                            #g_norm = torch.sqrt(g_norm)
-                            #print(f'grad_norm: {g_norm}')
+                        #if self.config['use_dpsgd']:
+                        g_norm = torch.zeros(1)
+                        for p_ in filter(lambda p_: p_.requires_grad, q.parameters()):
+                            #if p_.grad is not None:
+                            g_norm += torch.sum(p_.grad**2)
+                        g_norm = torch.sqrt(g_norm)
+                        #print(f'grad_norm: {g_norm}')
+                        
+                        # clip and accumulate grads
+                        for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
+                            #if p_.grad is not None:
+                            cum_grads[str(i_weight)] += p_.grad/torch.clamp(g_norm/self.config['dp_C'], min=1)
+                        # check that clipping is ok
+                        #g_norm = torch.zeros(1)
+                        #for k in cum_grads:
+                        #    g_norm += torch.sum(cum_grads[k]**2)
+                        #g_norm = torch.sqrt(g_norm)
+                        #print(f'grad_norm: {g_norm}')
 
-                            #print(list(q.parameters()))
+                        #print(list(q.parameters()))
                         #print(f'cum grad:\n{cum_grads}')
                         #sys.exit()
                 
@@ -303,17 +301,16 @@ class Client(ABC):
                     # Compute KL divergence between q and q_cav.
                     try:
                         kl = q.kl_divergence(q_cav).sum() / len(x)
-                    except:
+                    except ValueError as err:
                         # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
-                        print('exception in KL')
+                        print('\nException in KL: probably caused by invalid cavity distribution')
                         #print(q._unc_params['log_scale'])
                         print(q_cav)
                         print('nat params')
                         print(q_cav.nat_params)
                         print('std params')
                         print(q_cav.std_params)
-
-                        sys.exit()
+                        raise err
 
                     # Sample θ from q and compute p(y | θ, x) for each θ
                     ll = self.model.expected_log_likelihood(
@@ -334,9 +331,11 @@ class Client(ABC):
                 # add noise to clipped grads
                 if self.config['use_dpsgd']:
                     for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
-                        #print(f'grad before: {p_.grad}')
-                        p_.grad = self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
-                        #print(f'grad after: {p_.grad}')
+                        #print(f'grad before:\n{p_.grad}')
+                        #print(f'noiseless accumulated grads:\n{cum_grads[key]}')
+                        p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
+                        #print(f'grad after:\n{p_.grad}')
+                        #sys.exit()
 
                 optimiser.step()
                 i_step += 1
@@ -365,8 +364,84 @@ class Client(ABC):
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
+        
+        # toiminee jos klippaa change in params tässä?
+        # ja sit t-faktorin laskeminen toiminee ilman muita kikkoja
 
-        # Create non-trainable copy to send back to server.
+
+        # Create non-trainable copy to send back to server
+
+        #'''
+        # NOTE: might make sense to define clipping & noise levels separately for np1, np2
+        # use single clip & noise level for now
+        # get norm of the change in params, clip and noisify
+        #'''
+
+        if not self.config['server_add_DP'] and not self.config['use_dpsgd']:
+            # NOTE: THIS DOESN'T WORK AT ALL: NEED TO GO BACK TO PAPER TO CHECK
+            # might be easier to start with clipping & noising parameters directly
+            # note: need to change inv-scale to non-log scale for clipping & noise
+            param_norm = 0
+            #for p_, p_old in zip(q.parameters(),p.trainable_copy().parameters()):
+            for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+                if i_params == 0:
+                    # difference in params
+                    param_norm += torch.sum((p_ - p_old)**2)
+                    # params directly
+                    #param_norm += torch.sum(p_**2)
+                elif i_params == 1:
+                    # difference in params
+                    param_norm += torch.sum( (p_ - p_old)**2)
+                    # params directly
+                    #param_norm += torch.sum(p_**2) # should use exp?
+                    # JATKA: koita tätä vielä suoraan paramseille, meneekö kuralle
+
+                else:
+                    sys.exit('Model has > 2 sets of params, DP not implemented for this!')
+                #print(p_)
+            param_norm = torch.sqrt(param_norm)
+            #print(f'diff in param, norm before clip: {param_norm}')
+
+            # clip and add noise to the difference in params; 
+            for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+                #p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                if i_params == 0:
+                    p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                            + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                    # params directly
+                    #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                    #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+                elif i_params == 1:
+                    # note: need to change inv-scale to non-log scale for clipping & noise
+
+                    #if self.config['pos_def_constants'][0] > 0:
+                    #    p_.data = p_old + torch.log( torch.clamp( (torch.exp(p_ - p_old))/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                    #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_), min=self.config['pos_def_constants'][0]))
+                    #else:
+                    p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                            + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+
+                    # params directly
+                    #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                    #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+
+                else:
+                    sys.exit('Model has > 2 sets of params, DP not implemented for this!')
+            #'''
+
+            # check that clipping works properly, uses log-scale, fix if needed
+            '''
+            param_norm = 0
+            for p_, p_old in zip(q.parameters(),p.trainable_copy().parameters()):
+                param_norm += torch.sum((p_ - p_old)**2)
+                #print(p_)
+            param_norm = torch.sqrt(param_norm)
+            print(f'param norm after clip: {param_norm}')
+            #'''
+            
+
+        #sys.exit()
+
         q_new = q.non_trainable_copy()
 
         # Finished optimisation, can now update.

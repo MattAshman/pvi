@@ -25,10 +25,11 @@ class ExponentialFamilyFactor(ABC):
     applications.
     """
     
-    def __init__(self, nat_params, log_coeff=0.):
+    def __init__(self, nat_params, log_coeff=0., enforce_pos_var=False):
         
         self.nat_params = nat_params
         self.log_coeff = log_coeff
+        self.enforce_pos_var = enforce_pos_var
 
     def compute_refined_factor(self, q1, q2, damping=1., valid_dist=False,
                                update_log_coeff=True):
@@ -47,12 +48,14 @@ class ExponentialFamilyFactor(ABC):
         # Convert distributions to log-coefficients and natural parameters
         np1 = q1.nat_params
         np2 = q2.nat_params
-
+        
         # Compute natural parameters of the new t-factor (detach gradients)
+        # update without clipping or noise:
         delta_np = {k: (np1[k].detach().clone() - np2[k].detach().clone())
                     for k in self.nat_params.keys()}
         nat_params = {k: v.detach().clone() + delta_np[k] * damping
                       for k, v in self.nat_params.items()}
+
 
         if valid_dist:
             # Constraint natural parameters to form valid distribution.
@@ -66,7 +69,7 @@ class ExponentialFamilyFactor(ABC):
             log_coeff = 0.
             
         # Create and return refined t of the same type
-        t = type(self)(nat_params=nat_params, log_coeff=log_coeff)
+        t = type(self)(nat_params=nat_params, log_coeff=log_coeff, enforce_pos_var = self.enforce_pos_var)
         
         return t
 
@@ -145,7 +148,8 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     def __init__(self,
                  std_params=None,
                  nat_params=None,
-                 is_trainable=False):
+                 is_trainable=False,
+                 enforce_pos_var=False):
         
         super().__init__()
     
@@ -156,6 +160,8 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         self._nat_params = None
         self._std_params = None
         self._unc_params = None
+
+        self._enforce_pos_var = enforce_pos_var
         
         # Initialise standard and natural parameters
         if is_trainable:
@@ -180,6 +186,10 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         """
         raise NotImplementedError
         
+    @property
+    def enforce_pos_var(self):
+        return self._enforce_pos_var
+
     @property
     def std_params(self):
         
@@ -281,7 +291,7 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
             else:
                 nat_params = None
 
-        return type(self)(std_params, nat_params, is_trainable=True)
+        return type(self)(std_params, nat_params, is_trainable=True, enforce_pos_var=self._enforce_pos_var)
 
     @property
     def distribution(self):

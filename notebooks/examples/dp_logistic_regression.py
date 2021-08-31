@@ -5,7 +5,9 @@ Script for testing private PVI with logistic regression based on DP-SGD/suff.sta
 import argparse
 import logging
 import os
+import random
 import sys
+from warnings import warn
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -21,6 +23,7 @@ from pvi.models.logistic_regression import LogisticRegressionModel
 #from pvi.clients.synchronous_client import SynchronousClient
 from pvi.clients import Client
 from pvi.servers.sequential_server import SequentialServer
+from pvi.servers.synchronous_server import SynchronousServer
 
 from pvi.distributions.exponential_family_distributions import MeanFieldGaussianDistribution
 from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
@@ -48,12 +51,20 @@ def main(args, rng_seed, dataset_folder):
     elif args.sampling_type == 'poisson':
         logger.info(f'Using {args.sampling_type} with sampling fraction {args.sampling_frac_q}')
 
+    # fix random seeds
     np.random.seed(rng_seed)
+    torch.random.manual_seed(rng_seed)
+    random.seed(rng_seed)
+    if torch.cuda.is_available() and torch.cuda.device_count() > 0:
+      torch.cuda.manual_seed(rng_seed)
 
     client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
             None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder
             )
     x_train, x_valid, y_train, y_valid = full_data_split
+
+    #print(x_train.shape, x_valid.shape)
+    #sys.exit()
 
     logger.info(f'Proportion of positive examples in each client: {np.array(prop_positive).round(2)}')
     logger.info(f'Total number of examples in each client: {N}')
@@ -95,6 +106,8 @@ def main(args, rng_seed, dataset_folder):
         'use_dpsgd' : args.use_dpsgd, # if True use DP-SGD for privacy, otherwise clip & noisyfy parameters directly
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
+        'server_add_DP' : args.server_add_DP,
+        'enforce_pos_var' : args.enforce_pos_var,
     }
     # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
@@ -110,8 +123,14 @@ def main(args, rng_seed, dataset_folder):
     # Initialise clients, q and server
     clients = set_up_clients(model, client_data, init_nat_params, client_config, args)
 
+    #print(clients[0])
+    #sys.exit()
+
     q = MeanFieldGaussianDistribution(std_params=prior_std_params,
-                                      is_trainable=False)
+                                      is_trainable=False, enforce_pos_var=args.enforce_pos_var)
+    if args.server_add_DP and args.use_dpsgd:
+        logger.warning("Note: using both DP-SGD on clients and clip & noisify change in params on server! I think this is an error so setting server_add_DP to False.")
+        args.server_add_DP = False
     server_config = {
             'max_iterations' : args.n_global_updates,
             'train_model' : False, # need False here?
@@ -119,10 +138,15 @@ def main(args, rng_seed, dataset_folder):
             #'hyper_optimiser': 'SGD',
             #'hyper_optimiser_params': {'lr': 1},
             #'hyper_updates': 1,
+            'server_add_DP' : args.server_add_DP,
+            'dp_C' : args.dp_C,
+            'dp_sigma' : args.dp_sigma,
+            'enforce_pos_var' : args.enforce_pos_var,
             }
 
     # try using initial q also as prior here
-    server = SequentialServer(model=model,
+    #server = SequentialServer(model=model,
+    server = SynchronousServer(model=model,
                               p=q,
                               init_q=q,
                               clients=clients,
@@ -214,31 +238,55 @@ def plot_training_curves(client_train_res, clients):
 
 
 
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
+    parser.add_argument('--n_global_updates', default=5, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
-    parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
+    parser.add_argument('-batch_size', default=100, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson'")
-    parser.add_argument('--dp_sigma', default=1.0, type=float, help='DP noise magnitude')
-    parser.add_argument('--dp_C', default=1., type=float, help='gradient norm bound')
+    parser.add_argument('--dp_sigma', default=.0, type=float, help='DP noise magnitude')
+    parser.add_argument('--dp_C', default=10000., type=float, help='gradient norm bound')
 
-    parser.add_argument('--folder', default='data/adult/', type=str, help='path to combined train-test adult data folder')
+    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
 
-    parser.add_argument('--clients', default=4, type=int, help='number of clients')
-    parser.add_argument('--n_steps', default=5, type=int, help="when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes throuhg local data on each client update iteration")
+    parser.add_argument('--clients', default=10, type=int, help='number of clients')
+    parser.add_argument('--n_steps', default=4, type=int, help="when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes throuhg local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=1., type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--sampling_type', default='swor', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
-    parser.add_argument('--use_dpsgd', default=False, type=bool, help="use dp-sgd or clip & noisify parameters")
-
+    parser.add_argument('--use_dpsgd', default=False, action='store_true', help="use dp-sgd or clip & noisify change in parameters")
+    parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters")
+    parser.add_argument('--server_add_DP', default=False, action='store_true', help="when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!")
 
     args = parser.parse_args()
 
-    main(args, rng_seed=2303, dataset_folder='../../data/data/adult/')
+    main(args, rng_seed=2303, dataset_folder=args.folder)
 
-
+    '''
+    abalone dataset NOT WORKING FOR SOME REASON
+    Input  shape: (4177, 10)
+    Output shape: (4177, 1)
+    adult dataset non-dp ~= .85
+    Input  shape: (48842, 108)
+    Output shape: (48842, 1)
+    mushroom dataset non-dp ~= .99
+    Input  shape: (8124, 111)
+    Output shape: (8124, 1)
+    credit dataset non-dp ~=.89
+    Input  shape: (653, 46)
+    Output shape: (653, 1)
+    bank dataset, non-dp ~= .9
+    Input  shape: (45211, 51)
+    Output shape: (45211, 1)
+    superconductor dataset NOT WORKING FOR SOME REASON
+    Input  shape: (21263, 81)
+    Output shape: (21263, 1)
+    '''
 

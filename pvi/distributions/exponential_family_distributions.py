@@ -10,7 +10,12 @@ import numpy as np
 # =============================================================================
 
 
+import sys
+
 class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
     @property
     def torch_dist_class(self):
@@ -70,12 +75,18 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
         
-        std = {
-            "loc" : - 0.5 * np1 / np2,
-            # NOTE: could add quick&dirty fix for negative variances here if needed
-            #"scale" : (- 0.5 / -np.abs(np2)) ** 0.5
-            "scale" : (- 0.5 / np2) ** 0.5
-        }
+        if super().enforce_pos_var:
+            std = {
+                "loc" : - 0.5 * np1 / np2,
+                # NOTE: could add quick&dirty fix for negative variances here if needed
+                "scale" : (- 0.5 / -np.abs(np2)) ** 0.5
+            }
+
+        else:
+            std = {
+                "loc" : - 0.5 * np1 / np2,
+                "scale" : (- 0.5 / np2) ** 0.5
+            }
         
         return std
 

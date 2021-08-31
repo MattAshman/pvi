@@ -46,15 +46,40 @@ class SynchronousServer(Server):
 
         logger.debug("Received client updates. Updating global posterior.")
 
-        # Update global posterior.
         q_new_nps = {}
-        for k, v in self.q.nat_params.items():
-            q_new_nps[k] = (v + sum([delta_np[k] for delta_np in delta_nps]))
+        # Update global posterior, non-DP original
+        if not self.config['server_add_DP']:
+            for k, v in self.q.nat_params.items():
+                q_new_nps[k] = (v + sum([delta_np[k] for delta_np in delta_nps]))
+        #######################
+        else: 
+            #'''
+            # clip and noisify change in parameters on the server
+            # note: adding noise here generally breaks stuff easily: results not guaranteed to be proper distributions
+            #self.config['dp_C'], self.config['dp_sigma'] = 1., 1.
+            # NOTE: crappy thing about this now is that damping has been already applied on the client side
+            # MAKES NO SENSE, NEED TO FIX
 
-        self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False)
+            # get param change norm for each client
+            param_norms = torch.zeros(len(delta_nps))
+            for i_client, client_delta_nps in enumerate(delta_nps):
+                for k, v in self.q.nat_params.items():
+                    #print(client_delta_nps[k].shape)
+                    param_norms[i_client] += torch.sum(client_delta_nps[k]**2)
+                param_norms[i_client] = torch.sqrt(param_norms[i_client])
+            #print(f'param norms before clipping for each client:\n{param_norms}')
 
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+            for k, v in self.q.nat_params.items():
+                q_new_nps[k] = (v + sum([delta_np[k]/torch.clamp(param_norms[i_client]/self.config['dp_C'], min=1) for i_client,delta_np in enumerate(delta_nps)]) + self.config['dp_sigma']*self.config['dp_C']*torch.randn_like(v))
+
+        #sys.exit('server exit')
+        #'''
+        #######################
+
+        self.q = type(self.q)(nat_params=q_new_nps, is_trainable=False, enforce_pos_var=self.config['enforce_pos_var'])
+
+        logger.debug(f"Iteration {self.iterations} complete.")
+                     #f"\nNew natural parameters:\n{self.q.nat_params}\n.")
 
         self.iterations += 1
 
