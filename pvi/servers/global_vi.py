@@ -5,7 +5,7 @@ import torch
 
 from torch.utils.data import TensorDataset, DataLoader
 from collections import defaultdict
-from .base import Server
+from pvi.servers.base import Server
 from pvi.utils.dataset import ListDataset
 from pvi.utils.training_utils import EarlyStopping
 from tqdm.auto import tqdm
@@ -52,9 +52,7 @@ class GlobalVIServer(Server):
             return False
 
         # Start timer.
-        self.t0 = time.time()
-        self.pc0 = time.perf_counter()
-        self.pt0 = time.process_time()
+        self.timer.start()
 
         p = self.p.non_trainable_copy()
 

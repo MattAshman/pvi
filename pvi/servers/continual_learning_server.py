@@ -2,7 +2,7 @@ import logging
 import time
 import copy
 
-from .base import *
+from pvi.servers.base import Server, ServerBayesianHypers
 
 logger = logging.getLogger(__name__)
 
@@ -35,15 +35,7 @@ class ContinualLearningServer(Server):
             "init_q_always": False,
         }
 
-    def tick(self):
-        if self.should_stop():
-            return False
-
-        if self.t0 is None:
-            self.t0 = time.time()
-            self.pc0 = time.perf_counter()
-            self.pt0 = time.process_time()
-
+    def _tick(self):
         logger.debug("Getting client updates.")
         client = self.clients[self.client_idx]
         if client.can_update():
@@ -64,12 +56,7 @@ class ContinualLearningServer(Server):
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
 
-        self.iterations += 1
         self.client_idx = (self.client_idx + 1) % len(self.clients)
-
-        # Log progress.
-        self.evaluate_performance()
-        self.log["communications"].append(self.communications)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
@@ -90,10 +77,7 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
             **super().get_default_config(),
         }
 
-    def tick(self):
-        if self.should_stop():
-            return False
-
+    def _tick(self):
         logger.debug("Getting client updates.")
 
         client = self.clients[self.client_idx]
@@ -116,7 +100,6 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
         logger.debug(f"Iteration {self.iterations} complete."
                      f"\nNew natural parameters:\n{self.q.nat_params}\n.")
 
-        self.iterations += 1
         self.client_idx = (self.client_idx + 1) % len(self.clients)
 
     def should_stop(self):

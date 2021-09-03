@@ -2,13 +2,12 @@ import logging
 import time
 
 from tqdm.auto import tqdm
-from .base import *
+from pvi.servers.base import Server, ServerBayesianHypers
 
 logger = logging.getLogger(__name__)
 
 
 class SynchronousServer(Server):
-
     def get_default_config(self):
         return {
             **super().get_default_config(),
@@ -17,15 +16,7 @@ class SynchronousServer(Server):
             "init_q_always": False,
         }
 
-    def tick(self):
-        if self.should_stop():
-            return False
-
-        if self.t0 is None:
-            self.t0 = time.time()
-            self.pc0 = time.perf_counter()
-            self.pt0 = time.process_time()
-
+    def _tick(self):
         logger.debug("Getting client updates.")
         t_olds = []
         t_news = []
@@ -65,33 +56,19 @@ class SynchronousServer(Server):
                 client.t.nat_params = t_np
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
-        self.iterations += 1
-
-        # Update hyperparameters.
-        if self.config["train_model"] and \
-                self.iterations % self.config["model_update_freq"] == 0:
-            self.update_hyperparameters()
-
-        # Log progress.
-        self.evaluate_performance()
-        self.log["communications"].append(self.communications)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
 
 
 class SynchronousServerBayesianHypers(ServerBayesianHypers):
-
     def get_default_config(self):
         return {
             **super().get_default_config(),
             "max_iterations": 5,
         }
 
-    def tick(self):
-        if self.should_stop():
-            return False
-
+    def _tick(self):
         logger.debug("Getting client updates.")
 
         clients_updated = 0
@@ -106,7 +83,8 @@ class SynchronousServerBayesianHypers(ServerBayesianHypers):
 
                 if self.iterations == 0:
                     _, _, t_new, teps_new = client.fit(
-                        self.q, self.qeps, self.init_q, self.init_qeps)
+                        self.q, self.qeps, self.init_q, self.init_qeps
+                    )
                 else:
                     _, _, t_new, teps_new = client.fit(self.q, self.qeps)
 
@@ -122,20 +100,19 @@ class SynchronousServerBayesianHypers(ServerBayesianHypers):
 
         # Update global posterior.
         for t_old, t_new, teps_old, teps_new in zip(
-                t_olds, t_news, teps_olds, teps_news):
+            t_olds, t_news, teps_olds, teps_news
+        ):
             self.q = self.q.replace_factor(t_old, t_new, is_trainable=False)
-            self.qeps = self.qeps.replace_factor(teps_old, teps_new,
-                                                 is_trainable=False)
+            self.qeps = self.qeps.replace_factor(teps_old, teps_new, is_trainable=False)
 
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
-
-        self.iterations += 1
+        logger.debug(
+            f"Iteration {self.iterations} complete."
+            f"\nNew natural parameters:\n{self.q.nat_params}\n."
+        )
 
         # Log progress.
         # self.log["q"].append(self.q.non_trainable_copy())
         # self.log["qeps"].append(self.qeps.non_trainable_copy())
-        self.log["communications"].append(self.communications)
         self.log["clients_updated"].append(clients_updated)
 
     def should_stop(self):

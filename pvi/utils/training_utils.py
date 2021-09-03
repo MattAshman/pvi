@@ -131,3 +131,7 @@ class Timer:
                 "perf_counter": time.perf_counter() - self.pcstart,
                 "process_time": time.process_time() - self.ptstart,
             }
+
+    @property
+    def started(self):
+        return self.tstart is not None
