@@ -4,6 +4,7 @@ import torch
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
+from pvi.utils.training_utils import Timer
 
 logger = logging.getLogger(__name__)
 
@@ -12,8 +13,10 @@ class Server(ABC):
     """
     An abstract class for the server.
     """
-    def __init__(self, model, p, clients, config=None, init_q=None,
-                 data=None, val_data=None):
+
+    def __init__(
+        self, model, p, clients, config=None, init_q=None, data=None, val_data=None
+    ):
 
         if config is None:
             config = {}
@@ -62,13 +65,11 @@ class Server(ABC):
         self.log["communications"].append(self.communications)
 
         # Evaluate performance of prior.
-        #if self.q is not None:
+        # if self.q is not None:
         #    self.evaluate_performance()
 
         # Will initialise these in self.tick().
-        self.t0 = None
-        self.pc0 = None
-        self.pt0 = None
+        self.timer = Timer()
 
     @property
     def config(self):
@@ -90,8 +91,30 @@ class Server(ABC):
             "device": "cpu",
         }
 
-    @abstractmethod
     def tick(self):
+        """ """
+        if self.should_stop():
+            return False
+
+        if not self.timer.started:
+            self.timer.start()
+
+        self._tick()
+
+        self.iterations += 1
+
+        # Update hyperparameters.
+        if (
+            self.config["train_model"]
+            and self.iterations % self.config["model_update_freq"] == 0
+        ):
+            self.update_hyperparameters()
+
+        # Evaluate performance after every iterations.
+        self.evaluate_performance()
+
+    @abstractmethod
+    def _tick(self):
         """
         Defines what the server should do on each update round. Could be a
         synchronous update, asynchronous update etc.
@@ -107,12 +130,13 @@ class Server(ABC):
 
     def evaluate_performance(self, default_metrics=None):
         metrics = {
-            "time": time.time() - self.t0,
-            "perf_counter": time.perf_counter() - self.pc0,
-            "process_time": time.process_time() - self.pt0,
+            **self.timer.get(),
             "communications": self.communications,
             "iterations": self.iterations,
         }
+
+        # Pause timer whilst getting performance metrics.
+        self.timer.pause()
 
         if default_metrics is not None:
             metrics = {**default_metrics, **metrics}
@@ -123,22 +147,18 @@ class Server(ABC):
                 metrics["train_" + k] = v
 
             if self.val_data is not None:
-                val_metrics = self.config["performance_metrics"](
-                    self, self.val_data)
+                val_metrics = self.config["performance_metrics"](self, self.val_data)
                 for k, v in val_metrics.items():
                     metrics["val_" + k] = v
 
         if self.config["track_q"]:
             # Store current q(θ) natural parameters.
-            metrics["npq"] = {k: v.detach().cpu()
-                              for k, v in self.q.nat_params.items()}
+            metrics["npq"] = {k: v.detach().cpu() for k, v in self.q.nat_params.items()}
 
         self.log["performance_metrics"].append(metrics)
 
-        # Reset timers.
-        self.t0 = time.time()
-        self.pc0 = time.perf_counter()
-        self.pt0 = time.process_time()
+        # Resume timer.
+        self.timer.resume()
 
     def update_hyperparameters(self):
         """
@@ -161,7 +181,8 @@ class Server(ABC):
         vfe = 0
         for client in self.clients:
             vfe += self.model.expected_log_likelihood(
-                client.data, self.q, client.config["num_elbo_samples"]).sum()
+                client.data, self.q, client.config["num_elbo_samples"]
+            ).sum()
 
         if hasattr(self.model, "prior"):
             # Compute prior using model's current hyperparameters.
@@ -169,8 +190,12 @@ class Server(ABC):
             mq = {k: v.detach() for k, v in self.q.mean_params.items()}
             mp = {k: v.detach() for k, v in p_old.mean_params.items()}
 
-            vfe += sum([(mq[k] - mp[k]).flatten().dot(v.flatten())
-                        for k, v in zip(mq.keys(), p_old.nat_params.values())])
+            vfe += sum(
+                [
+                    (mq[k] - mp[k]).flatten().dot(v.flatten())
+                    for k, v in zip(mq.keys(), p_old.nat_params.values())
+                ]
+            )
         else:
             p_old = None
 
@@ -182,8 +207,7 @@ class Server(ABC):
 
         # Update model parameters, and pass to clients.
         for param in self.model.parameters():
-            param.data += (
-                self.config["hyper_optimiser_params"]["lr"] * param.grad)
+            param.data += self.config["hyper_optimiser_params"]["lr"] * param.grad
 
         for client in self.clients:
             client.model = self.model
@@ -192,18 +216,22 @@ class Server(ABC):
         if p_old is not None:
             # Compute prior using model's current hyperparameters.
             p_new = self.model.prior(q=self.q)
-            q_new_nps = {k: (v - p_old.nat_params[k].detach()
-                             + p_new.nat_params[k].detach())
-                         for k, v in self.q.nat_params.items()}
+            q_new_nps = {
+                k: (v - p_old.nat_params[k].detach() + p_new.nat_params[k].detach())
+                for k, v in self.q.nat_params.items()
+            }
 
-            self.q = self.q.create_new(nat_params=q_new_nps,
-                                       is_trainable=False)
+            self.q = self.q.create_new(nat_params=q_new_nps, is_trainable=False)
 
         parameters = {k: v.data for k, v in self.model.named_parameters()}
-        logger.debug(f"Updated model hyperparameters."
-                     f"\nNew model hyperparameters:\n{parameters}\n.")
-        print(f"Updated model hyperparameters."
-              f"\nNew model hyperparameters:\n{parameters}\n.")
+        logger.debug(
+            f"Updated model hyperparameters."
+            f"\nNew model hyperparameters:\n{parameters}\n."
+        )
+        print(
+            f"Updated model hyperparameters."
+            f"\nNew model hyperparameters:\n{parameters}\n."
+        )
 
         return
 
@@ -222,9 +250,7 @@ class Server(ABC):
         Get full log, including logs from each client.
         :return: full log.
         """
-        final_log = {
-            "server": self.log
-        }
+        final_log = {"server": self.log}
 
         client_logs = [client.log for client in self.clients]
         for i, log in enumerate(client_logs):
@@ -234,8 +260,9 @@ class Server(ABC):
 
 
 class ServerBayesianHypers(Server):
-    def __init__(self, model, p, peps, clients, config=None, init_q=None,
-                 init_qeps=None):
+    def __init__(
+        self, model, p, peps, clients, config=None, init_q=None, init_qeps=None
+    ):
         super().__init__(model, p, clients, config, init_q)
 
         # Global prior p(ε).
@@ -255,8 +282,25 @@ class ServerBayesianHypers(Server):
             "num_eps_samples": 1,
         }
 
-    @abstractmethod
     def tick(self):
+        """
+        Wrapper for _tick method.
+        """
+        if self.should_stop():
+            return False
+
+        if not self.timer.started:
+            self.timer.start()
+
+        self._tick()
+
+        self.iterations += 1
+
+        # Evaluate performance after every iteration.
+        self.evaluate_performance()
+
+    @abstractmethod
+    def _tick(self):
         """
         Defines what the server should do on each update round. Could be a
         synchronous update, asynchronous update etc.
