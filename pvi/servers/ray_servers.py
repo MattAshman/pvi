@@ -171,10 +171,8 @@ class AsynchronousRayFactory(Server):
 
     def tick(self):
 
-        if self.t0 is None:
-            self.t0 = time.time()
-            self.pc0 = time.perf_counter()
-            self.pt0 = time.process_time()
+        if not self.timer.started:
+            self.timer.start()
 
         working_clients = []
         for i, client in enumerate(self.clients):
@@ -184,13 +182,15 @@ class AsynchronousRayFactory(Server):
                 )
             )
 
+        # Stores ray object refs returned by performance_metrics.
+        performance_metrics = []
         while not self.should_stop():
             ready_clients, _ = ray.wait(list(working_clients))
             client_id = ready_clients[0]
             client_idx = working_clients.index(client_id)
 
             # Apply change in factors.
-            self.clients[client_idx], _,  t_old, t_new = ray.get(client_id)
+            self.clients[client_idx], _, t_old, t_new = ray.get(client_id)
             self.q = update_q.options(**self.config["ray_options"]).remote(
                 self.q, *[client_id]
             )
@@ -208,25 +208,38 @@ class AsynchronousRayFactory(Server):
                 ).remote(self.clients[client_idx], self.q, client_idx=client_idx)
 
             self.communications += 1
+            # Log time and which client was updated.
+            self.log["updated_client"].append(
+                {"client_idx": client_idx, **self.timer.get()}
+            )
             if self.communications % len(self.clients) == 0:
                 # Evaluate current posterior.
-                # Can we make evauation a remote function too?
                 self.q = ray.get(self.q)
-                self.evaluate_performance()
-                self.log["communications"].append(self.communications)
+                # Can we make evauation a remote function too?
+                performance_metrics.append(
+                    evaluate_performance.options(**self.config["ray_options"]).remote(
+                        self
+                    )
+                )
 
-                metrics = self.log["performance_metrics"][-1]
-                print("Communications: {}.".format(self.communications))
-                print(
-                    "Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                        metrics["val_mll"], metrics["val_acc"]
-                    )
-                )
-                print(
-                    "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                        metrics["train_mll"], metrics["train_acc"]
-                    )
-                )
+                # self.q = ray.get(self.q)
+                # self.evaluate_performance()
+                # self.log["communications"].append(self.communications)
+
+                # metrics = self.log["performance_metrics"][-1]
+                # print("Communications: {}.".format(self.communications))
+                # print(
+                #     "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+                #         metrics["val_mll"], metrics["val_acc"]
+                #     )
+                # )
+                # print(
+                #     "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+                #         metrics["train_mll"], metrics["train_acc"]
+                #     )
+                # )
+
+        self.log["performance_metrics"] = ray.get(performance_metrics)
 
     def should_stop(self):
         com_test = self.communications > self.config["max_communications"] - 1
@@ -257,11 +270,11 @@ class SynchronousRayFactory(Server):
 
     def tick(self):
 
-        if self.t0 is None:
-            self.t0 = time.time()
-            self.pc0 = time.perf_counter()
-            self.pt0 = time.process_time()
+        if not self.timer.started:
+            self.timer.start()
 
+        # Stores ray object refs returned by performance_metrics.
+        performance_metrics = []
         while not self.should_stop():
             # Pass current q to clients.
             if self.iterations == 0 or self.config["init_q_always"]:
@@ -291,23 +304,32 @@ class SynchronousRayFactory(Server):
             for i, working_client in enumerate(working_clients):
                 self.clients[i] = ray.get(working_client)[0]
 
+            # Log time taken for each client to update.
+            updated_client_times = {**self.timer.get()}
+            for client_idx, client in enumerate(self.clients):
+                updated_client_times[client_idx] = client.log["update_time"][-1]
+
             # Evaluate current posterior.
             self.q = ray.get(self.q)
-            self.evaluate_performance()
-            self.log["communications"].append(self.communications)
+            performance_metrics.append(
+                evaluate_performance.options(**self.config["ray_options"]).remote(self)
+            )
+            # self.log["communications"].append(self.communications)
 
-            metrics = self.log["performance_metrics"][-1]
-            print("Communications: {}.".format(self.communications))
-            print(
-                "Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                    metrics["val_mll"], metrics["val_acc"]
-                )
-            )
-            print(
-                "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                    metrics["train_mll"], metrics["train_acc"]
-                )
-            )
+            # metrics = self.log["performance_metrics"][-1]
+            # print("Communications: {}.".format(self.communications))
+            # print(
+            #     "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+            #         metrics["val_mll"], metrics["val_acc"]
+            #     )
+            # )
+            # print(
+            #     "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+            #         metrics["train_mll"], metrics["train_acc"]
+            #     )
+            # )
+
+        self.log["performance_metrics"] = ray.get(performance_metrics)
 
     def should_stop(self):
         iter_test = self.iterations > self.config["max_iterations"] - 1
@@ -329,10 +351,8 @@ class BCMSameRayFactory(Server):
 
     def tick(self):
 
-        if self.t0 is None:
-            self.t0 = time.time()
-            self.pc0 = time.perf_counter()
-            self.pt0 = time.process_time()
+        if not self.timer.started:
+            self.timer.start()
 
         working_clients = []
         for i, client in enumerate(self.clients):
@@ -413,10 +433,8 @@ class BCMSplitRayFactory(Server):
 
     def tick(self):
 
-        if self.t0 is None:
-            self.t0 = time.time()
-            self.pc0 = time.perf_counter()
-            self.pt0 = time.process_time()
+        if not self.timer.started:
+            self.timer.start()
 
         working_clients = []
         for i, client in enumerate(self.clients):
@@ -503,3 +521,23 @@ def update_q(q, *ts):
         q = q.replace_factor(t_old, t_new, is_trainable=False)
 
     return q
+
+
+@ray.remote
+def evaluate_performance(server):
+    server.evaluate_performance()
+
+    metrics = server.log["performance_metrics"][-1]
+    print("Communications: {}.".format(server.communications))
+    print(
+        "Test mll: {:.3f}. Test acc: {:.3f}.".format(
+            metrics["val_mll"], metrics["val_acc"]
+        )
+    )
+    print(
+        "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
+            metrics["train_mll"], metrics["train_acc"]
+        )
+    )
+
+    return metrics
