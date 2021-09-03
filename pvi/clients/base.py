@@ -6,6 +6,7 @@ from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm.auto import tqdm
 from pvi.utils.training_utils import EarlyStopping
+from pvi.utils.training_utils import Timer
 
 logger = logging.getLogger(__name__)
 
@@ -23,11 +24,11 @@ class Client:
 
         self._config = self.get_default_config()
         self.config = config
-        
+
         # Set data partition and likelihood
         self.data = data
         self.model = model
-        
+
         # Set likelihood approximating term
         self.t = t
 
@@ -36,7 +37,7 @@ class Client:
 
         # Validation dataset.
         self.val_data = val_data
-        
+
         self.log = defaultdict(list)
         self._can_update = True
 
@@ -51,7 +52,7 @@ class Client:
     def get_default_config(self):
         return {
             "train_model": False,
-            "damping_factor": 1.,
+            "damping_factor": 1.0,
             "valid_factors": False,
             "update_log_coeff": False,
             "epochs": 1,
@@ -61,9 +62,7 @@ class Client:
             "model_optimiser_params": {},
             "sigma_optimiser_params": {},
             "lr_scheduler": "MultiplicativeLR",
-            "lr_scheduler_params": {
-                "lr_lambda": lambda epoch: 1.
-            },
+            "lr_scheduler_params": {"lr_lambda": lambda epoch: 1.0},
             "early_stopping": EarlyStopping(np.inf),
             "performance_metrics": None,
             "track_q": False,
@@ -94,8 +93,7 @@ class Client:
                 metrics["train_" + k] = v
 
             if self.val_data is not None:
-                val_metrics = self.config["performance_metrics"](
-                    self, self.val_data)
+                val_metrics = self.config["performance_metrics"](self, self.val_data)
                 for k, v in val_metrics.items():
                     metrics["val_" + k] = v
 
@@ -115,14 +113,21 @@ class Client:
         approximating likelihood term.
         """
 
+        timer = Timer()
+
         # Type(q) is self.model.conjugate_family.
-        if str(type(q)) == str(self.model.conjugate_family) \
-                and not self.config["train_model"]:
+        if (
+            str(type(q)) == str(self.model.conjugate_family)
+            and not self.config["train_model"]
+        ):
             # No need to make q trainable.
             self.q, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
             # Pass a trainable copy to optimise.
             self.q, self.t = self.gradient_based_update(p=q, init_q=init_q)
+
+        times = timer.get()
+        self.log["update_time"].append(times)
 
         return self.q, self.t
 
@@ -136,8 +141,9 @@ class Client:
 
         if self.t is not None:
             # TODO: check if valid distribution.
-            q_cav.nat_params = {k: v - self.t.nat_params[k]
-                                for k, v in q_cav.nat_params.items()}
+            q_cav.nat_params = {
+                k: v - self.t.nat_params[k] for k, v in q_cav.nat_params.items()
+            }
 
         if init_q is not None:
             q = init_q.trainable_copy()
@@ -152,34 +158,35 @@ class Client:
         if self.config["train_model"]:
             parameters = [
                 {"params": q_parameters[0]},
-                {"params": q_parameters[1],
-                 **self.config["sigma_optimiser_params"]},
-                {"params": self.model.parameters(),
-                 **self.config["model_optimiser_params"]}
+                {"params": q_parameters[1], **self.config["sigma_optimiser_params"]},
+                {
+                    "params": self.model.parameters(),
+                    **self.config["model_optimiser_params"],
+                },
             ]
         else:
             parameters = [
                 {"params": q_parameters[0]},
-                {"params": q_parameters[1],
-                 **self.config["sigma_optimiser_params"]},
+                {"params": q_parameters[1], **self.config["sigma_optimiser_params"]},
             ]
 
         # Reset optimiser.
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
-            parameters, **self.config["optimiser_params"])
-        lr_scheduler = getattr(torch.optim.lr_scheduler,
-                               self.config["lr_scheduler"])(
-            optimiser, **self.config["lr_scheduler_params"])
-        
+            parameters, **self.config["optimiser_params"]
+        )
+        lr_scheduler = getattr(torch.optim.lr_scheduler, self.config["lr_scheduler"])(
+            optimiser, **self.config["lr_scheduler_params"]
+        )
+
         # Set up data
         x = self.data["x"]
         y = self.data["y"]
 
         tensor_dataset = TensorDataset(x, y)
-        loader = DataLoader(tensor_dataset,
-                            batch_size=self.config["batch_size"],
-                            shuffle=True)
+        loader = DataLoader(
+            tensor_dataset, batch_size=self.config["batch_size"], shuffle=True
+        )
 
         if self.config["device"] == "cuda":
             loader.pin_memory = True
@@ -191,15 +198,18 @@ class Client:
         performance_metrics = defaultdict(list)
 
         # Reset early stopping.
-        self.config["early_stopping"](scores=None,
-                                      model=q.non_trainable_copy())
+        self.config["early_stopping"](scores=None, model=q.non_trainable_copy())
 
         # Gradient-based optimisation loop -- loop over epochs.
-        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
-                          leave=True, disable=(not self.config["verbose"]))
+        epoch_iter = tqdm(
+            range(self.config["epochs"]),
+            desc="Epoch",
+            leave=True,
+            disable=(not self.config["verbose"]),
+        )
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
-            epoch = defaultdict(lambda: 0.)
+            epoch = defaultdict(lambda: 0.0)
             epoch["elbos"] = []
             epoch["kls"] = []
             epoch["lls"] = []
@@ -240,13 +250,14 @@ class Client:
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
-                    batch, q, self.config["num_elbo_samples"]).sum()
+                    batch, q, self.config["num_elbo_samples"]
+                ).sum()
                 ll /= len(x_batch)
 
                 # Compute E_q[log t(θ)].
                 # logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
                 # logt /= len(x)
-                logt = torch.tensor(0.).to(self.config["device"])
+                logt = torch.tensor(0.0).to(self.config["device"])
 
                 # Negative local free energy is KL minus log-probability.
                 # loss1 = kl1 + logt - ll
@@ -297,9 +308,13 @@ class Client:
                 epoch["lls"].append(ll.item())
                 epoch["logts"].append(logt.item())
 
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], logt=epoch["logt"],
-                                   lr=optimiser.param_groups[0]["lr"])
+            epoch_iter.set_postfix(
+                elbo=epoch["elbo"],
+                kl=epoch["kl"],
+                ll=epoch["ll"],
+                logt=epoch["logt"],
+                lr=optimiser.param_groups[0]["lr"],
+            )
 
             # Log progress for current epoch
             training_metrics["elbo"].append(epoch["elbo"])
@@ -313,12 +328,14 @@ class Client:
                 # Update global posterior before evaluating performance.
                 self.q = q.non_trainable_copy()
 
-                metrics = self.evaluate_performance({
-                    "epochs": i,
-                    "elbo": epoch["elbo"],
-                    "kl": epoch["kl"],
-                    "ll": epoch["ll"],
-                })
+                metrics = self.evaluate_performance(
+                    {
+                        "epochs": i,
+                        "elbo": epoch["elbo"],
+                        "kl": epoch["kl"],
+                        "ll": epoch["ll"],
+                    }
+                )
 
                 # Report performance.
                 report = ""
@@ -342,8 +359,9 @@ class Client:
                 lr_scheduler.step()
 
             # Check whether to stop early.
-            if self.config["early_stopping"](scores=training_metrics,
-                                             model=q.non_trainable_copy()):
+            if self.config["early_stopping"](
+                scores=training_metrics, model=q.non_trainable_copy()
+            ):
                 break
 
         # Log the training curves for this update.
@@ -364,9 +382,12 @@ class Client:
         if self.t is not None:
             # Compute new local contribution from old distributions
             t_new = self.t.compute_refined_factor(
-                q_new, q_old, damping=self.config["damping_factor"],
+                q_new,
+                q_old,
+                damping=self.config["damping_factor"],
                 valid_dist=self.config["valid_factors"],
-                update_log_coeff=self.config["update_log_coeff"])
+                update_log_coeff=self.config["update_log_coeff"],
+            )
 
             return q_new, t_new
 
@@ -385,6 +406,7 @@ class ClientBayesianHypers:
     """
     PVI client with Bayesian treatment of model hyperparameters.
     """
+
     def __init__(self, data, model, t=None, teps=None, config=None):
 
         if config is None:
@@ -415,7 +437,7 @@ class ClientBayesianHypers:
     @classmethod
     def get_default_config(cls):
         return {
-            "damping_factor": 1.,
+            "damping_factor": 1.0,
             "valid_factors": False,
             "epochs": 1,
             "batch_size": 100,
@@ -423,7 +445,7 @@ class ClientBayesianHypers:
             "optimiser_params": {"lr": 0.05},
             "num_elbo_samples": 10,
             "num_elbo_hyper_samples": 1,
-            "print_epochs": 1
+            "print_epochs": 1,
         }
 
     def can_update(self):
@@ -449,7 +471,8 @@ class ClientBayesianHypers:
         """
         # Pass a trainable copy to optimise.
         q_new, qeps_new, self.t, self.teps = self.gradient_based_update(
-            q.trainable_copy(), qeps.trainable_copy())
+            q.trainable_copy(), qeps.trainable_copy()
+        )
 
         return q_new, qeps_new, self.t, self.teps
 
@@ -463,30 +486,33 @@ class ClientBayesianHypers:
             qeps_cav = qeps.non_trainable_copy()
         else:
             q_cav = q.non_trainable_copy()
-            q_cav.nat_params = {k: v - self.t.nat_params[k]
-                                for k, v in q_cav.nat_params.items()}
+            q_cav.nat_params = {
+                k: v - self.t.nat_params[k] for k, v in q_cav.nat_params.items()
+            }
 
             qeps_cav = qeps.non_trainable_copy()
             for k1, v1 in qeps.distributions.items():
                 qeps.distributions[k1].nat_params = {
                     k2: v2 - self.teps.factors[k1].nat_params[k2]
-                    for k2, v2 in v1.nat_params.items()}
+                    for k2, v2 in v1.nat_params.items()
+                }
 
         parameters = list(q.parameters()) + qeps.parameters()
 
         # Reset optimiser. Parameters are those of q(θ) and q(ε).
         logging.info("Resetting optimiser")
         optimiser = getattr(torch.optim, self.config["optimiser"])(
-            parameters, **self.config["optimiser_params"])
+            parameters, **self.config["optimiser_params"]
+        )
 
         # Set up data
         x = self.data["x"]
         y = self.data["y"]
 
         tensor_dataset = TensorDataset(x, y)
-        loader = DataLoader(tensor_dataset,
-                            batch_size=self.config["batch_size"],
-                            shuffle=True)
+        loader = DataLoader(
+            tensor_dataset, batch_size=self.config["batch_size"], shuffle=True
+        )
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -530,14 +556,16 @@ class ClientBayesianHypers:
                     eps = qeps.rsample()
                     self.model.hyperparameters = eps
                     ll += self.model.expected_log_likelihood(
-                        batch, q, self.config["num_elbo_samples"]).sum()
+                        batch, q, self.config["num_elbo_samples"]
+                    ).sum()
 
-                ll /= (self.config["num_elbo_hyper_samples"] * len(x_batch))
+                ll /= self.config["num_elbo_hyper_samples"] * len(x_batch)
 
                 if self.t is not None:
                     logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                    logteps = sum(self.teps.eqlogt(
-                        qeps, self.config["num_elbo_samples"]).values())
+                    logteps = sum(
+                        self.teps.eqlogt(qeps, self.config["num_elbo_samples"]).values()
+                    )
                     logt /= len(x)
                     logteps /= len(x)
 
@@ -569,18 +597,24 @@ class ClientBayesianHypers:
                 training_curve["logteps"].append(epoch["logteps"])
 
             if i % self.config["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"KL eps: {epoch['kleps']:.3f}, "
-                             f"log t: {epoch['logt']: .3f},"
-                             f"log teps: {epoch['logteps']: .3f},"
-                             f"Epochs: {i}.")
+                logger.debug(
+                    f"ELBO: {epoch['elbo']:.3f}, "
+                    f"LL: {epoch['ll']:.3f}, "
+                    f"KL: {epoch['kl']:.3f}, "
+                    f"KL eps: {epoch['kleps']:.3f}, "
+                    f"log t: {epoch['logt']: .3f},"
+                    f"log teps: {epoch['logteps']: .3f},"
+                    f"Epochs: {i}."
+                )
 
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], kleps=epoch["kleps"],
-                                   logt=epoch["logt"],
-                                   logteps=epoch["logteps"])
+            epoch_iter.set_postfix(
+                elbo=epoch["elbo"],
+                kl=epoch["kl"],
+                ll=epoch["ll"],
+                kleps=epoch["kleps"],
+                logt=epoch["logt"],
+                logteps=epoch["logteps"],
+            )
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
@@ -595,11 +629,17 @@ class ClientBayesianHypers:
         if self.t is not None:
             # Compute new local contribution from old distributions
             t_new = self.t.compute_refined_factor(
-                q, q_cav, damping=self.config["damping_factor"],
-                valid_dist=self.config["valid_factors"])
+                q,
+                q_cav,
+                damping=self.config["damping_factor"],
+                valid_dist=self.config["valid_factors"],
+            )
             teps_new = self.teps.compute_refined_factor(
-                qeps, qeps_cav, damping=self.config["damping_factor"],
-                valid_dist=self.config["valid_factors"])
+                qeps,
+                qeps_cav,
+                damping=self.config["damping_factor"],
+                valid_dist=self.config["valid_factors"],
+            )
 
             return q_new, qeps_new, t_new, teps_new
 
