@@ -58,6 +58,12 @@ class ContinualLearningServer(Server):
 
         self.client_idx = (self.client_idx + 1) % len(self.clients)
 
+        # Log time and which client was updated.
+        updated_client_times = {**self.timer.get()}
+        updated_client_times[client_idx] =
+            self.clients[client_idx].log["update_time"][-1]
+        self.log["updated_client_times"].append(updated_client_times)
+
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
 

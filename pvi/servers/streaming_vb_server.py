@@ -66,6 +66,12 @@ class StreamingVBServer(Server):
                     self.evaluate_performance()
                     self.log["communications"].append(self.communications)
 
+                updated_client_times = {**self.timer.get()}
+                updated_client_times[client_idx] =
+                    self.clients[client_idx].log["update_time"][-1]
+                self.log["updated_client_times"].append(updated_client_times)
+
+
         logger.debug(f"Iteration {self.iterations} complete.\n")
 
     def should_stop(self):
