@@ -114,6 +114,7 @@ class Client:
         """
 
         timer = Timer()
+        timer.start()
 
         # Type(q) is self.model.conjugate_family.
         if (

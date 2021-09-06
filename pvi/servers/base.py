@@ -113,13 +113,12 @@ class Server(ABC):
         # Evaluate performance after every iterations.
         self.evaluate_performance()
 
-    @abstractmethod
     def _tick(self):
         """
         Defines what the server should do on each update round. Could be a
         synchronous update, asynchronous update etc.
         """
-        pass
+        raise NotImplementedError
 
     @abstractmethod
     def should_stop(self):

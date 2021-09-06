@@ -208,14 +208,15 @@ class AsynchronousRayFactory(Server):
                 ).remote(self.clients[client_idx], self.q, client_idx=client_idx)
 
             self.communications += 1
+
             # Log time and which client was updated.
-            self.log["updated_client"].append(
-                {"client_idx": client_idx, **self.timer.get()}
-            )
+            updated_client_times = {**self.timer.get()}
+            updated_client_times[client_idx] = self.clients[client_idx].log["update_time"][-1]
+            self.log["updated_client_times"].append(updated_client_times)
+
             if self.communications % len(self.clients) == 0:
                 # Evaluate current posterior.
                 self.q = ray.get(self.q)
-                # Can we make evauation a remote function too?
                 performance_metrics.append(
                     evaluate_performance.options(**self.config["ray_options"]).remote(
                         self
@@ -308,6 +309,8 @@ class SynchronousRayFactory(Server):
             updated_client_times = {**self.timer.get()}
             for client_idx, client in enumerate(self.clients):
                 updated_client_times[client_idx] = client.log["update_time"][-1]
+
+            self.log["updated_client_times"].append(updated_client_times)
 
             # Evaluate current posterior.
             self.q = ray.get(self.q)
