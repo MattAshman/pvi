@@ -223,23 +223,6 @@ class AsynchronousRayFactory(Server):
                     )
                 )
 
-                # self.q = ray.get(self.q)
-                # self.evaluate_performance()
-                # self.log["communications"].append(self.communications)
-
-                # metrics = self.log["performance_metrics"][-1]
-                # print("Communications: {}.".format(self.communications))
-                # print(
-                #     "Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                #         metrics["val_mll"], metrics["val_acc"]
-                #     )
-                # )
-                # print(
-                #     "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                #         metrics["train_mll"], metrics["train_acc"]
-                #     )
-                # )
-
         self.log["performance_metrics"] = ray.get(performance_metrics)
 
     def should_stop(self):
@@ -317,20 +300,6 @@ class SynchronousRayFactory(Server):
             performance_metrics.append(
                 evaluate_performance.options(**self.config["ray_options"]).remote(self)
             )
-            # self.log["communications"].append(self.communications)
-
-            # metrics = self.log["performance_metrics"][-1]
-            # print("Communications: {}.".format(self.communications))
-            # print(
-            #     "Test mll: {:.3f}. Test acc: {:.3f}.".format(
-            #         metrics["val_mll"], metrics["val_acc"]
-            #     )
-            # )
-            # print(
-            #     "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-            #         metrics["train_mll"], metrics["train_acc"]
-            #     )
-            # )
 
         self.log["performance_metrics"] = ray.get(performance_metrics)
 
@@ -365,6 +334,7 @@ class BCMSameRayFactory(Server):
                 )
             )
 
+        performance_metrics = []
         while not self.should_stop():
             # Pass current q to clients.
             if self.iterations == 0:
@@ -400,21 +370,12 @@ class BCMSameRayFactory(Server):
             self.iterations += 1
 
             # Evaluate current posterior.
-            self.evaluate_performance()
-            self.log["communications"].append(self.communications)
+            performance_metrics.append(
+                evaluate_performance.options(**self.config["ray_options"]).remote(self)
+            )
 
-            metrics = self.log["performance_metrics"][-1]
-            print("Communications: {}.".format(self.communications))
-            print(
-                "Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                    metrics["val_mll"], metrics["val_acc"]
-                )
-            )
-            print(
-                "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                    metrics["train_mll"], metrics["train_acc"]
-                )
-            )
+        self.log["performance_metrics"] = ray.get(performance_metrics)
+
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
@@ -447,6 +408,7 @@ class BCMSplitRayFactory(Server):
                 )
             )
 
+        performance_metrics = []
         while not self.should_stop():
             # Pass current q to clients.
             working_clients = []
@@ -484,21 +446,11 @@ class BCMSplitRayFactory(Server):
             self.iterations += 1
 
             # Evaluate current posterior.
-            self.evaluate_performance()
-            self.log["communications"].append(self.communications)
+            performance_metrics.append(
+                evaluate_performance.options(**self.config["ray_options"]).remote(self)
+            )
 
-            metrics = self.log["performance_metrics"][-1]
-            print("Communications: {}.".format(self.communications))
-            print(
-                "Test mll: {:.3f}. Test acc: {:.3f}.".format(
-                    metrics["val_mll"], metrics["val_acc"]
-                )
-            )
-            print(
-                "Train mll: {:.3f}. Train acc: {:.3f}.\n".format(
-                    metrics["train_mll"], metrics["train_acc"]
-                )
-            )
+        self.log["performance_metrics"] = ray.get(performance_metrics)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
