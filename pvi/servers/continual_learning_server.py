@@ -17,14 +17,14 @@ class ContinualLearningServer(Server):
         self.client_idx = 0
 
         if self.config["train_model"]:
-            self.log["model_state_dict"].append(
-                copy.deepcopy(self.model.state_dict()))
+            self.log["model_state_dict"].append(copy.deepcopy(self.model.state_dict()))
 
             for client in self.clients:
                 # Ensure clients know to train the model.
                 client.config["train_model"] = True
-                client.config["model_optimiser_params"] = \
-                    self.config["model_optimiser_params"]
+                client.config["model_optimiser_params"] = self.config[
+                    "model_optimiser_params"
+                ]
 
                 # Tie model hyperparameters together.
                 client.model = self.model
@@ -51,26 +51,30 @@ class ContinualLearningServer(Server):
 
             if self.config["train_model"]:
                 self.log["model_state_dict"].append(
-                    copy.deepcopy(self.model.state_dict()))
-
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
-
-        self.client_idx = (self.client_idx + 1) % len(self.clients)
-
+                    copy.deepcopy(self.model.state_dict())
+                )
         # Log time and which client was updated.
         updated_client_times = {**self.timer.get()}
-        updated_client_times[client_idx] =
-            self.clients[client_idx].log["update_time"][-1]
+        updated_client_times[self.client_idx] = self.clients[self.client_idx].log[
+            "update_time"
+        ][-1]
         self.log["updated_client_times"].append(updated_client_times)
+
+        logger.debug(
+            f"Iteration {self.iterations} complete."
+            f"\nNew natural parameters:\n{self.q.nat_params}\n."
+        )
+
+        self.client_idx = (self.client_idx + 1) % len(self.clients)
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
 
 
 class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
-    def __init__(self, model, p, peps, clients, config=None, init_q=None,
-                 init_qeps=None):
+    def __init__(
+        self, model, p, peps, clients, config=None, init_q=None, init_qeps=None
+    ):
         super().__init__(model, p, peps, clients, config, init_q, init_qeps)
 
         # Loop through each client just once.
@@ -90,8 +94,9 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
 
         if client.can_update():
             if self.iterations == 0:
-                q_new, qeps_new, _, _ = client.fit(self.q, self.qeps,
-                                                   self.init_q, self.init_qeps)
+                q_new, qeps_new, _, _ = client.fit(
+                    self.q, self.qeps, self.init_q, self.init_qeps
+                )
             else:
                 q_new, qeps_new, _, _ = client.fit(self.q, self.qeps)
 
@@ -103,8 +108,10 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
             # self.log["qeps"].append(self.qeps.non_trainable_copy())
             self.log["communications"].append(self.communications)
 
-        logger.debug(f"Iteration {self.iterations} complete."
-                     f"\nNew natural parameters:\n{self.q.nat_params}\n.")
+        logger.debug(
+            f"Iteration {self.iterations} complete."
+            f"\nNew natural parameters:\n{self.q.nat_params}\n."
+        )
 
         self.client_idx = (self.client_idx + 1) % len(self.clients)
 

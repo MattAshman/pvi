@@ -63,8 +63,7 @@ class SequentialServer(Server):
 
                 # Log time and which client was updated.
                 updated_client_times = {**self.timer.get()}
-                updated_client_times[client_idx] =
-                    self.clients[client_idx].log["update_time"][-1]
+                updated_client_times[i] = self.clients[i].log["update_time"][-1]
                 self.log["updated_client_times"].append(updated_client_times)
 
         logger.debug(f"Iteration {self.iterations} complete.\n")
