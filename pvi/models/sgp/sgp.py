@@ -15,14 +15,14 @@ class SparseGaussianProcessModel(Model, nn.Module):
     """
     Sparse Gaussian process model.
     """
+
     def __init__(self, **kwargs):
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
         # Construct inducing points and kernel.
         if self.config["kernel_class"] is not None:
-            self.kernel = self.config["kernel_class"](
-                **self.config["kernel_params"])
+            self.kernel = self.config["kernel_class"](**self.config["kernel_params"])
         else:
             raise ValueError("Kernel class not specified.")
 
@@ -30,9 +30,8 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor([0.] * self.config["num_inducing"]),
-            "np2": torch.tensor(
-                [-.5] * self.config["num_inducing"]).diag_embed()
+            "np1": torch.tensor([0.0] * self.config["num_inducing"]),
+            "np2": torch.tensor([-0.5] * self.config["num_inducing"]).diag_embed(),
         }
 
     def get_default_config(self):
@@ -41,15 +40,15 @@ class SparseGaussianProcessModel(Model, nn.Module):
             "num_inducing": 50,
             "kernel_class": lambda **kwargs: RBFKernel(**kwargs),
             "kernel_params": {
-                "ard_num_dims": None,   # No ARD.
-                "outputscale": 1.,
-                "lengthscale": 1.
+                "ard_num_dims": None,  # No ARD.
+                "outputscale": 1.0,
+                "lengthscale": 1.0,
             },
             "optimiser_class": optim.Adam,
             "optimiser_params": {"lr": 1e-3},
             "reset_optimiser": True,
             "epochs": 100,
-            "print_epochs": 10
+            "print_epochs": 10,
         }
 
     @property
@@ -70,14 +69,14 @@ class SparseGaussianProcessModel(Model, nn.Module):
         """
         if self.config["kernel_params"]["ard_num_dims"] is not None:
             return {
-                "outputscale": torch.tensor(1.),
-                "lengthscale": torch.ones(
-                    self.config["kernel_params"]["ard_num_dims"]) * 1.,
+                "outputscale": torch.tensor(1.0),
+                "lengthscale": torch.ones(self.config["kernel_params"]["ard_num_dims"])
+                * 1.0,
             }
         else:
             return {
-                "outputscale": torch.tensor(1.),
-                "lengthscale": torch.tensor(1.),
+                "outputscale": torch.tensor(1.0),
+                "lengthscale": torch.tensor(1.0),
             }
 
     def prior(self, q=None, z=None, detach=False):
@@ -88,8 +87,7 @@ class SparseGaussianProcessModel(Model, nn.Module):
         :param detach: Detach gradients before constructing q(u).
         :return: The prior p(u) = N(z; 0, Kzz).
         """
-        assert not (q is not None and z is not None), "Must specify either " \
-                                                      "q or z."
+        assert not (q is not None and z is not None), "Must specify either " "q or z."
         if z is None:
             z = q.inducing_locations
 
@@ -108,8 +106,11 @@ class SparseGaussianProcessModel(Model, nn.Module):
             std = {k: v.detach() for k, v in std.items()}
 
         return MultivariateGaussianDistributionWithZ(
-            std_params=std, inducing_locations=z, is_trainable=False,
-            train_inducing=False)
+            std_params=std,
+            inducing_locations=z,
+            is_trainable=False,
+            train_inducing=False,
+        )
 
     def posterior(self, x, q, diag=True):
         """
@@ -135,12 +136,15 @@ class SparseGaussianProcessModel(Model, nn.Module):
             # Predictive marginal posterior.
             kxz = kxz.unsqueeze(-2)
             kzx = kxz.transpose(-1, -2)
-            qf_mu = kxz.matmul(ikzz.unsqueeze(-3)).matmul(
-                qu_loc.unsqueeze(-2).unsqueeze(-1)).squeeze(-1).squeeze(-1)
-            qf_cov = kxx + kxz.matmul(
-                ikzz.unsqueeze(-3)).matmul(
-                (qu_cov - kzz).unsqueeze(-3)).matmul(
-                ikzz.unsqueeze(-3)).matmul(kzx).squeeze(-1).squeeze(-1)
+            qf_mu = (
+                kxz.matmul(ikzz.unsqueeze(-3))
+                .matmul(qu_loc.unsqueeze(-2).unsqueeze(-1))
+                .squeeze(-1)
+                .squeeze(-1)
+            )
+            qf_cov = kxx + kxz.matmul(ikzz.unsqueeze(-3)).matmul(
+                (qu_cov - kzz).unsqueeze(-3)
+            ).matmul(ikzz.unsqueeze(-3)).matmul(kzx).squeeze(-1).squeeze(-1)
 
             return distributions.Normal(qf_mu, qf_cov ** 0.5)
 
@@ -149,11 +153,11 @@ class SparseGaussianProcessModel(Model, nn.Module):
 
             # Predictive posterior.
             qf_mu = kxz.matmul(ikzz).matmul(qu_loc.unsqueeze(-1)).squeeze(-1)
-            qf_cov = kxx + kxz.matmul(
-                ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(kzx)
+            qf_cov = kxx + kxz.matmul(ikzz).matmul(qu_cov - kzz).matmul(ikzz).matmul(
+                kzx
+            )
 
-            return distributions.MultivariateNormal(
-                qf_mu, covariance_matrix=qf_cov)
+            return distributions.MultivariateNormal(qf_mu, covariance_matrix=qf_cov)
 
 
 class SparseGaussianProcessRegression(SparseGaussianProcessModel):
@@ -169,13 +173,18 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
 
         self.train_sigma = train_sigma
         if self.train_sigma:
-            self.register_parameter("log_outputsigma", nn.Parameter(
-                torch.tensor(self.hyperparameters["outputsigma"]).log(),
-                requires_grad=True))
+            self.register_parameter(
+                "log_outputsigma",
+                nn.Parameter(
+                    torch.tensor(self.hyperparameters["outputsigma"]).log(),
+                    requires_grad=True,
+                ),
+            )
         else:
             self.register_buffer(
                 "log_outputsigma",
-                torch.tensor(self.hyperparameters["outputsigma"]).log())
+                torch.tensor(self.hyperparameters["outputsigma"]).log(),
+            )
 
         # Set ε after model is constructed.
         self.hyperparameters = self.hyperparameters
@@ -198,10 +207,12 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         if hasattr(self, "log_outputsigma"):
             if self.train_sigma:
                 self.log_outputsigma.data = torch.as_tensor(
-                    self.hyperparameters["outputsigma"]).log()
+                    self.hyperparameters["outputsigma"]
+                ).log()
             else:
                 self.log_outputsigma = torch.as_tensor(
-                    self.hyperparameters["outputsigma"]).log()
+                    self.hyperparameters["outputsigma"]
+                ).log()
 
     def get_default_hyperparameters(self):
         """
@@ -209,12 +220,12 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         """
         return {
             **super().get_default_hyperparameters(),
-            "outputsigma": 1.,
+            "outputsigma": 1.0,
         }
 
     def forward(self, x, q, diag=False):
         return self.posterior(x, q, diag=diag)
-    
+
     def likelihood_forward(self, x, theta=None, **kwargs):
         """
         Returns the model's likelihood p(y | x).
@@ -223,7 +234,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         :return: p(y | x).
         """
         return distributions.Normal(x, self.outputsigma)
-    
+
     def conjugate_update(self, data, q, t=None):
         """
         :param data: The local data to refine the model with.
@@ -233,9 +244,10 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         contribution.
         """
         if t is not None:
-            assert torch.equal(q.inducing_locations, t.inducing_locations), \
-                "q and t must share the same inducing locations for " \
+            assert torch.equal(q.inducing_locations, t.inducing_locations), (
+                "q and t must share the same inducing locations for "
                 "conjugate update."
+            )
 
         # Set up data etc.
         x = data["x"]
@@ -263,17 +275,20 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
             # New model parameters.
             q_new_nps = {k: v + t_new_nps[k] for k, v in q.nat_params.items()}
 
-            q_new = type(q)(inducing_locations=z, nat_params=q_new_nps,
-                            is_trainable=False)
+            q_new = type(q)(
+                inducing_locations=z, nat_params=q_new_nps, is_trainable=False
+            )
             return q_new, None
 
         else:
             # New model parameters.
-            q_new_nps = {k: v + t_new_nps[k] - t.nat_params[k]
-                         for k, v in q.nat_params.items()}
+            q_new_nps = {
+                k: v + t_new_nps[k] - t.nat_params[k] for k, v in q.nat_params.items()
+            }
 
-            q_new = type(q)(inducing_locations=z, nat_params=q_new_nps,
-                            is_trainable=False)
+            q_new = type(q)(
+                inducing_locations=z, nat_params=q_new_nps, is_trainable=False
+            )
             t_new = type(t)(inducing_locations=z, nat_params=t_new_nps)
             return q_new, t_new
 
@@ -292,8 +307,7 @@ class SparseGaussianProcessRegression(SparseGaussianProcessModel):
         c = kxx - a.matmul(kxz.T)
 
         qf_loc = a.matmul(q.std_params["loc"])
-        qf_cov = c + a.matmul(
-            q.std_params["covariance_matrix"]).matmul(a.T)
+        qf_cov = c + a.matmul(q.std_params["covariance_matrix"]).matmul(a.T)
 
         sigma = self.outputsigma
         dist = self.likelihood_forward(qf_loc)
@@ -364,7 +378,11 @@ class SparseGaussianProcessClassification(SparseGaussianProcessModel):
             fs = qf.sample((self.config["num_predictive_samples"],))
 
             comp = distributions.Bernoulli(logits=fs.T)
-            mix = distributions.Categorical(torch.ones(len(fs),))
+            mix = distributions.Categorical(
+                torch.ones(
+                    len(fs),
+                )
+            )
 
             return distributions.MixtureSameFamily(mix, comp)
 
@@ -411,6 +429,7 @@ class MOSparseGaussianProcess(SparseGaussianProcessModel):
     """
     Multi-output sparse Gaussian process model with independent dimensions.
     """
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -419,19 +438,21 @@ class MOSparseGaussianProcess(SparseGaussianProcessModel):
             # Replace kernel with multiple kernels, one for each output
             # dimension.
             self.kernel = KernelList(
-                [copy.deepcopy(kernel) for _ in range(self.config["P"])])
+                [copy.deepcopy(kernel) for _ in range(self.config["P"])]
+            )
         else:
             # Use sample kernel for each output dimension.
             self.kernel = KernelList(self.config["P"] * [kernel])
 
     def get_default_nat_params(self):
         return {
-            "np1": torch.tensor(
-                [0.]*self.config["num_inducing"]).unsqueeze(0).repeat(
-                self.config["K"], 1),
-            "np2": torch.tensor(
-                [-.5]*self.config["num_inducing"]).unsqueeze(0).repeat(
-                self.config["K"], 1).diag_embed(),
+            "np1": torch.tensor([0.0] * self.config["num_inducing"])
+            .unsqueeze(0)
+            .repeat(self.config["K"], 1),
+            "np2": torch.tensor([-0.5] * self.config["num_inducing"])
+            .unsqueeze(0)
+            .repeat(self.config["K"], 1)
+            .diag_embed(),
         }
 
     def get_default_config(self):
@@ -467,7 +488,11 @@ class MOSparseGaussianProcessClassification(MOSparseGaussianProcess):
         fs = fs.permute(2, 0, 1)
 
         comp = distributions.Categorical(logits=fs)
-        mix = distributions.Categorical(torch.ones(fs.shape[1],))
+        mix = distributions.Categorical(
+            torch.ones(
+                fs.shape[1],
+            )
+        )
 
         return distributions.MixtureSameFamily(mix, comp)
 

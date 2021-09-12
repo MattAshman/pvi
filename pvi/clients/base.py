@@ -99,13 +99,13 @@ class Client:
 
         return metrics
 
-    def fit(self, q, init_q=None):
+    def fit(self, *args, **kwargs):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
         client, but in all cases it calls Client.q_update internally.
         """
-        return self.update_q(q, init_q)
+        return self.update_q(*args, **kwargs)
 
     def update_q(self, q, init_q=None):
         """
