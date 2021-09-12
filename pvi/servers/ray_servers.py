@@ -163,10 +163,7 @@ class AsynchronousRayFactory(Server):
         return {
             **super().get_default_config(),
             "init_q_always": False,
-            "ray_options": {
-                "num_cpus": 0.1,
-                "num_gpus": 0,
-            },
+            "ray_options": {},
         }
 
     def tick(self):
@@ -246,10 +243,7 @@ class SynchronousRayFactory(Server):
         return {
             **super().get_default_config(),
             "init_q_always": False,
-            "ray_options": {
-                "num_cpus": 0.1,
-                "num_gpus": 0,
-            },
+            "ray_options": {},
         }
 
     def tick(self):
