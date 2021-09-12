@@ -21,10 +21,7 @@ class SynchronousRayServer(Server):
     def get_default_config(self):
         return {
             **super().get_default_config(),
-            "ray_options": {
-                "num_cpus": 0.1,
-                "num_gpus": 0.0,
-            },
+            "ray_options": {},
         }
 
     def tick(self):
@@ -74,10 +71,7 @@ class AsynchronousRayServer(Server):
     def get_default_config(self):
         return {
             **super().get_default_config(),
-            "ray_options": {
-                "num_cpus": 0.1,
-                "num_gpus": 0.0,
-            },
+            "ray_options": {},
         }
 
     def tick(self):
@@ -208,10 +202,14 @@ class AsynchronousRayFactory(Server):
 
             # Log time and which client was updated.
             updated_client_times = {**self.timer.get()}
-            updated_client_times[client_idx] = self.clients[client_idx].log["update_time"][-1]
+            updated_client_times[client_idx] = self.clients[client_idx].log[
+                "update_time"
+            ][-1]
             self.log["updated_client_times"].append(updated_client_times)
 
-            if self.communications % len(self.clients) == 0:
+            if (self.communications % len(self.clients) == 0) or (
+                self.communications < len(self.clients)
+            ):
                 # Evaluate current posterior.
                 self.q = ray.get(self.q)
                 performance_metrics.append(
@@ -370,7 +368,6 @@ class BCMSameRayFactory(Server):
 
         self.log["performance_metrics"] = ray.get(performance_metrics)
 
-
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
 
@@ -448,6 +445,74 @@ class BCMSplitRayFactory(Server):
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
+
+
+class SequentialRayFactory(Server):
+    """
+    This acts as both the server and clients.
+    """
+
+    def get_default_config(self):
+        return {
+            **super.get_default_config(),
+            "init_q_to_all": False,
+            "init_q_always": False,
+            "ray_options": {},
+        }
+
+    def tick(self):
+
+        if not self.timer.started:
+            self.timer.start()
+
+        # Stores ray object refs returned by performance metrics.
+        performance_metrics = []
+        client_idx = 0
+        while not self.should_stop():
+            client_idx = client_idx % len(self.clients)
+            if (
+                (not self.config["init_q_to_all"] and self.communications == 0)
+                or (
+                    self.config["init_q_to_all"]
+                    and self.communications < len(self.clients)
+                )
+                or self.config["init_q_always"]
+            ):
+                working_client = update_client.options(
+                    **self.config["ray_options"]
+                ).remote(self.clients[client_idx], self.q, self.init_q, client_idx)
+            else:
+                working_client = update_client.options(
+                    **self.config["ray_options"]
+                ).remote(self.clients[client_idx], self.q, client_idx=client_idx)
+
+            # Wait for current client to finish and apply change in factors.
+            self.clients[client_idx], _, t_old, t_new = ray.get(working_client)
+            self.q = update_q.options(**self.config["ray_options"]).remote(
+                self.q, *[working_client]
+            )
+
+            self.communications += 1
+
+            # Log time and which client was updated.
+            updated_client_times = {**self.timer.get()}
+            updated_client_times[client_idx] = self.clients[client_idx].log[
+                "update_time"
+            ][-1]
+            self.log["updated_client_times"].append(updated_client_times)
+
+            if (self.communications % len(self.clients) == 0) or (
+                self.communications < len(self.clients)
+            ):
+                # Evaluate current posterior.
+                self.q = ray.get(self.q)
+                performance_metrics.append(
+                    evaluate_performance.options(**self.config["ray_options"]).remote(
+                        self
+                    )
+                )
+
+        self.log["performance_metrics"] = ray.get(performance_metrics)
 
 
 @ray.remote
