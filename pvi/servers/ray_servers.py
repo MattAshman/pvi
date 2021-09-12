@@ -523,6 +523,10 @@ def update_client(client, q, init_q=None, client_idx=None):
     t_old = client.t
     q_new, t_new = client.fit(q, init_q)
 
+    # Add IP address of whichever node it was ran on.
+    ip_address = ray._private.services.get_node_ip_address()
+    client.log["update_time"][-1]["ip_address"] = ip_address
+
     return client, q_new, t_old, t_new
 
 
@@ -553,5 +557,8 @@ def evaluate_performance(server):
             metrics["train_mll"], metrics["train_acc"]
         )
     )
+
+    # Add IP address of whichever node it was ran on.
+    metrics["ip_address"] = ray._private.services.get_node_ip_address()
 
     return metrics
