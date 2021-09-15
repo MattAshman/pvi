@@ -2,6 +2,7 @@ import argparse
 import itertools
 import logging
 import sys
+import time
 
 import numpy as np
 from numpy.random import SeedSequence
@@ -12,8 +13,9 @@ from sacred import Experiment
 from sacred.observers import FileStorageObserver
 from sacred import Ingredient
 from sacred import SETTINGS
+from sacred.utils import apply_backspaces_and_linefeeds
 
-SETTINGS['CAPTURE_MODE'] = 'sys'
+SETTINGS['CAPTURE_MODE'] = 'fd' #sys, note sys might omit some stuff
 
 from dp_logistic_regression import main
 
@@ -26,11 +28,16 @@ logger.setLevel(logging.DEBUG)
 ex = Experiment('DP-PVI testing', save_git_info=False)
 
 # uncomment chosen experiment here, choose check configs below
+ex.observers.append(FileStorageObserver('dp_pvi_adult_optim'))
+#ex.observers.append(FileStorageObserver('dp_pvi_tests_adult_param_dp'))
+#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_swor'))
+#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_mushroom'))
+#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_credit'))
+#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_bank'))
 #ex.observers.append(FileStorageObserver('dp_pvi_noise_tests'))
-ex.observers.append(FileStorageObserver('dp_pvi_init_tests'))
-#ex.observers.append(FileStorageObserver('dp_pvi_runs'))
-#ex.observers.append(FileStorageObserver('dp_shared_vi_runs'))
-#ex.observers.append(FileStorageObserver('dp_distr_vi_runs'))
+
+# try handliong progress bars nicely
+ex.captured_out_filter = apply_backspaces_and_linefeeds
 
 
 @ex.config
@@ -39,29 +46,37 @@ def short_test(_log):
     """
 
     # static parameters
-    sampling_type = 'seq' # sampling type for clients: 'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR
-    folder = '../../data/data/adult/' # data folder
+    track_params = False # plot all params after finishing, should usually be False
+    sampling_type = 'swor' # sampling type for clients: 'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR
+    folder = '../../data/data/adult/' # data folder, uncomment one
+    #folder = '../../data/data/abalone/' # NOTE: abalone not working at the moment
+    #folder = '../../data/data/mushroom/' # note: data bal (.7,-3) with 10 clients not working, can't populate small classes
+    #folder = '../../data/data/credit/' # note: data bal (.7,-3) with 10 clients not working, can't populate small classes
+    #folder = '../../data/data/bank/'
+    #folder = '../../data/data/superconductor/'
     clients = 10
     #model_type = 'pvi' # method: pvi, distr_vi, shared_vi
-    n_rng_seeds = 1 # number of repeats to do for a given experiment; initial seed from sacred
+    n_rng_seeds = 5 # number of repeats to do for a given experiment; initial seed from sacred
     #parallel_updates = True # parallel or sequential updates; for distr_vi can only use True
     #prior_sharing = 'same' # 'same' or 'split': for distr_vi, whether to use same or split prior in BCM
-    use_dpsgd = False # if True use DP-SGD for privacy, otherwise clip & add noise to parameters directly
+    use_dpsgd = True # if True use DP-SGD for privacy, otherwise clip & add noise to parameters directly
     batch_proc_size =  1 # batch proc size; currently needs to be 1 for DP-SGD
     job_id = 0 # id that defines arg combination to use, in [0,nbo of combinations-1]; replace this by command line arg
 
     # dynamic parameters; choose which combination to run by job_id
-    batch_size =  [100] # batch size; only used when sampling_type is 'swor' or 'seq
-    n_global_updates = [10] # number of global updates
-    n_steps = [1] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
-    damping_factor = [.5] # damping factor in (0,1], 1=no damping
-    learning_rate = [1e-3]
+    batch_size =  [50,100,200] # batch size; only used when sampling_type is 'swor' or 'seq
+    n_global_updates = [20] # number of global updates
+    n_steps = [5] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
+    damping_factor = [.1,.2,.5] # damping factor in (0,1], 1=no damping
+    learning_rate = [1e-2,5e-3,1e-3]
     sampling_frac_q = [1e-2] # sampling fraction; only used if sampling_type is 'poisson'
-    data_bal = [(0,0)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
+    data_bal = [(0,0),(.75,.95),(.7,-3.)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
 
-    # DP not implemented yet! To test sensitivity to noise, instead use dp_sigma directly to add Gaussian noise to parameters/gradients
     dp_sigma = [0.] # dp noise std factor; noise magnitude will be C*sigma
-    dp_C = [5.] # max grad norm
+    dp_C = [1000.] # max grad norm
+    enforce_pos_var = False # enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!
+    server_add_dp = False # when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!
+    param_dp_use_fixed_sample = False # use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
     
     # get dynamic configuration, this will raise TypeError if params have already been set by some named config
     try:
@@ -161,3 +176,8 @@ def dp_pvi_config_handler(_config, _seed):
 
 if __name__ == '__main__':
     ex.run_commandline()
+
+    # try giving some time for CSC cluster I/O to finish before getting killed
+    time.sleep(30)
+
+

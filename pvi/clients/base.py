@@ -158,9 +158,18 @@ class Client(ABC):
             raise NotImplementedError('poisson not done yet!')
 
         elif self.config['sampling_type'] == 'swor':
-            sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=self.config['batch_size'], drop_last=False)
+
+            # regular SWOR sampler
+            if not self.config['param_dp_use_fixed_sample']:
+                sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=self.config['batch_size'], drop_last=False)
             
-            loader = DataLoader(tensor_dataset, batch_sampler=sampler)
+                loader = DataLoader(tensor_dataset, batch_sampler=sampler)
+
+            # use only fixed single minibatch for local learning for each global update
+            else:
+                inds = torch.randint(low=0,high=len(tensor_dataset),size=(self.config['batch_size'],))
+                loader = DataLoader( torch.utils.data.Subset(tensor_dataset, indices=inds) )
+
             n_epochs = 1
             n_samples = self.config['epochs']
 
@@ -246,14 +255,12 @@ class Client(ABC):
                             batch, q, self.config["num_elbo_samples"]).sum()
 
                         if self.t is not None:
-                            # Compute E_q[log t(θ)].
+                            # Compute E_q[log t(θ)]. this is only for bookkeeping, not used in loss
                             logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
                             logt /= len(x)
 
-                        # note: this shouldn't work with global vi where there are no t-factors
                         # Negative local free energy is KL minus log-probability.
-                        loss = kl - ll + logt
-                        #loss = kl - ll
+                        loss = kl - ll
                         loss.backward()
 
                         # NOTE: assume that all parameters for dp are from q
@@ -279,15 +286,6 @@ class Client(ABC):
                         #print(list(q.parameters()))
                         #print(f'cum grad:\n{cum_grads}')
                         #sys.exit()
-                
-                    # Keep track of quantities for current batch
-                    # Will be very slow if training on GPUs.
-                    epoch["elbo"] += -loss.item() / len(loader)
-                    epoch["kl"] += kl.item() / len(loader)
-                    epoch["ll"] += ll.item() / len(loader)
-
-                    if self.t is not None:
-                        epoch["logt"] += logt.item() / len(loader)
                 
                 # no dp
                 else:
@@ -318,14 +316,12 @@ class Client(ABC):
                     ll /= len(x_batch)
 
                     if self.t is not None:
-                        # Compute E_q[log t(θ)].
+                        # Compute E_q[log t(θ)].this is only for bookkeeping, not used in loss
                         logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
                         logt /= len(x)
 
-                    # note: this shouldn't work with global vi where there are no t-factors
                     # Negative local free energy is KL minus log-probability.
-                    loss = kl - ll + logt
-                    #loss = kl - ll
+                    loss = kl - ll
                     loss.backward()
 
                 # add noise to clipped grads
@@ -336,6 +332,16 @@ class Client(ABC):
                         p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
                         #print(f'grad after:\n{p_.grad}')
                         #sys.exit()
+
+
+                # Keep track of quantities for current batch
+                # Will be very slow if training on GPUs.
+                epoch["elbo"] += -loss.item() / len(loader)
+                epoch["kl"] += kl.item() / len(loader)
+                epoch["ll"] += ll.item() / len(loader)
+
+                if self.t is not None:
+                    epoch["logt"] += logt.item() / len(loader)
 
                 optimiser.step()
                 i_step += 1
@@ -377,7 +383,7 @@ class Client(ABC):
         # get norm of the change in params, clip and noisify
         #'''
 
-        if not self.config['server_add_DP'] and not self.config['use_dpsgd']:
+        if not self.config['server_add_dp'] and not self.config['use_dpsgd']:
             # NOTE: THIS DOESN'T WORK AT ALL: NEED TO GO BACK TO PAPER TO CHECK
             # might be easier to start with clipping & noising parameters directly
             # note: need to change inv-scale to non-log scale for clipping & noise
@@ -392,6 +398,8 @@ class Client(ABC):
                 elif i_params == 1:
                     # difference in params
                     param_norm += torch.sum( (p_ - p_old)**2)
+                    # difference without log
+                    #param_norm += torch.sum( (torch.exp(p_ - p_old))**2)
                     # params directly
                     #param_norm += torch.sum(p_**2) # should use exp?
                     # JATKA: koita tätä vielä suoraan paramseille, meneekö kuralle
@@ -400,9 +408,9 @@ class Client(ABC):
                     sys.exit('Model has > 2 sets of params, DP not implemented for this!')
                 #print(p_)
             param_norm = torch.sqrt(param_norm)
-            #print(f'diff in param, norm before clip: {param_norm}')
+            logger.debug(f'diff in param, norm before clip: {param_norm}')
 
-            # clip and add noise to the difference in params; 
+            # clip and add noise to the difference in params
             for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
                 #p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                 if i_params == 0:
@@ -410,23 +418,27 @@ class Client(ABC):
                             + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
                     # params directly
                     #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                    #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+                    #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
                 elif i_params == 1:
                     # note: need to change inv-scale to non-log scale for clipping & noise
 
                     #if self.config['pos_def_constants'][0] > 0:
                     #    p_.data = p_old + torch.log( torch.clamp( (torch.exp(p_ - p_old))/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                    #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_), min=self.config['pos_def_constants'][0]))
+                    #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_), min=self.config['pos_def_constants'][0]))
                     #else:
+                    # clip change in params
                     p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                            + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
-
+                            + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                    # clip change in params without log-space: enforce pos values and back to log-space
+                    #p_.data = p_old + torch.log( torch.clamp( torch.exp(p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                    #       + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_), min=1e-7, max=1e+6) )
+                    
                     # params directly
                     #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                    #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+                    #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
 
                 else:
-                    sys.exit('Model has > 2 sets of params, DP not implemented for this!')
+                    sys.exit('Model has > 2 sets of params, param DP not implemented for this!')
             #'''
 
             # check that clipping works properly, uses log-scale, fix if needed
@@ -454,9 +466,12 @@ class Client(ABC):
                 valid_dist=self.config["valid_factors"],
                 update_log_coeff=self.config["update_log_coeff"])
 
-            return q_new, t_new
+            # note for DP: only t is currently used by server:
+            #return q_new, t_new
+            return None, t_new 
 
         else:
+            logger.debug('Note: client not returning t')
             return q_new, None
 
 

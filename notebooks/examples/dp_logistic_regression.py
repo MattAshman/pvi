@@ -45,11 +45,25 @@ def main(args, rng_seed, dataset_folder):
         dataset_folder : (str) path to data containing x.npy and y.npy files for input and target
     """
 
+    # do some args checks:
+    if args.server_add_dp and args.use_dpsgd:
+        logger.warning("Note: using both DP-SGD on clients and clip & noisify change in params on server! I think this is an error so setting server_add_DP to False.")
+        args.server_add_dp = False
+
+    if not args.use_dpsgd and not args.server_add_dp and args.sampling_type == 'swor' and args.param_dp_use_fixed_sample:
+        logger.info('Param DP using fixed minibatch SWOR for optimising parameters (use single minibatch/global update for local learning).')
+    elif args.server_add_dp and args.sampling_type == 'swor' and args.param_dp_use_fixed_sample:
+        logger.debug('Using server for param DP, setting param_dp_use_fixed_sample to False')
+        args.param_dp_use_fixed_sample = False
+
+
     logger.info(f"Starting PVI run with data folder: {dataset_folder}")
     if args.sampling_type in ['seq','swor']:
         logger.info(f'Using {args.sampling_type} with sampling batch size {args.batch_size}')
     elif args.sampling_type == 'poisson':
         logger.info(f'Using {args.sampling_type} with sampling fraction {args.sampling_frac_q}')
+
+
 
     # fix random seeds
     np.random.seed(rng_seed)
@@ -106,8 +120,9 @@ def main(args, rng_seed, dataset_folder):
         'use_dpsgd' : args.use_dpsgd, # if True use DP-SGD for privacy, otherwise clip & noisyfy parameters directly
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
-        'server_add_DP' : args.server_add_DP,
+        'server_add_dp' : args.server_add_dp,
         'enforce_pos_var' : args.enforce_pos_var,
+        'param_dp_use_fixed_sample' : args.param_dp_use_fixed_sample,
     }
     # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
@@ -128,9 +143,6 @@ def main(args, rng_seed, dataset_folder):
 
     q = MeanFieldGaussianDistribution(std_params=prior_std_params,
                                       is_trainable=False, enforce_pos_var=args.enforce_pos_var)
-    if args.server_add_DP and args.use_dpsgd:
-        logger.warning("Note: using both DP-SGD on clients and clip & noisify change in params on server! I think this is an error so setting server_add_DP to False.")
-        args.server_add_DP = False
     server_config = {
             'max_iterations' : args.n_global_updates,
             'train_model' : False, # need False here?
@@ -138,7 +150,7 @@ def main(args, rng_seed, dataset_folder):
             #'hyper_optimiser': 'SGD',
             #'hyper_optimiser_params': {'lr': 1},
             #'hyper_updates': 1,
-            'server_add_DP' : args.server_add_DP,
+            'server_add_dp' : args.server_add_dp,
             'dp_C' : args.dp_C,
             'dp_sigma' : args.dp_sigma,
             'enforce_pos_var' : args.enforce_pos_var,
@@ -152,6 +164,7 @@ def main(args, rng_seed, dataset_folder):
                               clients=clients,
                               config=server_config)
 
+
     train_res = {}
     train_res['acc'] = np.zeros((args.n_global_updates))
     train_res['logl'] = np.zeros((args.n_global_updates))
@@ -162,6 +175,40 @@ def main(args, rng_seed, dataset_folder):
     client_train_res['elbo'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
     client_train_res['logl'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
     client_train_res['kl'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
+
+
+    ################### param tracking
+    #track_params = True
+    try:
+        args.track_params
+    except:
+        args.track_params = False
+
+    if args.track_params:
+        logger.warning('tracking all parameter histories, this might be costly!')
+        
+        #print(server.q.__dict__)
+        #print(server.q._nat_params)
+        #print(server.q._std_from_nat())
+        #sys.exit()
+        #def _std_from_nat(cls, nat_params):
+        #np1 = nat_params["np1"]
+        #np2 = nat_params["np2"]
+
+        # note: after training get natural params
+        param_trace1 = np.zeros((args.n_global_updates+1, len(server.q._std_params['loc']))) 
+        param_trace2 = np.zeros((args.n_global_updates+1, len(server.q._std_params['scale'])))
+        param_trace1[0,:] = server.q._std_params['loc'].detach().numpy()
+        param_trace2[0,:] = server.q._std_params['scale'].detach().numpy()
+
+    
+    #print(server.__dict__)
+    #print(server.q.__dict__)
+    # plot server parameters
+    #print(server.q._std_params['loc'])
+    #plt.plot
+    #sys.exit()
+
 
     i_global = 0
     logger.info('Starting model training')
@@ -184,6 +231,19 @@ def main(args, rng_seed, dataset_folder):
         validation_res['acc'][i_global] = valid_acc
         validation_res['logl'][i_global] = valid_logl
 
+        # param tracking
+        if args.track_params:
+            #print(server.__dict__,'\n')
+            #print(server.q.__dict__,'\n')
+            #print(server.p.__dict__,'\n') this is just priors?
+
+            tmp = server.q._std_from_nat(server.q._nat_params)
+            param_trace1[i_global+1, :] = tmp['loc'].detach().numpy()
+            param_trace2[i_global+1, :] = tmp['scale'].detach().numpy()
+            #print(server.q._nat_params)
+            #print(server.q._std_from_nat())
+            #sys.exit()
+
         
         print(f'Train: accuracy {train_acc:.3f}, mean-loglik {train_logl:.3f}\n'
               f'Valid: accuracy {valid_acc:.3f}, mean-loglik {valid_logl:.3f}\n')
@@ -194,6 +254,33 @@ def main(args, rng_seed, dataset_folder):
     # plot all training curves
     # NOTE: seems like elbo = logl, why? check later with longer runs
     #plot_training_curves(client_train_res, args.clients)
+
+
+    if args.track_params:
+        x = np.linspace(1,args.n_global_updates,args.n_global_updates)
+        fig,axs = plt.subplots(2,figsize=(10,7))
+        axs[0].plot(x, validation_res['acc'])
+        axs[1].plot(x, validation_res['logl'])
+        for i in range(2):
+            axs[i].set_xlabel('Global updates')
+        axs[0].set_ylabel('Model acc')
+        axs[1].set_ylabel('Model logl')
+        figname = 'res_plots/param_traces/model_perf_C{}_sigma{}.pdf'.format(args.dp_C, args.dp_sigma)
+        plt.savefig(figname)
+        #plt.show()
+
+        sys.exit()
+        x = np.linspace(0,args.n_global_updates,args.n_global_updates+1)
+        fig,axs = plt.subplots(2,figsize=(10,7))
+        axs[0].plot(x,param_trace1)
+        axs[1].plot(x,param_trace2)
+        for i in range(2):
+            axs[i].set_xlabel('Global updates')
+        axs[0].set_ylabel('Loc params')
+        axs[1].set_ylabel('Scale params')
+        figname = 'res_plots/param_traces/param_trace_C{}_sigma{}.pdf'.format(args.dp_C, args.dp_sigma)
+        #plt.savefig(figname)
+        plt.show()
 
     #plot_global_curves(validation_res, 'validation set')
     #print(f'final validation res:\n{validation_res}')
@@ -240,13 +327,13 @@ def plot_training_curves(client_train_res, clients):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('--n_global_updates', default=5, type=int, help='number of global updates')
+    parser.add_argument('--n_global_updates', default=20, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
-    parser.add_argument('-batch_size', default=100, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
+    parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson'")
-    parser.add_argument('--dp_sigma', default=.0, type=float, help='DP noise magnitude')
-    parser.add_argument('--dp_C', default=10000., type=float, help='gradient norm bound')
+    parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
+    parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
 
     parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
@@ -256,14 +343,17 @@ if __name__ == '__main__':
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
-    parser.add_argument('--n_steps', default=4, type=int, help="when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes throuhg local data on each client update iteration")
+    parser.add_argument('--n_steps', default=10, type=int, help="when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes throuhg local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
-    parser.add_argument('--damping_factor', default=1., type=float, help='damping factor in (0,1], 1=no damping')
-    parser.add_argument('--sampling_type', default='swor', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
+    parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
+    parser.add_argument('--sampling_type', default='seq', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
     parser.add_argument('--use_dpsgd', default=False, action='store_true', help="use dp-sgd or clip & noisify change in parameters")
-    parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters")
-    parser.add_argument('--server_add_DP', default=False, action='store_true', help="when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!")
+    parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
+    parser.add_argument('--server_add_dp', default=False, action='store_true', help="when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!")
+
+    parser.add_argument('--param_dp_use_fixed_sample', default=False, action='store_true', help="use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
+    parser.add_argument('--track_params', default=False, action='store_true', help="plot all params after learning")
 
     args = parser.parse_args()
 
