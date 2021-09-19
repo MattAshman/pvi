@@ -24,8 +24,8 @@ class Client(ABC):
         if config is None:
             config = {}
 
-        self._config = self.get_default_config()
-        self.config = config
+        #self._config = self.get_default_config()
+        self._config = config
         
         # Set data partition and likelihood
         self.data = data
@@ -36,6 +36,8 @@ class Client(ABC):
         
         self.log = defaultdict(list)
         self._can_update = True
+
+        self.optimiser = None
 
     @property
     def config(self):
@@ -123,11 +125,17 @@ class Client(ABC):
         # Reset optimiser
         # NOTE: why is optimiser reset here?
         logging.info("Resetting optimiser")
+        #if self.optimiser is None:
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
         lr_scheduler = getattr(torch.optim.lr_scheduler,
-                               self.config["lr_scheduler"])(
+                           self.config["lr_scheduler"])(
             optimiser, **self.config["lr_scheduler_params"])
+        self.optimiser = optimiser
+        self.lr_scheduler = lr_scheduler
+        #else:
+        #    optimiser = self.optimiser
+        #    lr_scheduler = self.lr_scheduler
         
         # Set up data
         x = self.data["x"]
@@ -136,39 +144,28 @@ class Client(ABC):
         tensor_dataset = TensorDataset(x, y)
 
         # set up data loader with chosen sampling type
-        if self.config['sampling_type'] == 'seq':
+        # sequential data pass modes
+        if self.config['dp_mode'] not in ['dpsgd','param_fixed']:
             loader = DataLoader(tensor_dataset,
                             batch_size=self.config["batch_size"],
                             shuffle=True)
             n_epochs = self.config['epochs']
             n_samples = len(loader)
 
-        elif self.config['sampling_type'] == 'poisson':
-            # JATKA: implementoi tämä ja testaa
-            # ehkä kannattaa tehdä oma poisson sampler class pytorchin luokista
-            # draw batch size b
-            # sit random sampler wrapattuna batch sampleriin annetulla b
-
-            #b = np.random.binom()
-
-            
-            n_epochs = 1
-            n_samples = self.config['epochs']
-
-            raise NotImplementedError('poisson not done yet!')
-
-        elif self.config['sampling_type'] == 'swor':
-
+        # swor data pass modes
+        else:
             # regular SWOR sampler
-            if not self.config['param_dp_use_fixed_sample']:
+            if self.config['dp_mode'] == 'dpsgd':
                 sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=self.config['batch_size'], drop_last=False)
             
                 loader = DataLoader(tensor_dataset, batch_sampler=sampler)
 
             # use only fixed single minibatch for local learning for each global update
-            else:
+            elif self.config['dp_mode'] == 'param_fixed':
                 inds = torch.randint(low=0,high=len(tensor_dataset),size=(self.config['batch_size'],))
                 loader = DataLoader( torch.utils.data.Subset(tensor_dataset, indices=inds) )
+            else:
+                raise ValueError(f"Unexpected dp_mode in base client: {self.config['dp_mode']}")
 
             n_epochs = 1
             n_samples = self.config['epochs']
@@ -177,9 +174,6 @@ class Client(ABC):
             #print( int(np.ceil(self.config['n_steps']/len(loader) )))
             #print(  self.config['n_steps'] % len(loader) )
             #sys.exit()
-
-        else:
-            raise ValueError(f"Unknown sampling type: {self.config['sampling_type']}!")
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -212,7 +206,7 @@ class Client(ABC):
                     tmp = iter(loader)
                     (x_batch, y_batch) = tmp.next()
 
-                if self.config['use_dpsgd']:
+                if self.config['dp_mode'] == 'dpsgd':
                     # simple DP-SGD implementation
 
                     # initialise grad accumulator
@@ -236,7 +230,7 @@ class Client(ABC):
 
                         # Compute KL divergence between q and q_cav.
                         try:
-                            kl = q.kl_divergence(q_cav).sum()/ len(x)
+                            kl = q.kl_divergence(q_cav).sum()/ len(x) # NOTE: CHECK THAT LEN(X) IS OK!
                             #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                             #print(kl)
                         except ValueError as err:
@@ -287,7 +281,7 @@ class Client(ABC):
                         #print(f'cum grad:\n{cum_grads}')
                         #sys.exit()
                 
-                # no dp
+                # no dpsgd
                 else:
                     optimiser.zero_grad()
                     batch = {
@@ -313,7 +307,7 @@ class Client(ABC):
                     # Sample θ from q and compute p(y | θ, x) for each θ
                     ll = self.model.expected_log_likelihood(
                         batch, q, self.config["num_elbo_samples"]).sum()
-                    ll /= len(x_batch)
+                    ll /= len(x_batch) # NOTE: CHECK ALL DIVISORS HERE!
 
                     if self.t is not None:
                         # Compute E_q[log t(θ)].this is only for bookkeeping, not used in loss
@@ -325,7 +319,7 @@ class Client(ABC):
                     loss.backward()
 
                 # add noise to clipped grads
-                if self.config['use_dpsgd']:
+                if self.config['dp_mode']== 'use_dpsgd':
                     for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
                         #print(f'grad before:\n{p_.grad}')
                         #print(f'noiseless accumulated grads:\n{cum_grads[key]}')
@@ -371,11 +365,6 @@ class Client(ABC):
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
         
-        # toiminee jos klippaa change in params tässä?
-        # ja sit t-faktorin laskeminen toiminee ilman muita kikkoja
-
-
-        # Create non-trainable copy to send back to server
 
         #'''
         # NOTE: might make sense to define clipping & noise levels separately for np1, np2
@@ -383,10 +372,7 @@ class Client(ABC):
         # get norm of the change in params, clip and noisify
         #'''
 
-        if not self.config['server_add_dp'] and not self.config['use_dpsgd']:
-            # NOTE: THIS DOESN'T WORK AT ALL: NEED TO GO BACK TO PAPER TO CHECK
-            # might be easier to start with clipping & noising parameters directly
-            # note: need to change inv-scale to non-log scale for clipping & noise
+        if self.config['dp_mode'] in ['param','param_fixed']:
             param_norm = 0
             #for p_, p_old in zip(q.parameters(),p.trainable_copy().parameters()):
             for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
@@ -402,7 +388,6 @@ class Client(ABC):
                     #param_norm += torch.sum( (torch.exp(p_ - p_old))**2)
                     # params directly
                     #param_norm += torch.sum(p_**2) # should use exp?
-                    # JATKA: koita tätä vielä suoraan paramseille, meneekö kuralle
 
                 else:
                     sys.exit('Model has > 2 sets of params, DP not implemented for this!')
@@ -415,7 +400,7 @@ class Client(ABC):
                 #p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                 if i_params == 0:
                     p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                            + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                            + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
                     # params directly
                     #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                     #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
@@ -454,6 +439,7 @@ class Client(ABC):
 
         #sys.exit()
 
+        # Create non-trainable copy to send back to server
         q_new = q.non_trainable_copy()
 
         # Finished optimisation, can now update.
@@ -484,8 +470,8 @@ class ClientBayesianHypers(ABC):
         if config is None:
             config = {}
 
-        self._config = self.get_default_config()
-        self.config = config
+        #self._config = self.get_default_config()
+        self._config = config
 
         # Set data partition and likelihood
         self.data = data

@@ -48,7 +48,7 @@ class SynchronousServer(Server):
 
         q_new_nps = {}
         # Update global posterior, non-DP original
-        if not self.config['server_add_DP']:
+        if not self.config['dp_mode'] == 'server':
             for k, v in self.q.nat_params.items():
                 q_new_nps[k] = (v + sum([delta_np[k] for delta_np in delta_nps]))
         #######################

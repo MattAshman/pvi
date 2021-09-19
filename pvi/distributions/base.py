@@ -44,7 +44,14 @@ class ExponentialFamilyFactor(ABC):
         the normalising constants of the q-distributions as well as the
         coefficient of t_.
         """
-        
+        #print(q1.__dict__)
+        #print(q1._unc_params)
+        #print(q1._unc_params['loc'], q1._unc_params['log_scale'])
+        #print(torch.exp(q1._unc_params['log_scale']))
+
+        #import sys
+        #sys.exit()
+
         # Convert distributions to log-coefficients and natural parameters
         np1 = q1.nat_params
         np2 = q2.nat_params
@@ -53,6 +60,7 @@ class ExponentialFamilyFactor(ABC):
         # update without clipping or noise:
         delta_np = {k: (np1[k].detach().clone() - np2[k].detach().clone())
                     for k in self.nat_params.keys()}
+
         nat_params = {k: v.detach().clone() + delta_np[k] * damping
                       for k, v in self.nat_params.items()}
 
