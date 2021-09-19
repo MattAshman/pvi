@@ -3,9 +3,12 @@ import logging
 import os
 import sys
 
+from matplotlib import pyplot as plt
 import numpy as np
 from sklearn.model_selection import KFold
 import torch
+
+import fourier_accountant
 
 module_path = os.path.abspath(os.path.join("../.."))
 if module_path not in sys.path:
@@ -14,6 +17,7 @@ if module_path not in sys.path:
 from pvi.models.logistic_regression import LogisticRegressionModel
 #from pvi.clients.synchronous_client import SynchronousClient
 from pvi.clients import Client
+from pvi.clients import HFAClient
 from pvi.servers.sequential_server import SequentialServer
 from pvi.distributions.exponential_family_distributions import MeanFieldGaussianDistribution
 from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
@@ -37,18 +41,21 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
         # Data of ith client
         data = {k : torch.tensor(v).float() for k, v in _client_data.items()}
         #logger.debug(f"Client {i} data {data['x'].shape}, {data['y'].shape}")
-        if args.sampling_type == 'poisson':
-            expected_batch.append(args.sampling_frac_q*data['x'].shape[0])
+        #if args.sampling_type == 'poisson':
+        #    expected_batch.append(args.sampling_frac_q*data['x'].shape[0])
 
         # Approximating likelihood term of ith client
         t = MeanFieldGaussianFactor(nat_params=init_nat_params)
 
         # Create client and store
-        client = Client(data=data, model=model, t=t, config=config)
+        if args.dp_mode == 'hfa':
+            client = HFAClient(data=data, model=model, t=t, config=config)
+        else:
+            client = Client(data=data, model=model, t=t, config=config)
         clients.append(client)
 
-    if args.sampling_type == 'poisson':
-        logger.info(f'Expected batch sizes: {expected_batch}')
+    #if args.sampling_type == 'poisson':
+    #    logger.info(f'Expected batch sizes: {expected_batch}')
         
     return clients
 
@@ -92,7 +99,7 @@ def acc_and_ll(server, x, y):
     pred_probs = pred_probs.mean.detach().numpy()
     valid_acc = np.mean((pred_probs > 0.5) == y.numpy())
     
-    probs = torch.clip(torch.tensor(pred_probs), 0., 1.)
+    probs = torch.clamp(torch.tensor(pred_probs),min= 0., max=1.)
     valid_loglik = torch.distributions.Bernoulli(probs=probs).log_prob(y)
     valid_loglik = valid_loglik.mean().numpy()
     
@@ -223,5 +230,50 @@ def generate_clients_data(x, y, M, client_size_factor, class_balance_factor, dat
             np.random.set_state(random_state)
 
         return client_data, N_is, props_positive, M
+
+
+if __name__ == '__main__':
+
+    '''
+    filename = 'tmp.txt'
+    with open(filename, 'r') as f:
+        lines = []
+        for line in f:
+            lines.append(int(line[-4:-2]))
+            #print(line)
+        print(lines)
+    ids = []
+    for i in range(81):
+        if i in lines:
+            continue
+        ids.append(i)
+    print(ids)
+    sys.exit()
+    '''
+
+    # calculate privacy costs with fourier accountant
+    nx=int(1E6)
+    L=26.#26.
+
+    target_delta = 1e-5
+    q = .082 # [.020, 0.041, 0.082]
+
+    ncomp=10*20
+    # eli jos ottaisi C in [10,50,100]
+    #C = 5.
+    #samples_per_client = 2442 # with 10 clients, adult=2442, CIFAR10, 10 clients: 1562(?)
+    #sens = 2*C/samples_per_client
+    # [2.59, 1.07]
+    if 1:
+        all_sigmas = [3.5, 8.]
+        all_eps = np.zeros((len(all_sigmas)))
+        for i_sigma, sigma in enumerate(all_sigmas):
+            eps = fourier_accountant.get_epsilon_S(target_delta=1e-5, sigma=sigma, q=q, ncomp=ncomp, nx=nx,L=L)
+            all_eps[i_sigma] = eps
+        print(f'all eps bounds:\n{all_eps}')
+        print(f'corresponding sigmas:\n{all_sigmas}')
+        #print(f'with clipping C={C} this amounts to actual noise std \n{[s*sens for s in all_sigmas]}')
+        #print(f'fourier lower and upper bounds:\n{eps_lower}, {eps_upper}')
+    sys.exit()
 
 

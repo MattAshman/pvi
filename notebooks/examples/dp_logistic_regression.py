@@ -45,24 +45,17 @@ def main(args, rng_seed, dataset_folder):
         dataset_folder : (str) path to data containing x.npy and y.npy files for input and target
     """
 
-    # do some args checks:
-    if args.server_add_dp and args.use_dpsgd:
-        logger.warning("Note: using both DP-SGD on clients and clip & noisify change in params on server! I think this is an error so setting server_add_DP to False.")
-        args.server_add_dp = False
+    # do some args checks
+    if args.dp_mode not in ['dpsgd', 'param','param_fixed','server','hfa']:
+        raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
-    if not args.use_dpsgd and not args.server_add_dp and args.sampling_type == 'swor' and args.param_dp_use_fixed_sample:
-        logger.info('Param DP using fixed minibatch SWOR for optimising parameters (use single minibatch/global update for local learning).')
-    elif args.server_add_dp and args.sampling_type == 'swor' and args.param_dp_use_fixed_sample:
-        logger.debug('Using server for param DP, setting param_dp_use_fixed_sample to False')
-        args.param_dp_use_fixed_sample = False
-
-
-    logger.info(f"Starting PVI run with data folder: {dataset_folder}")
-    if args.sampling_type in ['seq','swor']:
-        logger.info(f'Using {args.sampling_type} with sampling batch size {args.batch_size}')
-    elif args.sampling_type == 'poisson':
-        logger.info(f'Using {args.sampling_type} with sampling fraction {args.sampling_frac_q}')
-
+    logger.info(f"Starting PVI run with data folder: {dataset_folder}, dp_mode: {args.dp_mode}")
+    if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
+        logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
+    elif args.dp_mode in ['hfa']:
+        logger.info(f'Using sequential data passes with batch size 1 (separate models for each sample)')
+    else:
+        logger.info(f'Using sequential data passes with batch size {args.batch_size}')
 
 
     # fix random seeds
@@ -83,7 +76,7 @@ def main(args, rng_seed, dataset_folder):
     logger.info(f'Proportion of positive examples in each client: {np.array(prop_positive).round(2)}')
     logger.info(f'Total number of examples in each client: {N}')
 
-    # might need some/all if optimising hyperparams
+    # might need some/all if optimising hyperparams?
     model_hyperparameters = {
         #"D"                        : x_train.shape[1]-10, # ei näytä vaikuttavan mitenkään
         #"optimiser"                : "Adam",
@@ -103,10 +96,10 @@ def main(args, rng_seed, dataset_folder):
     # note: for DP need to change to use actual sampling, no full data passes
     client_config = {
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
-        'batch_proc_size': args.batch_proc_size, # for DP-SGD
+        'batch_proc_size': args.batch_proc_size, # for DP-SGD and HFA
         'sampling_frac_q' : args.sampling_frac_q, # sampling fraction, only used with Poisson random sampling type
         'damping_factor' : args.damping_factor,
-        'valid_factors' : False, # does this work at the moment?
+        'valid_factors' : False, # does this work at the moment? i guess not
         'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
         'optimiser' : 'Adam',
         'optimiser_params' : {'lr' : args.learning_rate},
@@ -116,14 +109,19 @@ def main(args, rng_seed, dataset_folder):
         'print_epochs' : 1, # ?
         'train_model' : False, # no need for having trainable model on client
         'update_log_coeff' : False, # no need for log coeff in t factors
-        'sampling_type' : args.sampling_type, # sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'SWOR' for sampling size b batch without replacement. For DP, need either Poisson or SWOR
-        'use_dpsgd' : args.use_dpsgd, # if True use DP-SGD for privacy, otherwise clip & noisyfy parameters directly
+        'dp_mode' : args.dp_mode, 
+        #'sampling_type' : args.sampling_type, # sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'SWOR' for sampling size b batch without replacement. For DP, need either Poisson or SWOR
+        #'use_dpsgd' : args.use_dpsgd, # if True use DP-SGD for privacy, otherwise clip & noisyfy parameters directly
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
-        'server_add_dp' : args.server_add_dp,
+        #'server_add_dp' : args.server_add_dp,
         'enforce_pos_var' : args.enforce_pos_var,
-        'param_dp_use_fixed_sample' : args.param_dp_use_fixed_sample,
+        #'param_dp_use_fixed_sample' : args.param_dp_use_fixed_sample,
     }
+    # change batch_size for HFA
+    if args.dp_mode == 'hfa':
+        client_config['batch_size'] = 1
+
     # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
         "loc"   : torch.zeros(x_train.shape[1]+1),
@@ -150,10 +148,11 @@ def main(args, rng_seed, dataset_folder):
             #'hyper_optimiser': 'SGD',
             #'hyper_optimiser_params': {'lr': 1},
             #'hyper_updates': 1,
-            'server_add_dp' : args.server_add_dp,
+            #'server_add_dp' : args.server_add_dp,
             'dp_C' : args.dp_C,
             'dp_sigma' : args.dp_sigma,
             'enforce_pos_var' : args.enforce_pos_var,
+            'dp_mode' : args.dp_mode,
             }
 
     # try using initial q also as prior here
@@ -327,11 +326,11 @@ def plot_training_curves(client_train_res, clients):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('--n_global_updates', default=20, type=int, help='number of global updates')
+    parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
-    parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling_type is 'swor' or 'seq'")
-    parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD, currently needs to be 1")
-    parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson'")
+    parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling type is 'swor' or 'seq'")
+    parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or HFA, currently needs to be 1")
+    parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson' NOT IMPLEMENTED")
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
 
@@ -343,16 +342,19 @@ if __name__ == '__main__':
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
-    parser.add_argument('--n_steps', default=10, type=int, help="when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes throuhg local data on each client update iteration")
+    parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
-    parser.add_argument('--sampling_type', default='seq', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
-    parser.add_argument('--use_dpsgd', default=False, action='store_true', help="use dp-sgd or clip & noisify change in parameters")
+    #parser.add_argument('--sampling_type', default='seq', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
+    #parser.add_argument('--use_dpsgd', default=False, action='store_true', help="use dp-sgd or clip & noisify change in parameters")
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
-    parser.add_argument('--server_add_dp', default=False, action='store_true', help="when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!")
+    
+    parser.add_argument('--dp_mode', default='hfa', type=str, help="DP mode: 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'hfa': param DP with hierarchical fed avg. Sampling type is set based on the mode.")
 
-    parser.add_argument('--param_dp_use_fixed_sample', default=False, action='store_true', help="use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
+    #parser.add_argument('--server_add_dp', default=False, action='store_true', help="when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!")
+
+    #parser.add_argument('--param_dp_use_fixed_sample', default=False, action='store_true', help="use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
     parser.add_argument('--track_params', default=False, action='store_true', help="plot all params after learning")
 
     args = parser.parse_args()
