@@ -103,10 +103,6 @@ class HFAClient(Client):
 
             #print(self.optimiser_states[0])
             #sys.exit()
-        else:
-            pass
-        # NOTE: CHECK THAT OPTIM STATES ARE NOT EQUAL AFTER TRAINING!
-
 
         # Set up data
         x = self.data["x"]
@@ -173,17 +169,21 @@ class HFAClient(Client):
 
         # Loop over samples
         assert self.config['batch_size'] == 1, "Need batch_size=1 for HFA!"
-        for i_batch, (x_single, y_single) in enumerate(tqdm(iter(loader))):
+
+        sample_iter = tqdm(iter(loader), desc="Sample", leave=True)
+
+        #for i_batch, (x_single, y_single) in enumerate(tqdm(iter(loader))):
+        for i_batch, (x_single, y_single) in enumerate(sample_iter):
 
             # process each sample separately
             #for x_single, y_single in zip(x_batch,y_batch):
 
-            # NOTE: create optimiser here
+            # start optimiser for the current sample from existing state
             optimiser = getattr(torch.optim, self.config["optimiser"])(
             q.parameters(), **self.config["optimiser_params"])
             optimiser.load_state_dict(self.optimiser_states[i_batch])
 
-            batch = {
+            batch = { # these are currently single obs already from the loader
                 "x" : x_single, #torch.unsqueeze(x_single,0),
                 "y" : y_single, #torch.unsqueeze(y_single,0),
             }
@@ -191,11 +191,13 @@ class HFAClient(Client):
             # optimise separate model on each single sample for some number of steps
             for i_step in range(self.config['epochs']):
 
+                # eli: n_epochs=lokaalien askelten määrä/malli; len(loader)=len(x) (tällä hetkellä)
+
                 optimiser.zero_grad()
 
                 # Compute KL divergence between q and q_cav.
                 try:
-                    kl = q.kl_divergence(q_cav).sum() #/ len(x)
+                    kl = q.kl_divergence(q_cav).sum()
                     #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                     #print(kl)
                 except ValueError as err:
@@ -212,11 +214,13 @@ class HFAClient(Client):
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
                     batch, q, self.config["num_elbo_samples"]).sum()
+                #ll /= len(loader) # no scaling, since this uses single samples
 
                 if self.t is not None:
                     # Compute E_q[log t(θ)]. this is only for bookkeeping, not used in loss
                     logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                    #logt /= len(x)
+                    #logt = torch.zeros(1)
+                    #logt /= len(x) # not used for optimisation, only for bookkeeping; use same scaling as for other methods
 
                 # Negative local free energy is KL minus log-probability.
                 loss = kl - ll # NOTE: doesn't have HFA regularizer at the moment, should add?
@@ -232,7 +236,28 @@ class HFAClient(Client):
                 if self.t is not None:
                     epoch["logt"] += logt.item() / self.config['epochs'] 
 
+                # Log progress for current epoch: use mean over all samples for each local epochs
+                if i_batch == 0:
+                    training_curve["elbo"].append(epoch["elbo"] / len(loader))
+                    training_curve["kl"].append(epoch["kl"] / len(loader))
+                    training_curve["ll"].append(epoch["ll"] / len(loader))
+
+                    if self.t is not None:
+                        training_curve["logt"].append(epoch["logt"] / len(loader))
+                else:
+                    training_curve["elbo"][i_step] += epoch["elbo"] / len(loader)
+                    training_curve["kl"][i_step] += epoch["kl"] / len(loader)
+                    training_curve["ll"][i_step] += epoch["ll"] / len(loader)
+
+                    if self.t is not None:
+                        training_curve["logt"][i_step] += epoch["logt"] / len(loader)
+
+
                 optimiser.step()
+
+            sample_iter.set_postfix(elbo=epoch["elbo"]/(i_batch+1), kl=epoch["kl"]/(i_batch+1),
+                               ll=epoch["ll"]/(i_batch+1), logt=epoch["logt"]/(i_batch+1))
+                               #lr=optimiser.param_groups[0]["lr"])
 
             # save optimiser state
             self.optimiser_states[i_batch] = optimiser.state_dict()
@@ -257,35 +282,17 @@ class HFAClient(Client):
                 p.requires_grad = True
 
 
-        # JATKA: TÄMÄ VALMIIKSI, TESTAA ETTÄ FUTAA
-        # klippaus+akkumulaattori puuttuu kokonaan, sit palautus, lopuksi kohina mukaan
-
         # add noise for DP and do local avg
         for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
             # add noise to change in parameters and take avg
-            p.data = (p0 +  (param_accumulator[str(i_param)] + 2*self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n).detach().clone()
-
-
-        # Log progress for current epoch
-        training_curve["elbo"].append(epoch["elbo"])
-        training_curve["kl"].append(epoch["kl"])
-        training_curve["ll"].append(epoch["ll"])
-
-        if self.t is not None:
-            training_curve["logt"].append(epoch["logt"])
+            p.data = (p0 +  (param_accumulator[str(i_param)] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n).detach().clone()
 
         #if i % self.config["print_epochs"] == 0:
-        #'''
         logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
                      f"LL: {epoch['ll']:.3f}, "
                      f"KL: {epoch['kl']:.3f}, "
                      f"log t: {epoch['logt']:.3f}, ")
                      #f"Epochs: {i}.")
-        #'''
-
-        #epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-        #                       ll=epoch["ll"], logt=epoch["logt"],
-        #                       lr=optimiser.param_groups[0]["lr"])
 
         # Update learning rate.
         #lr_scheduler.step()

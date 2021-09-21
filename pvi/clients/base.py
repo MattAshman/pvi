@@ -411,6 +411,7 @@ class Client(ABC):
             logger.debug(f'diff in param, norm before clip: {param_norm}')
 
             # clip and add noise to the difference in params
+            # note sensitivities: even with add/replace DP needs 2*C
             for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
                 #p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                 if i_params == 0:
