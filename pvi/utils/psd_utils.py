@@ -22,9 +22,12 @@ def psd_inverse(x=None, chol=None):
     elif num_dims == 3:
         inverse = torch.stack([torch.cholesky_inverse(l) for l in chol])
     elif num_dims == 4:
-        inverse = torch.stack([torch.stack([torch.cholesky_inverse(l)
-                                            for l in sub_chol])
-                               for sub_chol in chol])
+        inverse = torch.stack(
+            [
+                torch.stack([torch.cholesky_inverse(l) for l in sub_chol])
+                for sub_chol in chol
+            ]
+        )
     else:
         raise ValueError("x must be (*, D, D) positive definite matrix.")
 
@@ -49,8 +52,9 @@ def psd_logdet(x=None, chol=None):
     elif num_dims == 3:
         logdet = torch.stack([2 * l.diag().log().sum(-1) for l in chol])
     else:
-        raise ValueError("x must be either (batch_size, D, D) or (D, D) "
-                         "positive definite matrix.")
+        raise ValueError(
+            "x must be either (batch_size, D, D) or (D, D) " "positive definite matrix."
+        )
 
     return logdet
 
@@ -87,12 +91,40 @@ def safe_cholesky(x, min_eps=1e-8, max_eps=1e-2):
             chol = torch.cholesky(add_diagonal(x, eps))
         except RuntimeError:
             if eps >= max_eps:
-                raise RuntimeError("Could not compute Cholesky decomposition"
-                                   "with maximum ({}) jitter.".format(eps))
+                raise RuntimeError(
+                    "Could not compute Cholesky decomposition "
+                    "with maximum ({}) jitter.".format(eps)
+                )
             else:
-                warnings.warn("Failed to compute Cholesky decomposition with "
-                              "{} jitter.".format(eps))
-                eps = max(min_eps, 10*eps)
+                warnings.warn(
+                    "Failed to compute Cholesky decomposition with "
+                    "{} jitter.".format(eps)
+                )
+                eps = max(min_eps, 10 * eps)
                 pass
 
     return chol
+
+
+def safe_psd_inverse(x=None, chol=None, min_eps=1e-8, max_eps=1e-2):
+    if chol is None:
+        chol = safe_cholesky(x, min_eps, max_eps)
+        num_dims = len(x.shape)
+    else:
+        num_dims = len(chol.shape)
+
+    if num_dims == 2:
+        inverse = torch.cholesky_inverse(chol)
+    elif num_dims == 3:
+        inverse = torch.stack([torch.cholesky_inverse(l) for l in chol])
+    elif num_dims == 4:
+        inverse = torch.stack(
+            [
+                torch.stack([torch.cholesky_inverse(l) for l in sub_chol])
+                for sub_chol in chol
+            ]
+        )
+    else:
+        raise ValueError("x must be (*, D, D) positive definite matrix.")
+
+    return inverse

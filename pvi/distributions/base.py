@@ -197,6 +197,10 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         self._unc_params = None
         self._mean_params = None
 
+    @property
+    def batch_dims(self):
+        raise NotImplementedError
+
     @abstractmethod
     def log_a(self, nat_params=None):
         """
@@ -374,21 +378,20 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
         assert type(p) == type(self), "Distributions must be the same type."
 
         # Log-partition function.
-        log_a = self.log_a()
-        batch_dims = len(log_a.shape)
+        log_a = self.log_a().squeeze()
 
         # Stack natural parameters into single vector.
         np1 = torch.cat(
-            [np.flatten(start_dim=batch_dims) for np in self.nat_params.values()],
+            [np.flatten(start_dim=self.batch_dims) for np in self.nat_params.values()],
             dim=-1,
         )
         np2 = torch.cat(
-            [np.flatten(start_dim=batch_dims) for np in p.nat_params.values()], dim=-1
+            [np.flatten(start_dim=p.batch_dims) for np in p.nat_params.values()], dim=-1
         )
 
         # Stack mean parameters of q.
         m1 = torch.cat(
-            [mp.flatten(start_dim=batch_dims) for mp in self.mean_params.values()],
+            [mp.flatten(start_dim=self.batch_dims) for mp in self.mean_params.values()],
             dim=-1,
         )
 

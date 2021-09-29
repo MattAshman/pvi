@@ -1,5 +1,5 @@
 from .base import ExponentialFamilyDistribution
-from pvi.utils.psd_utils import psd_inverse, psd_logdet
+from pvi.utils.psd_utils import psd_inverse, psd_logdet, safe_psd_inverse
 
 import torch
 import numpy as np
@@ -15,6 +15,12 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
     def torch_dist_class(self):
         return torch.distributions.Normal
 
+    @property
+    def batch_dims(self):
+        batch_dims = len(self.nat_params["np1"].shape) - 1
+
+        return batch_dims
+
     def log_a(self, nat_params=None):
         if nat_params is None:
             nat_params = self.nat_params
@@ -22,13 +28,13 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
         np1 = nat_params["np1"]
         np2 = nat_params["np2"]
 
-        if len(np1.shape) == 0:
+        if self.batch_dims == 0:
             d = 1
         else:
-            d = len(np1)
+            d = np1.shape[-1]
 
         log_a = -0.5 * np.log(np.pi) * d
-        log_a += (-(np1 ** 2) / (4 * np2) - 0.5 * (-2 * np2).log()).sum()
+        log_a += (-(np1 ** 2) / (4 * np2) - 0.5 * (-2 * np2).log()).sum(-1)
 
         return log_a
 
@@ -96,6 +102,17 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
     def torch_dist_class(self):
         return torch.distributions.MultivariateNormal
 
+    @property
+    def batch_dims(self):
+        if self._nat_params is not None:
+            batch_dims = len(self.nat_params["np1"].shape) - 1
+        elif self._unc_params is not None:
+            batch_dims = len(self._unc_params["loc"].shape) - 1
+        else:
+            batch_dims = len(self.std_params["np1"].shape) - 1
+
+        return batch_dims
+
     def log_a(self, nat_params=None):
         if nat_params is None:
             nat_params = self.nat_params
@@ -143,7 +160,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
 
         loc = std_params["loc"]
         cov = std_params["covariance_matrix"]
-        prec = psd_inverse(cov)
+        prec = safe_psd_inverse(cov)
 
         nat = {"np1": prec.matmul(loc.unsqueeze(-1)).squeeze(-1), "np2": -0.5 * prec}
 
@@ -156,7 +173,7 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
         np2 = nat_params["np2"]
 
         prec = -2.0 * np2
-        cov = psd_inverse(prec)
+        cov = safe_psd_inverse(prec)
 
         std = {
             "loc": cov.matmul(np1.unsqueeze(-1)).squeeze(-1),

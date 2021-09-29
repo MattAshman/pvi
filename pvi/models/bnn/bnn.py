@@ -7,13 +7,13 @@ from pvi.models.base import Model
 
 from abc import ABC, abstractmethod
 
-        
+
 class FullyConnectedBNN(Model, nn.Module, ABC):
-    
+
     conjugate_family = None
-    
+
     def __init__(self, activation=nn.ReLU(), **kwargs):
-        
+
         Model.__init__(self, **kwargs)
         nn.Module.__init__(self)
 
@@ -23,18 +23,12 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
 
         return {
             "np1": torch.zeros(size=(self.num_parameters,)),
-            "np2": -0.5 * 1e6 * torch.ones(size=(self.num_parameters,))
+            "np2": -0.5 * 1e6 * torch.ones(size=(self.num_parameters,)),
         }
 
     def get_default_config(self):
         return {
-            "optimiser_class"          : torch.optim.Adam,
-            "optimiser_params"         : {"lr": 1e-3},
-            "reset_optimiser"          : True,
-            "epochs"                   : 100,
-            "batch_size"               : 1000,
-            "num_elbo_samples"         : 10,
-            "num_predictive_samples"   : 10,
+            "num_predictive_samples": 10,
             "latent_dim": 128,
             "num_layers": 2,
         }
@@ -46,7 +40,7 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         return {}
 
     def forward(self, x, q, **kwargs):
-        
+
         # Number of θ samples to draw
         num_pred_samples = self.config["num_predictive_samples"]
         theta = q.distribution.sample((num_pred_samples,))
@@ -58,29 +52,29 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         # Predictive is a mixture of predictive distributions with equal
         # weights.
         mix = torch.distributions.Categorical(
-            logits=torch.ones(size=qy.batch_shape).to(x))
+            logits=torch.ones(size=qy.batch_shape).to(x)
+        )
         qy = torch.distributions.MixtureSameFamily(mix, qy)
 
         return qy
 
     def likelihood_forward(self, x, theta, samples_first=True):
-        
+
         assert len(x.shape) in [1, 2], "x must be (N, D)."
         assert len(theta.shape) in [1, 2], "theta must be (S, K)."
-        
+
         if len(x.shape) == 1:
             x = x[None, :]
-            
+
         if len(theta.shape) == 1:
             theta = theta[None, :]
-        
+
         # Converts θ-vectors to tensors, shaped as expected by the network.
         # i.e. (S, D_in + 1, D_out).
         theta = self.reshape_theta(theta)
         for i, W in enumerate(theta):
             # Bias term.
-            x = torch.cat(
-                [x, torch.ones((*x.shape[:-1], 1)).to(x)], dim=-1)
+            x = torch.cat([x, torch.ones((*x.shape[:-1], 1)).to(x)], dim=-1)
             x = x.matmul(W)
 
             # Don't apply ReLU to final layer.
@@ -88,15 +82,15 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
                 x = self.activation(x)
 
         return self.pred_dist_from_tensor(x, samples_first=samples_first)
-    
+
     def reshape_theta(self, theta):
-        
+
         # Number of Monte Carlo samples of parameters.
         num_samples = theta.shape[0]
-        
+
         # Check total number of parameters in network equals size of theta.
         assert self.num_parameters == theta.shape[-1]
-        
+
         # Indices to slice the theta tensor at
         slices = np.cumsum([0] + self.sizes)
 
@@ -104,9 +98,9 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
             torch.reshape(theta[:, s1:s2], [num_samples] + list(shape))
             for shape, s1, s2 in zip(self.shapes, slices[:-1], slices[1:])
         ]
-        
+
         return theta
-    
+
     def conjugate_update(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -116,16 +110,17 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
 
         for i in range(self.config["num_layers"] + 1):
             if i == 0:
-                shapes.append((self.config["D"] + 1,
-                               self.config["latent_dim"]))
+                shapes.append((self.config["input_dim"] + 1, self.config["latent_dim"]))
             elif i == self.config["num_layers"]:
                 # Weight matrix.
-                shapes.append((self.config["latent_dim"] + 1,
-                               self.config["output_dim"]))
+                shapes.append(
+                    (self.config["latent_dim"] + 1, self.config["output_dim"])
+                )
             else:
                 # Weight matrix.
-                shapes.append((self.config["latent_dim"] + 1,
-                               self.config["latent_dim"]))
+                shapes.append(
+                    (self.config["latent_dim"] + 1, self.config["latent_dim"])
+                )
 
         return shapes
 
@@ -141,19 +136,17 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
     def num_parameters(self):
         return sum(self.sizes)
 
-        
-class RegressionBNN(FullyConnectedBNN):
 
+class RegressionBNN(FullyConnectedBNN):
     def pred_dist_from_tensor(self, tensor, samples_first=True):
-        
-        loc = tensor[:, :, :self.output_dim]
-        scale = torch.exp(tensor[:, :, self.output_dim:])
-        
+
+        loc = tensor[:, :, : self.output_dim]
+        scale = torch.exp(tensor[:, :, self.output_dim :])
+
         return torch.distributions.normal.Normal(loc=loc, scale=scale)
 
 
 class ClassificationBNN(FullyConnectedBNN):
-
     def pred_dist_from_tensor(self, tensor, samples_first=True):
 
         if not samples_first:
@@ -163,7 +156,6 @@ class ClassificationBNN(FullyConnectedBNN):
 
 
 class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
-
     def local_repam_forward(self, x, q, num_samples=None):
         """
         Returns samples from the predictive posterior distribution of a
@@ -181,13 +173,14 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
         num_params = np.cumsum([0] + self.sizes)
         for i, shape in enumerate(self.shapes):
             # Bias term.
-            x = torch.cat(
-                [x, torch.ones((*x.shape[:-1], 1)).to(x)], dim=-1)
+            x = torch.cat([x, torch.ones((*x.shape[:-1], 1)).to(x)], dim=-1)
 
             qw_loc = q.std_params["loc"][
-                     num_params[i]:num_params[i+1]].reshape(shape)
+                ..., num_params[i] : num_params[i + 1]
+            ].reshape(q.std_params["loc"].shape[:-1] + shape)
             qw_scale = q.std_params["scale"][
-                       num_params[i]:num_params[i + 1]].reshape(shape)
+                ..., num_params[i] : num_params[i + 1]
+            ].reshape(q.std_params["loc"].shape[:-1] + shape)
 
             # Layer's q(h). Add jitter to scale to prevent numerical errors
             # during backward pass.
@@ -252,7 +245,6 @@ class FullyConnectedBNNLocalRepam(FullyConnectedBNN):
 
 
 class ClassificationBNNLocalRepam(FullyConnectedBNNLocalRepam):
-
     def pred_dist_from_tensor(self, tensor, samples_first=True):
 
         if not samples_first:
@@ -262,3 +254,12 @@ class ClassificationBNNLocalRepam(FullyConnectedBNNLocalRepam):
             return torch.distributions.Bernoulli(logits=tensor)
         else:
             return torch.distributions.Categorical(logits=tensor)
+
+
+class RegressionBNNLocalRepam(FullyConnectedBNNLocalRepam):
+    def pred_dist_from_tensor(self, tensor, samples_first=True):
+
+        loc = tensor[..., : self.config["output_dim"] // 2]
+        scale = torch.exp(tensor[..., self.config["output_dim"] // 2 :])
+
+        return torch.distributions.normal.Normal(loc=loc, scale=scale)
