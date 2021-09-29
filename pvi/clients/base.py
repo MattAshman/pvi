@@ -107,7 +107,7 @@ class Client:
         """
         return self.update_q(*args, **kwargs)
 
-    def update_q(self, q, init_q=None):
+    def update_q(self, q, init_q=None, **kwargs):
         """
         Computes a refined approximate posterior and the associated
         approximating likelihood term.
@@ -125,14 +125,14 @@ class Client:
             self.q, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
             # Pass a trainable copy to optimise.
-            self.q, self.t = self.gradient_based_update(p=q, init_q=init_q)
+            self.q, self.t = self.gradient_based_update(p=q, init_q=init_q, **kwargs)
 
         times = timer.get()
         self.log["update_time"].append(times)
 
         return self.q, self.t
 
-    def gradient_based_update(self, p, init_q=None):
+    def gradient_based_update(self, p, init_q=None, **kwargs):
         # Cannot update during optimisation.
         self._can_update = False
 
@@ -403,69 +403,24 @@ class Client:
         return self.model(x, self.q, **kwargs)
 
 
-class ClientBayesianHypers:
+class ClientBayesianHypers(Client):
     """
     PVI client with Bayesian treatment of model hyperparameters.
     """
 
-    def __init__(self, data, model, t=None, teps=None, config=None):
-
-        if config is None:
-            config = {}
-
-        self._config = self.get_default_config()
-        self.config = config
-
-        # Set data partition and likelihood
-        self.data = data
-        self.model = model
+    def __init__(self, teps=None, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
         # Set likelihood approximating term
-        self.t = t
         self.teps = teps
 
-        self.log = defaultdict(list)
-        self._can_update = True
-
-    @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config):
-        self._config = {**self._config, **config}
-
-    @classmethod
-    def get_default_config(cls):
+    def get_default_config(self):
         return {
-            "damping_factor": 1.0,
-            "valid_factors": False,
-            "epochs": 1,
-            "batch_size": 100,
-            "optimiser": "Adam",
-            "optimiser_params": {"lr": 0.05},
-            "num_elbo_samples": 10,
+            **super().get_default_config(),
             "num_elbo_hyper_samples": 1,
-            "print_epochs": 1,
         }
 
-    def can_update(self):
-        """
-        A check to see if this client can indeed update. Examples of reasons
-        one may not be is that they haven't finished optimisation.
-        :return:
-        """
-        return self._can_update
-
-    def fit(self, q, qeps):
-        """
-        Computes the refined approximating posterior (q) and associated
-        approximating likelihood term (t). This method differs from client to
-        client, but in all cases it calls Client.q_update internally.
-        """
-        return self.update_q(q, qeps)
-
-    def update_q(self, q, qeps):
+    def update_q(self, q, qeps, init_q=None, init_qeps=None):
         """
         Computes a refined approximate posterior and the associated
         approximating likelihood term.
@@ -646,3 +601,6 @@ class ClientBayesianHypers:
 
         else:
             return q_new, qeps_new, None, None
+
+    def model_predict(self, x, **kwargs):
+        raise NotImplementedError
