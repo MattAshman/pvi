@@ -36,7 +36,8 @@ class HFAClient(Client):
         self.model = model
 
         # Initialise optimiser states
-        self.n = self.data['y'].shape[-1]
+        #print(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
+        self.n_local_models = int(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
         self.optimiser_states = None
         
         # Set likelihood approximating term
@@ -44,6 +45,11 @@ class HFAClient(Client):
         
         self.log = defaultdict(list)
         self._can_update = True
+
+        # actually tracks norm of change in params for HFA
+        if self._config['track_client_norms']:
+            self.pre_dp_norms = []
+            self.post_dp_norms = []
 
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
@@ -98,7 +104,7 @@ class HFAClient(Client):
             #    optimiser, **self.config["lr_scheduler_params"])
 
             self.optimiser_states = []
-            for i_state in range(self.n):
+            for i_state in range(self.n_local_models):
                 self.optimiser_states.append(optimiser.state_dict())
 
             #print(self.optimiser_states[0])
@@ -114,34 +120,8 @@ class HFAClient(Client):
         #if self.config['dp_mode'] not in ['dpsgd','param_fixed']:
         loader = DataLoader(tensor_dataset,
                         batch_size=self.config["batch_size"],
-                        shuffle=True)
-        #n_epochs = 1
-        #n_samples = len(loader)
+                        shuffle=False)
 
-        # swor data pass modes
-        '''
-        else:
-            # regular SWOR sampler
-            if self.config['dp_mode'] == 'dpsgd':
-                sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=self.config['batch_size'], drop_last=False)
-            
-                loader = DataLoader(tensor_dataset, batch_sampler=sampler)
-
-            # use only fixed single minibatch for local learning for each global update
-            elif self.config['dp_mode'] == 'param_fixed':
-                inds = torch.randint(low=0,high=len(tensor_dataset),size=(self.config['batch_size'],))
-                loader = DataLoader( torch.utils.data.Subset(tensor_dataset, indices=inds) )
-            else:
-                raise ValueError(f"Unexpected dp_mode in base client: {self.config['dp_mode']}")
-
-            n_epochs = 1
-            n_samples = self.config['epochs']
-
-            #print(f"loader len: {len(loader)}, n_steps: {self.config['n_steps']}")
-            #print( int(np.ceil(self.config['n_steps']/len(loader) )))
-            #print(  self.config['n_steps'] % len(loader) )
-            #sys.exit()
-        '''
 
         # Dict for logging optimisation progress
         # note: for HFA log just means (mean over all local training step)
@@ -168,12 +148,10 @@ class HFAClient(Client):
         model_checkpoint = q.trainable_copy()
 
         # Loop over samples
-        assert self.config['batch_size'] == 1, "Need batch_size=1 for HFA!"
-
-        sample_iter = tqdm(iter(loader), desc="Sample", leave=True)
+        batch_iter = tqdm(iter(loader), desc="Batch", leave=True)
 
         #for i_batch, (x_single, y_single) in enumerate(tqdm(iter(loader))):
-        for i_batch, (x_single, y_single) in enumerate(sample_iter):
+        for i_batch, (x_batch, y_batch) in enumerate(batch_iter):
 
             # process each sample separately
             #for x_single, y_single in zip(x_batch,y_batch):
@@ -183,12 +161,12 @@ class HFAClient(Client):
             q.parameters(), **self.config["optimiser_params"])
             optimiser.load_state_dict(self.optimiser_states[i_batch])
 
-            batch = { # these are currently single obs already from the loader
-                "x" : x_single, #torch.unsqueeze(x_single,0),
-                "y" : y_single, #torch.unsqueeze(y_single,0),
+            batch = {
+                "x" : x_batch,
+                "y" : y_batch,
             }
 
-            # optimise separate model on each single sample for some number of steps
+            # optimise separate model on each batch for some number of steps
             for i_step in range(self.config['epochs']):
 
                 # eli: n_epochs=lokaalien askelten määrä/malli; len(loader)=len(x) (tällä hetkellä)
@@ -197,7 +175,7 @@ class HFAClient(Client):
 
                 # Compute KL divergence between q and q_cav.
                 try:
-                    kl = q.kl_divergence(q_cav).sum()
+                    kl = q.kl_divergence(q_cav).sum() / self.config['batch_size'] # full data size for each model = batch_size for HFA
                     #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                     #print(kl)
                 except ValueError as err:
@@ -214,7 +192,7 @@ class HFAClient(Client):
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
                     batch, q, self.config["num_elbo_samples"]).sum()
-                #ll /= len(loader) # no scaling, since this uses single samples
+                ll /= self.config['batch_size']
 
                 if self.t is not None:
                     # Compute E_q[log t(θ)]. this is only for bookkeeping, not used in loss
@@ -226,6 +204,15 @@ class HFAClient(Client):
                 loss = kl - ll # NOTE: doesn't have HFA regularizer at the moment, should add?
 
                 loss.backward()
+
+                if self.config['track_client_norms']:
+                    delta_param_norm = 0
+                    for p0, p in zip(model_checkpoint.parameters(), q.parameters()):
+                        delta_param_norm += torch.sum((p0-p)**2)
+                    delta_param_norm = torch.sqrt(delta_param_norm)
+                    if i_batch == 0 and i_step == 0:
+                        self.pre_dp_norms.append(np.zeros(self.config['epochs'] ))
+                    self.pre_dp_norms[-1][i_step] += delta_param_norm.item()/len(loader)
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
@@ -255,7 +242,7 @@ class HFAClient(Client):
 
                 optimiser.step()
 
-            sample_iter.set_postfix(elbo=epoch["elbo"]/(i_batch+1), kl=epoch["kl"]/(i_batch+1),
+            batch_iter.set_postfix(elbo=epoch["elbo"]/(i_batch+1), kl=epoch["kl"]/(i_batch+1),
                                ll=epoch["ll"]/(i_batch+1), logt=epoch["logt"]/(i_batch+1))
                                #lr=optimiser.param_groups[0]["lr"])
 
@@ -268,7 +255,6 @@ class HFAClient(Client):
                 delta_param_norm += torch.sum((p0-p)**2)
             delta_param_norm = torch.sqrt(delta_param_norm)
             #print(f'delta norm: {delta_param_norm}')
-            #param_norm_trace[i_batch] = delta_param_norm.cpu().numpy()
 
             # clip, accumulate clipped change in params, and return to the model checkpoint
             for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
@@ -284,8 +270,18 @@ class HFAClient(Client):
 
         # add noise for DP and do local avg
         for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
-            # add noise to change in parameters and take avg
-            p.data = (p0 +  (param_accumulator[str(i_param)] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n).detach().clone()
+            # add noise to sum of clipped change in parameters and take avg
+            p.data = (p0 +  (param_accumulator[str(i_param)] + 2*self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n_local_models).detach().clone()
+
+
+        if self.config['track_client_norms']:
+            # get norm of the change in params
+            delta_param_norm = 0
+            for p0, p in zip(model_checkpoint.parameters(), q.parameters()):
+                delta_param_norm += torch.sum((p0-p)**2)
+            delta_param_norm = torch.sqrt(delta_param_norm)
+            #param_norm_trace[i_batch] = delta_param_norm.cpu().numpy()
+            self.post_dp_norms.append(delta_param_norm.item()) 
 
         #if i % self.config["print_epochs"] == 0:
         logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
@@ -313,10 +309,7 @@ class HFAClient(Client):
                 valid_dist=self.config["valid_factors"],
                 update_log_coeff=self.config["update_log_coeff"])
 
-            # note for DP: only t is currently used by server:
-            #return q_new, t_new
-            return None, t_new 
-
+            return q_new, t_new
         else:
             logger.debug('Note: client not returning t')
             return q_new, None

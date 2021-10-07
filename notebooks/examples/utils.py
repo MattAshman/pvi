@@ -234,38 +234,22 @@ def generate_clients_data(x, y, M, client_size_factor, class_balance_factor, dat
 
 if __name__ == '__main__':
 
-    '''
-    filename = 'tmp.txt'
-    with open(filename, 'r') as f:
-        lines = []
-        for line in f:
-            lines.append(int(line[-4:-2]))
-            #print(line)
-        print(lines)
-    ids = []
-    for i in range(81):
-        if i in lines:
-            continue
-        ids.append(i)
-    print(ids)
-    sys.exit()
-    '''
 
     # calculate privacy costs with fourier accountant
     nx=int(1E6)
-    L=26.#26.
+    L=30.#26.
 
     target_delta = 1e-5
-    q = .082 # [.020, 0.041, 0.082]
+    q = 1. # [.020, 0.041, 0.082]
 
-    ncomp=10*20
+    ncomp=20
     # eli jos ottaisi C in [10,50,100]
     #C = 5.
     #samples_per_client = 2442 # with 10 clients, adult=2442, CIFAR10, 10 clients: 1562(?)
     #sens = 2*C/samples_per_client
     # [2.59, 1.07]
     if 1:
-        all_sigmas = [3.5, 8.]
+        all_sigmas = [30.,14.]
         all_eps = np.zeros((len(all_sigmas)))
         for i_sigma, sigma in enumerate(all_sigmas):
             eps = fourier_accountant.get_epsilon_S(target_delta=1e-5, sigma=sigma, q=q, ncomp=ncomp, nx=nx,L=L)

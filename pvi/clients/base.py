@@ -39,6 +39,10 @@ class Client(ABC):
 
         self.optimiser = None
 
+        if self._config['track_client_norms']:
+            self.pre_dp_norms = []
+            self.post_dp_norms = []
+
     @property
     def config(self):
         return self._config
@@ -199,6 +203,7 @@ class Client(ABC):
             # Loop over batches in current epoch
             tmp = iter(loader)
             #for i_step, (x_batch, y_batch) in enumerate(iter(loader)):
+
             for i_step in range(n_samples):
                 try:
                     (x_batch, y_batch) = tmp.next()
@@ -216,27 +221,12 @@ class Client(ABC):
                         #if p_.grad is not None:
                         cum_grads[str(i_weight)] = torch.zeros_like(p_)
 
-                    # Compute KL divergence between q and q_cav.
-                    try:
-                        kl = q.kl_divergence(q_cav).sum()/self.config['batch_size']
-                        #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
-                        #print(kl)
-                    except ValueError as err:
-                        # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
-                        print('\nException in KL: probably caused by invalid cavity distribution')
-                        #print(q._unc_params['log_scale'])
-                        print(q_cav)
-                        print('nat params')
-                        print(q_cav.nat_params)
-                        print('std params')
-                        print(q_cav.std_params)
-                        raise err
-
                     if self.t is not None:
                         # Compute E_q[log t(θ)]. this is only for bookkeeping, not used in loss
                         logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
                         #logt /= self(x) # use full data len to be comparable; doesn't matter since not used in optimisation
 
+                    grad_norm_tracker = 0
                     # quick hack for DP-SGD: process each sample separately
                     for x_single, y_single in zip(x_batch,y_batch):
                         optimiser.zero_grad()
@@ -248,7 +238,23 @@ class Client(ABC):
                         #print(batch['x'].shape, batch['y'].shape)
                         #sys.exit()
 
-                        # note: avg over minibatch only after adding clipping per-example grads & noising the sum
+                        # Compute KL divergence between q and q_cav.
+                        try:
+                            kl = q.kl_divergence(q_cav).sum()/self.config['batch_size']
+                            #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
+                            #print(kl)
+                        except ValueError as err:
+                            # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
+                            print('\nException in KL: probably caused by invalid cavity distribution')
+                            #print(q._unc_params['log_scale'])
+                            print(q_cav)
+                            print('nat params')
+                            print(q_cav.nat_params)
+                            print('std params')
+                            print(q_cav.std_params)
+                            raise err
+
+                        # note: avg over minibatch only after clipping per-example grads & noising the sum
                         # Sample θ from q and compute p(y | θ, x) for each θ
                         ll = self.model.expected_log_likelihood(
                             batch, q, self.config["num_elbo_samples"]).sum()
@@ -256,36 +262,67 @@ class Client(ABC):
 
                         # Negative local free energy is KL minus log-probability.
                         loss = kl - ll
-                        loss.backward(retain_graph=True) # keep graph when kl is computed outside loop
+
+
+                        loss.backward(retain_graph=False) # keep graph when kl is computed outside loop
 
                         trace_tmp[0] += ll.item()
                         trace_tmp[1] += -loss.item()
 
-
                         # NOTE: assume that all parameters for dp are from q
-                        #if self.config['use_dpsgd']:
                         g_norm = torch.zeros(1)
                         for p_ in filter(lambda p_: p_.requires_grad, q.parameters()):
                             #if p_.grad is not None:
                             g_norm += torch.sum(p_.grad**2)
                         g_norm = torch.sqrt(g_norm)
-                        #print(f'grad_norm: {g_norm}')
+                        #print(f'grad_norm before clipping: {g_norm}')
                         
+                        if self._config['track_client_norms']:
+                            # track mean grad norm over samples in the minibatch
+                            grad_norm_tracker += g_norm.item()/self.config['batch_size']
+
                         # clip and accumulate grads
                         for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
                             #if p_.grad is not None:
-                            cum_grads[str(i_weight)] += p_.grad/torch.clamp(g_norm/self.config['dp_C'], min=1)
+                            cum_grads[str(i_weight)] += (p_.grad/torch.clamp(g_norm/self.config['dp_C'], min=1)).detach().clone()
                         # check that clipping is ok
-                        #g_norm = torch.zeros(1)
-                        #for k in cum_grads:
-                        #    g_norm += torch.sum(cum_grads[k]**2)
-                        #g_norm = torch.sqrt(g_norm)
-                        #print(f'grad_norm: {g_norm}')
+                        '''
+                        g_norm = torch.zeros(1)
+                        for k in cum_grads:
+                            g_norm += torch.sum(cum_grads[k]**2)
+                        g_norm = torch.sqrt(g_norm)
+                        print(f'grad_norm after clipping: {g_norm}')
+                        '''
 
                         #print(list(q.parameters()))
                         #print(f'cum grad:\n{cum_grads}')
                         #sys.exit()
-                
+                    
+                    # add noise to clipped grads and avg
+                    for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
+                        #print(f'grad before:\n{p_.grad}')
+                        #print(f"noiseless accumulated grads/batch:\n{cum_grads[key]/self.config['batch_size']}")
+                        #print("grad std before noise {}, var {}".format(torch.std(cum_grads[key]), torch.var(cum_grads[key] )))
+                        #print("grad std before noise/batch {}, var {}".format(torch.std(cum_grads[key]/self.config['batch_size']), torch.var(cum_grads[key]/self.config['batch_size'] )))
+                        #print(self.config['dp_C']*self.config['dp_sigma'])
+                        p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
+                        p_.grad /= self.config['batch_size']
+                        #print("true grad std after noise {}, var {}".format(torch.std(p_.grad),torch.var(p_.grad) ))
+                        #print("grad std after noise {}, var {}".format(torch.std(cum_grads[key]+self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad)), torch.var(cum_grads[key]+self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) ) ))
+                        #sys.exit()
+
+
+                    if self._config['track_client_norms']:
+                        self.pre_dp_norms.append(grad_norm_tracker)
+                        # calculate grad norm post DP treatment
+                        g_norm = torch.zeros(1)
+                        for p_ in filter(lambda p_: p_.requires_grad, q.parameters()):
+                            g_norm += torch.sum(p_.grad**2)
+                        g_norm = torch.sqrt(g_norm)
+                        self.post_dp_norms.append(g_norm.item())
+
+                    ### end loop over single samples in minibatch ###
+
                 # no dpsgd
                 else:
 
@@ -327,19 +364,10 @@ class Client(ABC):
                     loss.backward()
 
 
-                # add noise to clipped grads and avg
-                if self.config['dp_mode']== 'use_dpsgd':
-                    for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
-                        #print(f'grad before:\n{p_.grad}')
-                        #print(f'noiseless accumulated grads:\n{cum_grads[key]}')
-                        p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
-                        p_.grad /= self.config['batch_size']
-                        #print(f'grad after:\n{p_.grad}') # note: currently scaling changed when noising as well
-                        #sys.exit()
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                if self.config['dp_mode']== 'use_dpsgd':
+                if self.config['dp_mode']== 'dpsgd':
                     epoch["elbo"] += trace_tmp[1] /  (n_samples * self.config['batch_size'])
                     epoch["kl"] += kl.item() / n_samples
                     epoch["ll"] += trace_tmp[0] / (n_samples * self.config['batch_size'])
@@ -354,6 +382,8 @@ class Client(ABC):
 
                 optimiser.step()
                 i_step += 1
+
+                ### end loop over minibatches ###
 
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
@@ -377,6 +407,8 @@ class Client(ABC):
             # Update learning rate.
             lr_scheduler.step()
 
+            ### end loop over local steps ###
+
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
         
@@ -399,8 +431,6 @@ class Client(ABC):
                 elif i_params == 1:
                     # difference in params
                     param_norm += torch.sum( (p_ - p_old)**2)
-                    # difference without log
-                    #param_norm += torch.sum( (torch.exp(p_ - p_old))**2)
                     # params directly
                     #param_norm += torch.sum(p_**2) # should use exp?
 
@@ -421,7 +451,6 @@ class Client(ABC):
                     #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                     #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
                 elif i_params == 1:
-                    # note: need to change inv-scale to non-log scale for clipping & noise
 
                     #if self.config['pos_def_constants'][0] > 0:
                     #    p_.data = p_old + torch.log( torch.clamp( (torch.exp(p_ - p_old))/torch.clamp(param_norm/self.config['dp_C'], min=1) \
@@ -430,9 +459,6 @@ class Client(ABC):
                     # clip change in params
                     p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                             + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
-                    # clip change in params without log-space: enforce pos values and back to log-space
-                    #p_.data = p_old + torch.log( torch.clamp( torch.exp(p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                    #       + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_), min=1e-7, max=1e+6) )
                     
                     # params directly
                     #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
@@ -469,8 +495,7 @@ class Client(ABC):
                 update_log_coeff=self.config["update_log_coeff"])
 
             # note for DP: only t is currently used by server:
-            #return q_new, t_new
-            return None, t_new 
+            return q_new, t_new
 
         else:
             logger.debug('Note: client not returning t')

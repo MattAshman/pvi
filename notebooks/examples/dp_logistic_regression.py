@@ -53,7 +53,7 @@ def main(args, rng_seed, dataset_folder):
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
         logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
     elif args.dp_mode in ['hfa']:
-        logger.info(f'Using sequential data passes with batch size 1 (separate models for each sample)')
+        logger.info(f'Using sequential data passes with batch size {args.batch_size} (separate models for each batch)')
     else:
         logger.info(f'Using sequential data passes with batch size {args.batch_size}')
 
@@ -110,17 +110,15 @@ def main(args, rng_seed, dataset_folder):
         'train_model' : False, # no need for having trainable model on client
         'update_log_coeff' : False, # no need for log coeff in t factors
         'dp_mode' : args.dp_mode, 
-        #'sampling_type' : args.sampling_type, # sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'SWOR' for sampling size b batch without replacement. For DP, need either Poisson or SWOR
-        #'use_dpsgd' : args.use_dpsgd, # if True use DP-SGD for privacy, otherwise clip & noisyfy parameters directly
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
-        #'server_add_dp' : args.server_add_dp,
         'enforce_pos_var' : args.enforce_pos_var,
-        #'param_dp_use_fixed_sample' : args.param_dp_use_fixed_sample,
+        'track_client_norms' : args.track_client_norms,
+        'clients' : args.clients, # total number of clients
     }
     # change batch_size for HFA
-    if args.dp_mode == 'hfa':
-        client_config['batch_size'] = 1
+    #if args.dp_mode == 'hfa':
+    #    client_config['batch_size'] = 1
 
     # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
@@ -250,9 +248,45 @@ def main(args, rng_seed, dataset_folder):
         i_global += 1
 
 
-    # plot all training curves
-    # NOTE: seems like elbo = logl, why? check later with longer runs
-    #plot_training_curves(client_train_res, args.clients)
+    if args.track_client_norms:
+        # separate script for hfa/dpsgd etc?
+
+        if args.dp_mode == 'dpsgd':
+            pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+            post_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+            for i_client, client in enumerate(clients):
+                pre_dp_norms[i_client,:] = client.pre_dp_norms
+                post_dp_norms[i_client,:] = client.post_dp_norms
+            x1 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
+            x2 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
+        elif args.dp_mode == 'hfa':
+            pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+            post_dp_norms = np.zeros((args.clients, args.n_global_updates))
+            for i_client, client in enumerate(clients):
+                pre_dp_norms[i_client,:] = np.concatenate([norms for norms in client.pre_dp_norms])
+                post_dp_norms[i_client,:] = client.post_dp_norms
+            x1 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
+            x2 = np.linspace(1,args.n_global_updates, args.n_global_updates)
+
+        fig,axs = plt.subplots(2,figsize=(10,7))
+        for i_client in range(args.clients):
+            axs[0].plot(x1, pre_dp_norms[i_client,:], alpha=.3)
+            axs[1].plot(x2, post_dp_norms[i_client,:], alpha=.3)
+        axs[0].plot(x1, pre_dp_norms.mean(0), alpha=.8, color='black')
+        axs[1].plot(x2, post_dp_norms.mean(0), alpha=.8, color='black')
+
+        for i in range(2):
+            axs[i].set_xlabel('Local step')
+        axs[0].set_ylabel('Pre DP client norm')
+        axs[1].set_ylabel('Post DP client norm')
+
+
+        figname = 'res_plots/client_norm_traces/client_norms_{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.dp_mode,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        #plt.savefig(figname)
+        plt.show()
+        
+        #sys.exit()
+
 
 
     if args.track_params:
@@ -264,11 +298,12 @@ def main(args, rng_seed, dataset_folder):
             axs[i].set_xlabel('Global updates')
         axs[0].set_ylabel('Model acc')
         axs[1].set_ylabel('Model logl')
-        figname = 'res_plots/param_traces/model_perf_C{}_sigma{}.pdf'.format(args.dp_C, args.dp_sigma)
-        plt.savefig(figname)
-        #plt.show()
+        plt.suptitle("".format())
+        figname = 'res_plots/param_traces/model_perf_global{}_local{}_C{}_sigma{}.pdf'.format(args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        #plt.savefig(figname)
+        plt.show()
 
-        sys.exit()
+        #sys.exit()
         x = np.linspace(0,args.n_global_updates,args.n_global_updates+1)
         fig,axs = plt.subplots(2,figsize=(10,7))
         axs[0].plot(x,param_trace1)
@@ -277,12 +312,10 @@ def main(args, rng_seed, dataset_folder):
             axs[i].set_xlabel('Global updates')
         axs[0].set_ylabel('Loc params')
         axs[1].set_ylabel('Scale params')
-        figname = 'res_plots/param_traces/param_trace_C{}_sigma{}.pdf'.format(args.dp_C, args.dp_sigma)
+        figname = 'res_plots/param_traces/param_trace_global{}_local{}_C{}_sigma{}.pdf'.format(args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
         #plt.savefig(figname)
         plt.show()
 
-    #plot_global_curves(validation_res, 'validation set')
-    #print(f'final validation res:\n{validation_res}')
     return validation_res, train_res, client_train_res, prop_positive
 
 
@@ -328,11 +361,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
-    parser.add_argument('-batch_size', default=200, type=int, help="batch size; used if sampling type is 'swor' or 'seq'")
+    parser.add_argument('--batch_size', default=100, type=int, help="batch size; used if sampling type is 'swor' or 'seq'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or HFA, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson' NOT IMPLEMENTED")
-    parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
-    parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
+    parser.add_argument('--dp_sigma', default=1., type=float, help='DP noise magnitude')
+    parser.add_argument('--dp_C', default=2., type=float, help='gradient norm bound')
 
     parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
@@ -346,16 +379,12 @@ if __name__ == '__main__':
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
-    #parser.add_argument('--sampling_type', default='seq', type=str, help="sampling type for clients:'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR")
-    #parser.add_argument('--use_dpsgd', default=False, action='store_true', help="use dp-sgd or clip & noisify change in parameters")
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='hfa', type=str, help="DP mode: 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'hfa': param DP with hierarchical fed avg. Sampling type is set based on the mode.")
+    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'hfa': param DP with hierarchical fed avg. Sampling type is set based on the mode.")
 
-    #parser.add_argument('--server_add_dp', default=False, action='store_true', help="when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!")
-
-    #parser.add_argument('--param_dp_use_fixed_sample', default=False, action='store_true', help="use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
     parser.add_argument('--track_params', default=False, action='store_true', help="plot all params after learning")
+    parser.add_argument('--track_client_norms', default=False, action='store_true', help="return grad norms pre & post DP")
 
     args = parser.parse_args()
 
