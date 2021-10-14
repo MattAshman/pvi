@@ -47,8 +47,9 @@ def short_test(_log):
     """
 
     # static parameters
-    track_params = False # plot all params after finishing, should usually be False
-    #sampling_type = 'swor' # sampling type for clients: 'seq' to sequentially sample full local data, 'poisson' for Poisson sampling with fraction q, 'swor' for sampling without replacement. For DP, need either Poisson or SWOR
+    track_params = False # track all params, should usually be False
+    track_client_norms = True # track all (grad) norms, should usually be False
+    plot_tracked = False # plot all tracked stuff after learning, should usually be False
     folder = '../../data/data/adult/' # data folder, uncomment one
     #folder = '../../data/data/abalone/' # NOTE: abalone not working at the moment
     #folder = '../../data/data/mushroom/' # note: data bal (.7,-3) with 10 clients not working, can't populate small classes
@@ -56,25 +57,24 @@ def short_test(_log):
     #folder = '../../data/data/bank/'
     #folder = '../../data/data/superconductor/'
     clients = 10
-    #model_type = 'pvi' # method: pvi, distr_vi, shared_vi
-    n_rng_seeds = 5 # number of repeats to do for a given experiment; initial seed from sacred
+    n_rng_seeds = 1 # number of repeats to do for a given experiment; initial seed from sacred
     #parallel_updates = True # parallel or sequential updates; for distr_vi can only use True
     #prior_sharing = 'same' # 'same' or 'split': for distr_vi, whether to use same or split prior in BCM
-    #use_dpsgd = True # if True use DP-SGD for privacy, otherwise clip & add noise to parameters directly
     batch_proc_size =  1 # batch proc size; currently needs to be 1 for DP-SGD
     job_id = 0 # id that defines arg combination to use, in [0,nbo of combinations-1]; replace this by command line arg
+    privacy_calculated = None # how many global steps assumed to run with the given privacy budget; doesn't stop run if global steps is more!
 
     # dynamic parameters; choose which combination to run by job_id
-    batch_size =  [200] # batch size; only used when sampling_type is 'swor' or 'seq
+    batch_size =  [1] # batch size; used for dp_mode: 'dpsgd', 'param', 'param_fixed'; for 'hfa' use always batch_size=1
     n_global_updates = [20] # number of global updates
-    n_steps = [5] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
-    damping_factor = [.1,.2,.5] # damping factor in (0,1], 1=no damping
-    learning_rate = [1e-2,5e-3,1e-3]
+    n_steps = [10] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
+    damping_factor = [.5] # damping factor in (0,1], 1=no damping
+    learning_rate = [1e-2]
     sampling_frac_q = [1e-2] # sampling fraction; only used if sampling_type is 'poisson'
-    data_bal = [(0,0),(.75,.95),(.7,-3.)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
+    data_bal = [(0,0)]#,(.75,.95),(.7,-3.)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
     dp_mode = 'hfa' # 'dpsgd', 'param' for param pert. by each client, 'param_fixed' for param. pert. by each client using a fixed minibatch per each global update, 'fha' for hier. fedavg, or 'server' (don't use!)
     dp_sigma = [0.] # dp noise std factor; noise magnitude will be C*sigma
-    dp_C = [1000.] # max grad norm
+    dp_C = [.5,.75,1.,1.5] # max grad norm
     enforce_pos_var = False # enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!
     #server_add_dp = False # when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!
     #param_dp_use_fixed_sample = False # use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
@@ -172,6 +172,7 @@ def dp_pvi_config_handler(_config, _seed):
         ex.info[f'train_res_seed{i_seed}'] = res[1]
         ex.info[f'client_train_res_seed{i_seed}'] = res[2]
         ex.info[f'prop_positive_seed{i_seed}'] = res[3]
+        ex.info[f'tracked_seed{i_seed}'] = res[3]
 
     logger.info('Sacred test finished.')
 

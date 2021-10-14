@@ -10,16 +10,22 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
-#runs_to_plot = np.linspace(1,55,55,dtype=int)#[1]
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests/'
 
-runs_to_plot = np.linspace(37,54,18,dtype=int)#[1]
+# numbers of runs to plot
+#runs_to_plot = np.linspace(28,76,49,dtype=int)#[1]
+runs_to_plot = np.linspace(60,76,17,dtype=int)#[1]
+#runs_to_plot = np.linspace(49,210,162,dtype=int)#[1]
 #print(runs_to_plot)
+
+# main folder where the res are
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_swor/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_mushroom/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_credit/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_bank/'
-main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_tests_adult_param_dp/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_tests_adult_param_dp/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_adult_optim/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_adult_optim2/'
+main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_hfa_adult/'
 #main_folder = 'dp_pvi_runs/'
 
 dataset_name = 'adult'
@@ -28,7 +34,7 @@ dataset_name = 'adult'
 #dataset_name = 'bank'
 
 
-# where to save all random plots
+# where to save all plots
 fig_folder = 'res_plots/'
 
 # baseline models to include: there should be 1 entry for each baseline in every given attribute
@@ -44,21 +50,46 @@ tmp['data_bal_kappa'] = [0.,0.]
 #tmp['data_bal_kappa'] = [.95,.95]
 
 restrictions = OD()
-restrictions['dp_sigma'] = None#[0.,.5]
-restrictions['dp_C'] = [1.]
-restrictions['use_dpsgd'] = None#[True]
+restrictions['dp_sigma'] = None#[2.,3.5, 4.,8.]
+restrictions['dp_C'] = None#[1.]
+#restrictions['use_dpsgd'] = [True]
 restrictions['n_global_updates'] = None
-restrictions['n_steps'] = None#[100]
+restrictions['n_steps'] = None#[10
 restrictions['batch_size'] = [100]
+restrictions['learning_rate'] = [0.01]
+restrictions['damping_factor'] = None#[.5]
 
 # possible balance settings: (0,0), (.7,-3), (.75,.95)
-restrictions['data_bal_rho'] = [.0]
-restrictions['data_bal_kappa'] = [.0]
+restrictions['data_bal_rho'] = [0.]
+restrictions['data_bal_kappa'] = [0.]
+
+# set vars to add to title: key=variable name, value=var name in fig title
+add_to_title = {}
+add_to_title['data_bal_rho'] = 'rho'
+add_to_title['data_bal_kappa'] = 'kappa'
+add_to_title['clients'] = 'clients'
+add_to_title['dp_mode'] = 'dp mode'
+#add_to_title[''] = ''
+
+
+# set labels to add: key=variable name, value=label name in fig
+add_labels = {}
+#add_labels['sampling_type'] = 'sampling'
+add_labels['dp_C'] = 'C'
+add_labels['dp_sigma'] = 'sigma'
+add_labels['n_steps'] = 'steps'
+add_labels['batch_size'] = 'b'
+add_labels['learning_rate'] = 'lr'
+add_labels['damping_factor'] = 'damping'
+#add_labels['privacy_calculated'] = 'DP epochs'
+#add_labels['data_bal_rho'] = 'rho'
+#add_labels['data_bal_kappa'] = 'kappa'
 
 # save to disk (or just show)
-to_disk = 1
+to_disk = 0
 # name for the current plot
-fig_name = "{}_dp_eff_bal({},{})_damping_10_fixed_batch{}.pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'] , restrictions['batch_size'])
+#fig_name = "{}_dpsgd_bal({},{})_eps1_1_and_2_7.pdf".format(dataset_name, restrictions['data_bal_rho'][0],restrictions['data_bal_kappa'][0])
+fig_name = "{}_hfa_non_dp_no_no_clip_bal({},{})_b{}.pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'], restrictions['batch_size'])
 
 
 #####################
@@ -207,10 +238,27 @@ if plot_comparisons:
         sys.exit('No runs satisfying restrictions found!')
     fig, axs = plt.subplots(2, figsize=(10,10))
 
+    for k in add_to_title:
+        try:
+            cur_title += ", {}={}".format(add_to_title[k], all_res['config'][str(list_to_print[0])][k])
+        except:
+            try:
+                cur_title = ": {}={}".format(add_to_title[k], all_res['config'][str(list_to_print[0])][k])
+            except:
+                cur_title = ''
+
     for i_line,i_run in enumerate(list_to_print):
+        cur_label = None
         config = all_res['config'][str(i_run)]
-        #if config['use_dpsgd']:
-        cur_label = f"{config['sampling_type']}:dp_C={config['dp_C']},dp_sigma={config['dp_sigma']},n_steps={config['n_steps']}, batch_size={config['batch_size']}"
+
+        for k in add_labels:
+            try:
+                cur_label += ", {}={}".format(add_labels[k], config[k])
+            except:
+                cur_label = "{}={}".format(add_labels[k], config[k])
+        #cur_label = f"{config['sampling_type']}:dp_C={config['dp_C']},dp_sigma={config['dp_sigma']},n_steps={config['n_steps']}, batch_size={config['batch_size']}, lr={config['learning_rate']}"
+        #cur_label = f"{config['sampling_type']}:dp_C={config['dp_C']},dp_sigma={config['dp_sigma']},n_steps={config['n_steps']}, batch_size={config['batch_size']}, lr={config['learning_rate']}"
+        
         #else:
         #    cur_label = f"{config['sampling_type']}:dp_C=None,dp_sigma=None,n_steps={config['n_steps']}"
 
@@ -224,6 +272,13 @@ if plot_comparisons:
                 label=cur_label,
                 color=colors[i_line%len(colors)]
                 )
+        # add baseline if available
+        if i_line == 0:
+            try:
+                axs[0].hlines(baseline_acc, x[0],x[-1], color='Gray',linestyle=':')
+            except:
+                pass
+
         axs[0].set_ylabel('Acc')
         axs[0].set_xlabel('Global communications')
         axs[0].legend()
@@ -233,7 +288,7 @@ if plot_comparisons:
         axs[1].legend()
         axs[1].grid(b=True, which='major', axis='both')
 
-        plt.suptitle(f"{dataset_name} dataset mean with 2*SEM over {config['n_rng_seeds']} runs: data balance=({config['data_bal_rho']},{config['data_bal_kappa']}), clients={config['clients']}, damping factor={config['damping_factor']}")
+        plt.suptitle(f"{dataset_name} dataset mean with 2*SEM over {config['n_rng_seeds']} runs" + cur_title)
 
 
     if to_disk:
