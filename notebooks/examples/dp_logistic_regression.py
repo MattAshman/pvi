@@ -248,7 +248,7 @@ def main(args, rng_seed, dataset_folder):
         i_global += 1
 
 
-    if args.track_client_norms:
+    if args.track_client_norms and args.plot_tracked:
         # separate script for hfa/dpsgd etc?
 
         if args.dp_mode == 'dpsgd':
@@ -289,7 +289,7 @@ def main(args, rng_seed, dataset_folder):
 
 
 
-    if args.track_params:
+    if args.track_params and args.plot_tracked:
         x = np.linspace(1,args.n_global_updates,args.n_global_updates)
         fig,axs = plt.subplots(2,figsize=(10,7))
         axs[0].plot(x, validation_res['acc'])
@@ -316,7 +316,26 @@ def main(args, rng_seed, dataset_folder):
         #plt.savefig(figname)
         plt.show()
 
-    return validation_res, train_res, client_train_res, prop_positive
+    # compile possible tracked norms etc
+    tracked = {}
+    if args.track_client_norms:
+        if args.dp_mode == 'dpsgd':
+            pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+            post_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+            for i_client, client in enumerate(clients):
+                pre_dp_norms[i_client,:] = client.pre_dp_norms
+                post_dp_norms[i_client,:] = client.post_dp_norms
+        elif args.dp_mode == 'hfa':
+            pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+            post_dp_norms = np.zeros((args.clients, args.n_global_updates))
+            for i_client, client in enumerate(clients):
+                pre_dp_norms[i_client,:] = np.concatenate([norms for norms in client.pre_dp_norms])
+                post_dp_norms[i_client,:] = client.post_dp_norms
+        tracked['client_norms'] = {}
+        tracked['client_norms']['pre_dp_norms'] = pre_dp_norms
+        tracked['client_norms']['post_dp_norms'] = post_dp_norms
+
+    return validation_res, train_res, client_train_res, prop_positive, tracked
 
 
 
@@ -383,9 +402,9 @@ if __name__ == '__main__':
     
     parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'hfa': param DP with hierarchical fed avg. Sampling type is set based on the mode.")
 
-    parser.add_argument('--track_params', default=False, action='store_true', help="plot all params after learning")
-    parser.add_argument('--track_client_norms', default=False, action='store_true', help="return grad norms pre & post DP")
-
+    parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
+    parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")
+    parser.add_argument('--plot_tracked', default=False, action='store_true', help="plot all tracked stuff after learning")
     args = parser.parse_args()
 
     main(args, rng_seed=2303, dataset_folder=args.folder)
