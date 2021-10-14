@@ -175,7 +175,8 @@ class HFAClient(Client):
 
                 # Compute KL divergence between q and q_cav.
                 try:
-                    kl = q.kl_divergence(q_cav).sum() / self.config['batch_size'] # full data size for each model = batch_size for HFA
+                    #kl = q.kl_divergence(q_cav).sum() / self.config['batch_size'] # full data size for each model = batch_size for HFA
+                    kl = q.kl_divergence(q_cav).sum() / len(x) # use true full data size for each model
                     #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                     #print(kl)
                 except ValueError as err:
