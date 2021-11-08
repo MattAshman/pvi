@@ -9,7 +9,7 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
 
 # =============================================================================
 # Client class
@@ -190,7 +190,7 @@ class Client(ABC):
         # Gradient-based optimisation loop -- loop over epochs
         #epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
         #                  leave=True)
-        epoch_iter = tqdm(range(n_epochs), desc="Epoch", leave=True)
+        epoch_iter = tqdm(range(n_epochs), desc="Epoch", leave=True, disable=self.config['pbar'])
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = {
@@ -240,7 +240,7 @@ class Client(ABC):
 
                         # Compute KL divergence between q and q_cav.
                         try:
-                            kl = q.kl_divergence(q_cav).sum()/self.config['batch_size']
+                            kl = q.kl_divergence(q_cav).sum()/len(self.data["x"])
                             #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                             #print(kl)
                         except ValueError as err:
@@ -332,11 +332,9 @@ class Client(ABC):
                         "y" : y_batch,
                     }
 
-                    # Compute KL divergence between q and q_old.
-                    # kl = q.kl_divergence(q_old).sum() / len(x)
                     # Compute KL divergence between q and q_cav.
                     try:
-                        kl = q.kl_divergence(q_cav).sum() / self.config['batch_size']#len(x)
+                        kl = q.kl_divergence(q_cav).sum()/len(self.data["x"])
                     except ValueError as err:
                         # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
                         print('\nException in KL: probably caused by invalid cavity distribution')

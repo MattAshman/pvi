@@ -33,7 +33,7 @@ class BayesianCommitteeMachineSame(Server):
         nps = []
         clients_updated = 0
 
-        for i, client in tqdm(enumerate(self.clients), leave=False):
+        for i, client in tqdm(enumerate(self.clients), leave=False, disable=self.config['pbar']):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
 
@@ -103,7 +103,7 @@ class BayesianCommitteeMachineSplit(Server):
         nps = []
         clients_updated = 0
 
-        for i, client in tqdm(enumerate(self.clients), leave=False):
+        for i, client in tqdm(enumerate(self.clients), leave=False, disable=self.config['pbar']):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
 

@@ -11,7 +11,8 @@ from tqdm.auto import tqdm
 from .base import Client
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.INFO)
 
 # =============================================================================
 # Hierarchical federated averaging client class
@@ -148,7 +149,7 @@ class HFAClient(Client):
         model_checkpoint = q.trainable_copy()
 
         # Loop over samples
-        batch_iter = tqdm(iter(loader), desc="Batch", leave=True)
+        batch_iter = tqdm(iter(loader), desc="Batch", leave=True, disable=self.config['pbar'])
 
         #for i_batch, (x_single, y_single) in enumerate(tqdm(iter(loader))):
         for i_batch, (x_batch, y_batch) in enumerate(batch_iter):
@@ -175,7 +176,7 @@ class HFAClient(Client):
 
                 # Compute KL divergence between q and q_cav.
                 try:
-                    #kl = q.kl_divergence(q_cav).sum() / self.config['batch_size'] # full data size for each model = batch_size for HFA
+                    #kl = q.kl_divergence(q_cav).sum() / self.config['batch_size'] # data size for each model = batch_size for HFA
                     kl = q.kl_divergence(q_cav).sum() / len(x) # use true full data size for each model
                     #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                     #print(kl)
@@ -271,7 +272,7 @@ class HFAClient(Client):
 
         # add noise for DP and do local avg
         for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
-            # add noise to sum of clipped change in parameters and take avg
+            # add noise to sum of clipped change in parameters and take avg, add DP change in params to starting point to get new params
             p.data = (p0 +  (param_accumulator[str(i_param)] + 2*self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n_local_models).detach().clone()
 
 

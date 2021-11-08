@@ -31,6 +31,9 @@ class GlobalVIServer(Server):
             self.q = init_q.non_trainable_copy()
 
     def get_default_config(self):
+        # NOTE: set all confs in calling script instead of in here
+        return {}
+        '''
         return {
             **super().get_default_config(),
             "train_model": False,
@@ -48,6 +51,7 @@ class GlobalVIServer(Server):
             "print_epochs": 1,
             "homogenous_split": True,
         }
+        '''
 
     def tick(self):
         """
@@ -89,6 +93,7 @@ class GlobalVIServer(Server):
                                 batch_size=self.config["batch_size"],
                                 shuffle=True)
         else:
+            raise NotImplementedError('Inhomogeneous split not supported!')
             # Inhomogenous split: order matters.
             m = self.config["batch_size"]
             data = defaultdict(list)
@@ -114,7 +119,7 @@ class GlobalVIServer(Server):
         }
 
         # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs")
+        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epochs", disable=self.config['pbar'])
         # for i in range(self.config["epochs"]):
         for i in epoch_iter:
             epoch = {

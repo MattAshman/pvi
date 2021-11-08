@@ -24,6 +24,10 @@ from pvi.models.logistic_regression import LogisticRegressionModel
 from pvi.clients import Client
 from pvi.servers.sequential_server import SequentialServer
 from pvi.servers.synchronous_server import SynchronousServer
+from pvi.servers.bcm import BayesianCommitteeMachineSame
+from pvi.servers.bcm import BayesianCommitteeMachineSplit
+from pvi.servers.dpsgd_global_vi import GlobalVIServer
+
 
 from pvi.distributions.exponential_family_distributions import MeanFieldGaussianDistribution
 from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
@@ -45,11 +49,19 @@ def main(args, rng_seed, dataset_folder):
         dataset_folder : (str) path to data containing x.npy and y.npy files for input and target
     """
 
+    # enable progress bars
+    pbar = args.pbar
+
     # do some args checks
     if args.dp_mode not in ['dpsgd', 'param','param_fixed','server','hfa']:
         raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
-    logger.info(f"Starting PVI run with data folder: {dataset_folder}, dp_mode: {args.dp_mode}")
+    if args.model not in ['pvi', 'bcm_split', 'bcm_same', 'global_vi']:
+        raise ValueError(f"Unknown model: {args.model}")
+
+    
+    logger.info(f"Starting {args.model} run with data folder: {dataset_folder}, dp_mode: {args.dp_mode}")
+
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
         logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
     elif args.dp_mode in ['hfa']:
@@ -89,6 +101,7 @@ def main(args, rng_seed, dataset_folder):
     model_config = {
             "use_probit_approximation" : False, 
             "num_predictive_samples"   : 100, # only used when use_probit_approximation = False
+            "pbar" : pbar, 
             }
 
     model = LogisticRegressionModel(hyperparameters=model_hyperparameters, config=model_config)
@@ -115,6 +128,7 @@ def main(args, rng_seed, dataset_folder):
         'enforce_pos_var' : args.enforce_pos_var,
         'track_client_norms' : args.track_client_norms,
         'clients' : args.clients, # total number of clients
+        "pbar" : pbar, 
     }
     # change batch_size for HFA
     #if args.dp_mode == 'hfa':
@@ -151,16 +165,42 @@ def main(args, rng_seed, dataset_folder):
             'dp_sigma' : args.dp_sigma,
             'enforce_pos_var' : args.enforce_pos_var,
             'dp_mode' : args.dp_mode,
+            "pbar" : pbar, 
             }
 
     # try using initial q also as prior here
-    #server = SequentialServer(model=model,
-    server = SynchronousServer(model=model,
-                              p=q,
-                              init_q=q,
-                              clients=clients,
-                              config=server_config)
+    if args.model in ['bcm_same','bcm_split']:
+        server_config['max_iterations'] = 1
+        if args.model == 'bcm_same':
+            ChosenServer = BayesianCommitteeMachineSame
+        else:
+            ChosenServer = BayesianCommitteeMachineSplit
 
+    elif args.model == 'global_vi':
+        server_config["train_model"] = False
+        server_config["model_optimiser_params"] = {"lr": 1e-2}
+        server_config["max_iterations"] = 1
+        server_config["epochs"] = 1
+        server_config["batch_size"] = 100
+        server_config["optimiser"] = "Adam"
+        server_config["optimiser_params"] = {"lr": 0.05}
+        server_config["lr_scheduler"] = "MultiplicativeLR"
+        server_config["lr_scheduler_params"] = {
+            "lr_lambda": lambda epoch: 1.
+        }
+        server_config["num_elbo_samples"] = 10
+        server_config["print_epochs"] = 1
+        server_config["homogenous_split"] = True
+        ChosenServer = GlobalVIServer
+
+    elif args.model == 'pvi':
+        ChosenServer = SynchronousServer
+
+    server = ChosenServer(model=model,
+                            p=q,
+                            init_q=q,
+                            clients=clients,
+                            config=server_config)
 
     train_res = {}
     train_res['acc'] = np.zeros((args.n_global_updates))
@@ -214,12 +254,13 @@ def main(args, rng_seed, dataset_folder):
         # run training loop
         server.tick()
 
-        # get client training curves
-        for i_client in range(args.clients):
-            client_train_res['elbo'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']
-            client_train_res['logl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['ll']
-            client_train_res['kl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['kl']
-        
+        if args.model != 'global_vi':
+            # get client training curves
+            for i_client in range(args.clients):
+                client_train_res['elbo'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']
+                client_train_res['logl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['ll']
+                client_train_res['kl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['kl']
+            
         # get global train and validation acc & logl
         train_acc, train_logl = acc_and_ll(server, torch.tensor(x_train).float(), torch.tensor(y_train).float())
         valid_acc, valid_logl = acc_and_ll(server, valid_set['x'], valid_set['y'])
@@ -378,6 +419,7 @@ def plot_training_curves(client_train_res, clients):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
+    parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
     parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('--batch_size', default=100, type=int, help="batch size; used if sampling type is 'swor' or 'seq'")
@@ -405,6 +447,7 @@ if __name__ == '__main__':
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")
     parser.add_argument('--plot_tracked', default=False, action='store_true', help="plot all tracked stuff after learning")
+    parser.add_argument('--pbar', default=True, action='store_false', help="print tqdm progress bars")
     args = parser.parse_args()
 
     main(args, rng_seed=2303, dataset_folder=args.folder)

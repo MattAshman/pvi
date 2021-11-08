@@ -4,7 +4,8 @@ from tqdm.auto import tqdm
 from .base import *
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.INFO)
 
 
 class SynchronousServer(Server):
@@ -24,7 +25,7 @@ class SynchronousServer(Server):
         delta_nps = []
         clients_updated = 0
 
-        for i, client in tqdm(enumerate(self.clients), leave=False):
+        for i, client in tqdm(enumerate(self.clients), leave=False, disable=self.config['pbar']):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
@@ -114,7 +115,7 @@ class SynchronousServerBayesianHypers(ServerBayesianHypers):
         q_delta_nps, qeps_delta_nps = [], []
         clients_updated = 0
 
-        for i, client in tqdm(enumerate(self.clients), leave=False):
+        for i, client in tqdm(enumerate(self.clients), leave=False, disable=self.config['pbar']):
             if client.can_update():
                 logger.debug(f"On client {i + 1} of {len(self.clients)}.")
                 t_i_old = client.t
