@@ -273,7 +273,7 @@ class HFAClient(Client):
         # add noise for DP and do local avg
         for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
             # add noise to sum of clipped change in parameters and take avg, add DP change in params to starting point to get new params
-            p.data = (p0 +  (param_accumulator[str(i_param)] + 2*self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n_local_models).detach().clone()
+            p.data = (p0 +  (param_accumulator[str(i_param)] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n_local_models).detach().clone()
 
 
         if self.config['track_client_norms']:
