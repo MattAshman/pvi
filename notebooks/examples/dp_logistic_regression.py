@@ -49,7 +49,7 @@ def main(args, rng_seed, dataset_folder):
         dataset_folder : (str) path to data containing x.npy and y.npy files for input and target
     """
 
-    # enable progress bars
+    # disable/enable progress bars
     pbar = args.pbar
 
     # do some args checks
@@ -63,7 +63,7 @@ def main(args, rng_seed, dataset_folder):
     logger.info(f"Starting {args.model} run with data folder: {dataset_folder}, dp_mode: {args.dp_mode}")
 
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
-        logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
+        logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
     elif args.dp_mode in ['hfa']:
         logger.info(f'Using sequential data passes with batch size {args.batch_size} (separate models for each batch)')
     else:
@@ -133,6 +133,8 @@ def main(args, rng_seed, dataset_folder):
     # change batch_size for HFA
     #if args.dp_mode == 'hfa':
     #    client_config['batch_size'] = 1
+    if args.dp_mode == 'dpsgd':
+        client_config['batch_size'] = None
 
     # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
@@ -177,21 +179,25 @@ def main(args, rng_seed, dataset_folder):
             ChosenServer = BayesianCommitteeMachineSplit
 
     elif args.model == 'global_vi':
-        server_config["train_model"] = False
-        server_config["model_optimiser_params"] = {"lr": 1e-2}
-        server_config["max_iterations"] = 1
-        server_config["epochs"] = 1
-        server_config["batch_size"] = 100
+        #server_config["train_model"] = False
+        #server_config["model_optimiser_params"] = {"lr": 1e-2}
+        #server_config["max_iterations"] = 20 # NOTE: need to fix n_global_steps vs epochs vs max_iterations
+        #server_config['max_iterations'] = args.n_global_updates
+        server_config["epochs"] = args.n_steps # number of local steps for dpsgd, should match n_steps
+        server_config["batch_size"] = None
+        server_config["sampling_frac_q"] = args.sampling_frac_q
         server_config["optimiser"] = "Adam"
-        server_config["optimiser_params"] = {"lr": 0.05}
+        server_config["optimiser_params"] = {'lr' : args.learning_rate} #{"lr": 0.05}
         server_config["lr_scheduler"] = "MultiplicativeLR"
         server_config["lr_scheduler_params"] = {
             "lr_lambda": lambda epoch: 1.
         }
-        server_config["num_elbo_samples"] = 10
+        server_config["num_elbo_samples"] = 100
         server_config["print_epochs"] = 1
         server_config["homogenous_split"] = True
+        server_config['track_client_norms'] = args.track_client_norms
         ChosenServer = GlobalVIServer
+        args.clients = 1
 
     elif args.model == 'pvi':
         ChosenServer = SynchronousServer
@@ -288,16 +294,23 @@ def main(args, rng_seed, dataset_folder):
 
         i_global += 1
 
+    #print(server.__dict__)
+    #sys.exit()
 
     if args.track_client_norms and args.plot_tracked:
         # separate script for hfa/dpsgd etc?
-
         if args.dp_mode == 'dpsgd':
-            pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
-            post_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
-            for i_client, client in enumerate(clients):
-                pre_dp_norms[i_client,:] = client.pre_dp_norms
-                post_dp_norms[i_client,:] = client.post_dp_norms
+            if args.model == 'global_vi':
+                pre_dp_norms = np.zeros((1, args.n_global_updates * args.n_steps))
+                post_dp_norms = np.zeros((1, args.n_global_updates * args.n_steps))
+                pre_dp_norms[0,:] = server.pre_dp_norms
+                post_dp_norms[0,:] = server.post_dp_norms
+            else:
+                pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+                post_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+                for i_client, client in enumerate(clients):
+                    pre_dp_norms[i_client,:] = client.pre_dp_norms
+                    post_dp_norms[i_client,:] = client.post_dp_norms
             x1 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
             x2 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
         elif args.dp_mode == 'hfa':
@@ -361,11 +374,17 @@ def main(args, rng_seed, dataset_folder):
     tracked = {}
     if args.track_client_norms:
         if args.dp_mode == 'dpsgd':
-            pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
-            post_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
-            for i_client, client in enumerate(clients):
-                pre_dp_norms[i_client,:] = client.pre_dp_norms
-                post_dp_norms[i_client,:] = client.post_dp_norms
+            if args.model == 'global_vi':
+                pre_dp_norms = np.zeros((1, args.n_global_updates * args.n_steps))
+                post_dp_norms = np.zeros((1, args.n_global_updates * args.n_steps))
+                pre_dp_norms[0,:] = server.pre_dp_norms
+                post_dp_norms[0,:] = server.post_dp_norms
+            else:
+                pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+                post_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
+                for i_client, client in enumerate(clients):
+                    pre_dp_norms[i_client,:] = client.pre_dp_norms
+                    post_dp_norms[i_client,:] = client.post_dp_norms
         elif args.dp_mode == 'hfa':
             pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
             post_dp_norms = np.zeros((args.clients, args.n_global_updates))
@@ -422,9 +441,9 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
     parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
-    parser.add_argument('--batch_size', default=100, type=int, help="batch size; used if sampling type is 'swor' or 'seq'")
+    parser.add_argument('--batch_size', default=100, type=int, help="batch size; used if dp_mode not 'dpsgd'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or HFA, currently needs to be 1")
-    parser.add_argument('--sampling_frac_q', default=.05, type=float, help="sampling fraction; only used if sampling_type is 'poisson' NOT IMPLEMENTED")
+    parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd are set based on this")
     parser.add_argument('--dp_sigma', default=1., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=2., type=float, help='gradient norm bound')
 
@@ -447,7 +466,7 @@ if __name__ == '__main__':
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")
     parser.add_argument('--plot_tracked', default=False, action='store_true', help="plot all tracked stuff after learning")
-    parser.add_argument('--pbar', default=True, action='store_false', help="print tqdm progress bars")
+    parser.add_argument('--pbar', default=True, action='store_false', help="disable tqdm progress bars")
     args = parser.parse_args()
 
     main(args, rng_seed=2303, dataset_folder=args.folder)

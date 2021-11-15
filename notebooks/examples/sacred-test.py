@@ -28,7 +28,13 @@ logger.setLevel(logging.DEBUG)
 ex = Experiment('DP-PVI testing', save_git_info=False)
 
 # uncomment chosen experiment here, choose check configs below
-ex.observers.append(FileStorageObserver('dp_pvi_hfa_adult'))
+#ex.observers.append(FileStorageObserver('dp_pvi_hfa_adult'))
+#ex.observers.append(FileStorageObserver('hfa_adult_lr_clip_runs'))
+#ex.observers.append(FileStorageObserver('hfa_adult_dp_100clients_10global_runs'))
+#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_100clients_runs'))
+#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_runs'))
+ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_eps02_runs'))
+#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_10clients_runs'))
 #ex.observers.append(FileStorageObserver('dp_pvi_adult_optim'))
 #ex.observers.append(FileStorageObserver('dp_pvi_tests_adult_param_dp'))
 #ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_swor'))
@@ -47,16 +53,18 @@ def short_test(_log):
     """
 
     # static parameters
+    model = 'pvi' # which model to use: 'pvi', 'bcm_same', or 'bcm_split'
     track_params = False # track all params, should usually be False
-    track_client_norms = True # track all (grad) norms, should usually be False
+    track_client_norms = False # track all (grad) norms, should usually be False
     plot_tracked = False # plot all tracked stuff after learning, should usually be False
+    pbar =  True # disable progress bars
     folder = '../../data/data/adult/' # data folder, uncomment one
     #folder = '../../data/data/abalone/' # NOTE: abalone not working at the moment
     #folder = '../../data/data/mushroom/' # note: data bal (.7,-3) with 10 clients not working, can't populate small classes
     #folder = '../../data/data/credit/' # note: data bal (.7,-3) with 10 clients not working, can't populate small classes
     #folder = '../../data/data/bank/'
     #folder = '../../data/data/superconductor/'
-    clients = 10
+    clients = 200
     n_rng_seeds = 1 # number of repeats to do for a given experiment; initial seed from sacred
     #parallel_updates = True # parallel or sequential updates; for distr_vi can only use True
     #prior_sharing = 'same' # 'same' or 'split': for distr_vi, whether to use same or split prior in BCM
@@ -65,16 +73,16 @@ def short_test(_log):
     privacy_calculated = None # how many global steps assumed to run with the given privacy budget; doesn't stop run if global steps is more!
 
     # dynamic parameters; choose which combination to run by job_id
-    batch_size =  [1] # batch size; used for dp_mode: 'dpsgd', 'param', 'param_fixed'; for 'hfa' use always batch_size=1
+    batch_size =  [None] # batch size; used for dp_mode: 'dpsgd', 'param', 'param_fixed'; for 'hfa' use always batch_size=1
     n_global_updates = [20] # number of global updates
     n_steps = [10] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
-    damping_factor = [.5] # damping factor in (0,1], 1=no damping
+    damping_factor = [.1,.2] # damping factor in (0,1], 1=no damping
     learning_rate = [1e-2]
-    sampling_frac_q = [1e-2] # sampling fraction; only used if sampling_type is 'poisson'
-    data_bal = [(0,0)]#,(.75,.95),(.7,-3.)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
-    dp_mode = 'hfa' # 'dpsgd', 'param' for param pert. by each client, 'param_fixed' for param. pert. by each client using a fixed minibatch per each global update, 'fha' for hier. fedavg, or 'server' (don't use!)
-    dp_sigma = [0.] # dp noise std factor; noise magnitude will be C*sigma
-    dp_C = [.5,.75,1.,1.5] # max grad norm
+    sampling_frac_q = [5e-2] # sampling fraction; only used if sampling_type is 'poisson'
+    data_bal = [(0.,0.),(.75,.95),(.7,-3.)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
+    dp_mode = 'dpsgd' # 'dpsgd', 'param' for param pert. by each client, 'param_fixed' for param. pert. by each client using a fixed minibatch per each global update, 'fha' for hier. fedavg, or 'server' (don't use!)
+    dp_sigma = [23.13] # dp noise std factor; noise magnitude will be C*sigma
+    dp_C = [1.5,1.] # max grad norm
     enforce_pos_var = False # enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!
     #server_add_dp = False # when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!
     #param_dp_use_fixed_sample = False # use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
@@ -96,7 +104,7 @@ def short_test(_log):
     del data_bal
 
 
-
+'''
 @ex.named_config
 def unbalanced_test_config(_log):
     """NOTE: NOT UPDATED
@@ -136,7 +144,7 @@ def unbalanced_test_config(_log):
     
     num_iterations = 2000//n_steps
     del i_comb, comb, data_bal
-
+'''
 
 # NOTE: automain needs to be at the end of file, currently handling explicitly with regular main
 @ex.main
@@ -172,7 +180,7 @@ def dp_pvi_config_handler(_config, _seed):
         ex.info[f'train_res_seed{i_seed}'] = res[1]
         ex.info[f'client_train_res_seed{i_seed}'] = res[2]
         ex.info[f'prop_positive_seed{i_seed}'] = res[3]
-        ex.info[f'tracked_seed{i_seed}'] = res[3]
+        ex.info[f'tracked_seed{i_seed}'] = res[4]
 
     logger.info('Sacred test finished.')
 

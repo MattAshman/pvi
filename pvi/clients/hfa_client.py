@@ -39,6 +39,7 @@ class HFAClient(Client):
         # Initialise optimiser states
         #print(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
         self.n_local_models = int(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
+        
         self.optimiser_states = None
         
         # Set likelihood approximating term

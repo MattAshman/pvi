@@ -9,7 +9,7 @@ from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 
-#logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.DEBUG)
 
 # =============================================================================
 # Client class
@@ -23,6 +23,7 @@ class Client(ABC):
 
         if config is None:
             config = {}
+
 
         #self._config = self.get_default_config()
         self._config = config
@@ -90,6 +91,12 @@ class Client(ABC):
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
         self._can_update = False
+
+        if self.config['batch_size'] is None:
+            batch_size = int(np.floor(self.config['sampling_frac_q']*len(self.data["y"])))
+        else:
+            batch_size = self.config['batch_size']
+        #print(f"batch size {batch_size}, noise std:{self.config['dp_sigma']}")
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = p.non_trainable_copy()
@@ -151,7 +158,7 @@ class Client(ABC):
         # sequential data pass modes
         if self.config['dp_mode'] not in ['dpsgd','param_fixed']:
             loader = DataLoader(tensor_dataset,
-                            batch_size=self.config["batch_size"],
+                            batch_size=batch_size,
                             shuffle=True)
             n_epochs = self.config['epochs']
             n_samples = len(loader)
@@ -160,13 +167,14 @@ class Client(ABC):
         else:
             # regular SWOR sampler
             if self.config['dp_mode'] == 'dpsgd':
-                sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=self.config['batch_size'], drop_last=False)
+                #logger.debug('setting sampler for dpsgd')
+                sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=batch_size, drop_last=False)
             
                 loader = DataLoader(tensor_dataset, batch_sampler=sampler)
 
             # use only fixed single minibatch for local learning for each global update
             elif self.config['dp_mode'] == 'param_fixed':
-                inds = torch.randint(low=0,high=len(tensor_dataset),size=(self.config['batch_size'],))
+                inds = torch.randint(low=0,high=len(tensor_dataset),size=(batch_size,))
                 loader = DataLoader( torch.utils.data.Subset(tensor_dataset, indices=inds) )
             else:
                 raise ValueError(f"Unexpected dp_mode in base client: {self.config['dp_mode']}")
@@ -210,6 +218,8 @@ class Client(ABC):
                 except StopIteration as err:
                     tmp = iter(loader)
                     (x_batch, y_batch) = tmp.next()
+
+                #logger.debug(f'optimiser starting step {i_step} with total batch_size {len(y_batch)}')
 
                 if self.config['dp_mode'] == 'dpsgd':
                     # simple DP-SGD implementation
@@ -279,7 +289,7 @@ class Client(ABC):
                         
                         if self._config['track_client_norms']:
                             # track mean grad norm over samples in the minibatch
-                            grad_norm_tracker += g_norm.item()/self.config['batch_size']
+                            grad_norm_tracker += g_norm.item()/batch_size
 
                         # clip and accumulate grads
                         for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
@@ -287,17 +297,15 @@ class Client(ABC):
                             cum_grads[str(i_weight)] += (p_.grad/torch.clamp(g_norm/self.config['dp_C'], min=1)).detach().clone()
                         # check that clipping is ok
                         '''
-                        g_norm = torch.zeros(1)
-                        for k in cum_grads:
-                            g_norm += torch.sum(cum_grads[k]**2)
-                        g_norm = torch.sqrt(g_norm)
-                        print(f'grad_norm after clipping: {g_norm}')
-                        '''
+                        g_norm2 = torch.zeros(1)
+                        for p_ in filter(lambda p_: p_.requires_grad, q.parameters()):
+                            #if p_.grad is not None:
+                            g_norm2 += torch.sum((p_.grad/torch.clamp(g_norm/self.config['dp_C'], min=1))**2)
+                        g_norm2 = torch.sqrt(g_norm2)
+                        print(f'grad_norm after clipping: {g_norm2}')
+                        #'''
 
-                        #print(list(q.parameters()))
-                        #print(f'cum grad:\n{cum_grads}')
-                        #sys.exit()
-                    
+                    #print(f"noise std={self.config['dp_sigma']}")
                     # add noise to clipped grads and avg
                     for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
                         #print(f'grad before:\n{p_.grad}')
@@ -305,8 +313,9 @@ class Client(ABC):
                         #print("grad std before noise {}, var {}".format(torch.std(cum_grads[key]), torch.var(cum_grads[key] )))
                         #print("grad std before noise/batch {}, var {}".format(torch.std(cum_grads[key]/self.config['batch_size']), torch.var(cum_grads[key]/self.config['batch_size'] )))
                         #print(self.config['dp_C']*self.config['dp_sigma'])
+                        #p_.grad = (self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]).detach().clone()
                         p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
-                        p_.grad /= self.config['batch_size']
+                        p_.grad /= batch_size
                         #print("true grad std after noise {}, var {}".format(torch.std(p_.grad),torch.var(p_.grad) ))
                         #print("grad std after noise {}, var {}".format(torch.std(cum_grads[key]+self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad)), torch.var(cum_grads[key]+self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) ) ))
                         #sys.exit()
@@ -325,6 +334,7 @@ class Client(ABC):
 
                 # no dpsgd
                 else:
+                    logger.debug('no dpsgd optimiser')
 
                     optimiser.zero_grad()
                     batch = {
@@ -366,9 +376,9 @@ class Client(ABC):
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
                 if self.config['dp_mode']== 'dpsgd':
-                    epoch["elbo"] += trace_tmp[1] /  (n_samples * self.config['batch_size'])
+                    epoch["elbo"] += trace_tmp[1] /  (n_samples * batch_size)
                     epoch["kl"] += kl.item() / n_samples
-                    epoch["ll"] += trace_tmp[0] / (n_samples * self.config['batch_size'])
+                    epoch["ll"] += trace_tmp[0] / (n_samples * batch_size)
                     if self.t is not None:
                         epoch["logt"] += logt.item() / n_samples
                 else:
@@ -533,7 +543,8 @@ class ClientBayesianHypers(ABC):
 
     @classmethod
     def get_default_config(cls):
-        return {
+        return {}
+        '''
             "damping_factor": 1.,
             "valid_factors": False,
             "epochs": 1,
@@ -543,7 +554,7 @@ class ClientBayesianHypers(ABC):
             "num_elbo_samples": 10,
             "num_elbo_hyper_samples": 1,
             "print_epochs": 1
-        }
+        }'''
 
     def can_update(self):
         """

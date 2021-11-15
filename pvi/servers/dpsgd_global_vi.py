@@ -29,6 +29,10 @@ class GlobalVIServer(Server):
         # Tracks number of epochs.
         self.epochs = 0
 
+        if config['track_client_norms']:
+            self.pre_dp_norms = []
+            self.post_dp_norms = []
+
         # Initial q(θ) for optimisation.
         if self.init_q is not None:
             self.q = init_q.non_trainable_copy()
@@ -46,6 +50,13 @@ class GlobalVIServer(Server):
 
         p = self.p.non_trainable_copy()
         q = self.q.trainable_copy()
+
+
+        if self.config['batch_size'] is None:
+            batch_size = int(np.floor(self.config['sampling_frac_q']*len(self.data["y"])))
+        else:
+            batch_size = self.config['batch_size']
+        print(f'batch size: {batch_size}')
 
         # Parameters are those of q(θ) and self.model.
         if self.config["train_model"]:
@@ -78,7 +89,7 @@ class GlobalVIServer(Server):
             # sequential data pass modes
             if self.config['dp_mode'] not in ['dpsgd','param_fixed']:
                 loader = DataLoader(tensor_dataset,
-                                batch_size=self.config["batch_size"],
+                                batch_size=batch_size,#self.config["batch_size"],
                                 shuffle=True)
                 n_epochs = self.config['epochs']
                 n_samples = len(loader)
@@ -87,13 +98,13 @@ class GlobalVIServer(Server):
             else:
                 # regular SWOR sampler
                 if self.config['dp_mode'] == 'dpsgd':
-                    sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=self.config['batch_size'], drop_last=False)
+                    sampler = torch.utils.data.BatchSampler(torch.utils.data.RandomSampler(tensor_dataset, replacement=False), batch_size=batch_size, drop_last=False)
                 
                     loader = DataLoader(tensor_dataset, batch_sampler=sampler)
 
                 # use only fixed single minibatch for local learning for each global update
                 elif self.config['dp_mode'] == 'param_fixed':
-                    inds = torch.randint(low=0,high=len(tensor_dataset),size=(self.config['batch_size'],))
+                    inds = torch.randint(low=0,high=len(tensor_dataset),size=(batch_size,))
                     loader = DataLoader( torch.utils.data.Subset(tensor_dataset, indices=inds) )
                 else:
                     raise ValueError(f"Unexpected dp_mode in base client: {self.config['dp_mode']}")
@@ -184,10 +195,10 @@ class GlobalVIServer(Server):
                         g_norm = torch.sqrt(g_norm)
                         #print(f'grad_norm before clipping: {g_norm}')
                         
-                        '''
+                        
                         if self._config['track_client_norms']:
                         #    # track mean grad norm over samples in the minibatch
-                            grad_norm_tracker += g_norm.item()/self.config['batch_size']'''
+                            grad_norm_tracker += g_norm.item()/batch_size
 
                         # clip and accumulate grads
                         for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
@@ -197,9 +208,8 @@ class GlobalVIServer(Server):
                     # add noise to clipped grads and avg
                     for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
                         p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
-                        p_.grad /= self.config['batch_size']
+                        p_.grad /= batch_size
 
-                    '''
                     if self._config['track_client_norms']:
                         self.pre_dp_norms.append(grad_norm_tracker)
                         # calculate grad norm post DP treatment
@@ -207,7 +217,7 @@ class GlobalVIServer(Server):
                         for p_ in filter(lambda p_: p_.requires_grad, q.parameters()):
                             g_norm += torch.sum(p_.grad**2)
                         g_norm = torch.sqrt(g_norm)
-                        self.post_dp_norms.append(g_norm.item())'''
+                        self.post_dp_norms.append(g_norm.item())
 
                     ### end loop over single samples in minibatch ###
 
@@ -272,3 +282,4 @@ class GlobalVIServer(Server):
 
     def should_stop(self):
         return self.iterations > self.config["max_iterations"] - 1
+
