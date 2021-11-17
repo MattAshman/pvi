@@ -53,7 +53,7 @@ def main(args, rng_seed, dataset_folder):
     pbar = args.pbar
 
     # do some args checks
-    if args.dp_mode not in ['dpsgd', 'param','param_fixed','server','hfa']:
+    if args.dp_mode not in ['dpsgd', 'param','param_fixed','server','lfa']:
         raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
     if args.model not in ['pvi', 'bcm_split', 'bcm_same', 'global_vi']:
@@ -64,7 +64,7 @@ def main(args, rng_seed, dataset_folder):
 
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
         logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
-    elif args.dp_mode in ['hfa']:
+    elif args.dp_mode in ['lfa']:
         logger.info(f'Using sequential data passes with batch size {args.batch_size} (separate models for each batch)')
     else:
         logger.info(f'Using sequential data passes with batch size {args.batch_size}')
@@ -109,7 +109,7 @@ def main(args, rng_seed, dataset_folder):
     # note: for DP need to change to use actual sampling, no full data passes
     client_config = {
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
-        'batch_proc_size': args.batch_proc_size, # for DP-SGD and HFA
+        'batch_proc_size': args.batch_proc_size, # for DP-SGD and LFA
         'sampling_frac_q' : args.sampling_frac_q, # sampling fraction, only used with Poisson random sampling type
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment? i guess not
@@ -130,8 +130,8 @@ def main(args, rng_seed, dataset_folder):
         'clients' : args.clients, # total number of clients
         "pbar" : pbar, 
     }
-    # change batch_size for HFA
-    #if args.dp_mode == 'hfa':
+    # change batch_size for LFA
+    #if args.dp_mode == 'lfa':
     #    client_config['batch_size'] = 1
     if args.dp_mode == 'dpsgd':
         client_config['batch_size'] = None
@@ -298,7 +298,7 @@ def main(args, rng_seed, dataset_folder):
     #sys.exit()
 
     if args.track_client_norms and args.plot_tracked:
-        # separate script for hfa/dpsgd etc?
+        # separate script for lfa/dpsgd etc?
         if args.dp_mode == 'dpsgd':
             if args.model == 'global_vi':
                 pre_dp_norms = np.zeros((1, args.n_global_updates * args.n_steps))
@@ -313,7 +313,7 @@ def main(args, rng_seed, dataset_folder):
                     post_dp_norms[i_client,:] = client.post_dp_norms
             x1 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
             x2 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
-        elif args.dp_mode == 'hfa':
+        elif args.dp_mode == 'lfa':
             pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
             post_dp_norms = np.zeros((args.clients, args.n_global_updates))
             for i_client, client in enumerate(clients):
@@ -385,7 +385,7 @@ def main(args, rng_seed, dataset_folder):
                 for i_client, client in enumerate(clients):
                     pre_dp_norms[i_client,:] = client.pre_dp_norms
                     post_dp_norms[i_client,:] = client.post_dp_norms
-        elif args.dp_mode == 'hfa':
+        elif args.dp_mode == 'lfa':
             pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
             post_dp_norms = np.zeros((args.clients, args.n_global_updates))
             for i_client, client in enumerate(clients):
@@ -442,7 +442,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('--batch_size', default=100, type=int, help="batch size; used if dp_mode not 'dpsgd'")
-    parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or HFA, currently needs to be 1")
+    parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or LFA, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd are set based on this")
     parser.add_argument('--dp_sigma', default=1., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=2., type=float, help='gradient norm bound')
@@ -461,7 +461,7 @@ if __name__ == '__main__':
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'hfa': param DP with hierarchical fed avg. Sampling type is set based on the mode.")
+    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg. Sampling type is set based on the mode.")
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")
