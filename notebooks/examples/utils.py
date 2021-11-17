@@ -7,6 +7,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 from sklearn.model_selection import KFold
 import torch
+from tqdm import tqdm
 
 import fourier_accountant
 
@@ -232,6 +233,32 @@ def generate_clients_data(x, y, M, client_size_factor, class_balance_factor, dat
         return client_data, N_is, props_positive, M
 
 
+
+def bin_search_sigma(target_eps, ncomp, target_delta, q, nx, L, lbound, ubound, tol, max_iters=10):
+
+    for i_iter in tqdm(range(max_iters), disable=True):
+        cur = (ubound+lbound)/2
+
+        eps = fourier_accountant.get_epsilon_S(target_delta=target_delta, sigma=cur, q=q, ncomp=ncomp, nx=nx,L=L)
+        print(f'iter {i_iter}, sigma={cur}, eps={eps:.5f}, upper={ubound}, lower={lbound}')
+
+        if np.abs(eps - target_eps) <= tol:
+            print(f'found eps={eps:.5f} with sigma={cur:.5f}')
+            return cur
+
+        if eps < target_eps:
+            ubound = cur
+        else:
+            lbound = cur
+
+        if np.abs(ubound - lbound) < 1e-2:
+            print('Upper and lower bounds too close, failing!')
+            return None
+        
+    print(f'Did not converge! final sigma={cur:.5f} wirh eps={eps:.5f}')
+
+
+
 if __name__ == '__main__':
 
 
@@ -240,16 +267,54 @@ if __name__ == '__main__':
     L=30.#26.
 
     target_delta = 1e-5
-    q = 1. # [.020, 0.041, 0.082]
+    q = .05
 
-    ncomp=20
-    # eli jos ottaisi C in [10,50,100]
-    #C = 5.
-    #samples_per_client = 2442 # with 10 clients, adult=2442, CIFAR10, 10 clients: 1562(?)
-    #sens = 2*C/samples_per_client
-    # [2.59, 1.07]
-    if 1:
-        all_sigmas = [30.,14.]
+    ncomp=10*10
+    # adult data:
+    #samples_per_client = 2442 # with 10 clients
+    #samples_per_client = 244 # with 100 clients
+    # [2.6, 1.1] eps pitäisi olla suunnilleen
+
+    # LFA: eps [2.6, 1.1, .8, .5, .2] corresponding noise:
+    # 20 global updates:
+    # sigmas in [14.11., 30.48, 40.81, 63.44, 152.5]
+    # 10 global updates:
+    # sigmas in [10.,    21.67, 28.95, 44.53, 102.83]
+
+    # DPSGD: eps [2.6, 1.1, .8, .5, .2] corresponding noise:
+    # 200 total local steps
+    # q=.05
+    #sigmas in [2.23, 4.86, 6.49, 9.80, 23.15]
+    # q=.1
+    #sigmas in [4.45, 9.61, 12.88, 20.14, 46.09]
+    # q=.2
+    #sigmas in [8.94, 19.41, 25.92, 39.28, 91.95]
+
+    # 100 total local steps:
+    # q=.05
+    #sigmas in [1.60, 3.45, 4.63, ?, 16.35]
+    # q=.1
+    #sigmas in [3.15, 6.79, 9.16, ?, 32.48]
+    # q=.2
+    #sigmas in [6.31, 13.77, 18.22, ?, 65.13]
+
+    # Global VI: DPSGD: eps [.2] corresponding noise:
+    # 200 total local steps
+    # q=.005
+    #sigmas in [2.34]
+    # q=.01
+    #sigmas in [4.83]
+    # q=.02
+    #sigmas in [9.42]
+
+
+    sigma = bin_search_sigma(.2, ncomp, target_delta, q, nx, L, lbound=1., ubound=200., tol=1e-3, max_iters=20)
+    if sigma is not None:
+        eps = fourier_accountant.get_epsilon_S(target_delta=1e-5, sigma=sigma, q=q, ncomp=ncomp, nx=nx,L=L)
+        print(f'eps={eps} with sigma={sigma}')
+
+    if 0:
+        all_sigmas = [2.2, 4.7]
         all_eps = np.zeros((len(all_sigmas)))
         for i_sigma, sigma in enumerate(all_sigmas):
             eps = fourier_accountant.get_epsilon_S(target_delta=1e-5, sigma=sigma, q=q, ncomp=ncomp, nx=nx,L=L)

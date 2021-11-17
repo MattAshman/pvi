@@ -12,10 +12,12 @@ import numpy as np
 
 
 # numbers of runs to plot
-#runs_to_plot = np.linspace(1,76,76,dtype=int)#[1]
+runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
+#runs_to_plot = np.linspace(1,54,54,dtype=int)#[1]
+#runs_to_plot = np.linspace(1,84,84,dtype=int)#[1]
 #runs_to_plot = np.linspace(77,149,73,dtype=int)#[1]
-runs_to_plot = np.linspace(1,229,229,dtype=int)#[1]
-#runs_to_plot = np.linspace(60,76,17,dtype=int)#[1]
+#runs_to_plot = np.linspace(1,216,216,dtype=int)#[1]
+#runs_to_plot = np.linspace(1,72,72,dtype=int)#[1]
 #runs_to_plot = np.linspace(49,210,162,dtype=int)#[1]
 #print(runs_to_plot)
 
@@ -30,8 +32,21 @@ runs_to_plot = np.linspace(1,229,229,dtype=int)#[1]
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_hfa_adult/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_lr_clip_runs/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_dp_runs/'
-main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_dp_100clients_runs/'
-#main_folder = 'dp_pvi_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_dp_100clients_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_100clients_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_eps05_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_eps02_10global_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_10global_runs/'
+
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_5seeds_10global_runs/'
+#runs_to_plot = np.linspace(1,38,38,dtype=int)#[1]
+
+main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_eps02_5seeds_runs/'
+runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
+
+
 
 dataset_name = 'adult'
 #dataset_name = 'mushroom'
@@ -55,16 +70,17 @@ tmp['data_bal_kappa'] = [0.,0.]
 #tmp['data_bal_kappa'] = [.95,.95]
 
 restrictions = OD()
-restrictions['dp_sigma'] = [14.]
-restrictions['dp_C'] = None#[1.]
+restrictions['dp_sigma'] = None#[23.15]
+restrictions['dp_C'] = None#[.1]
 restrictions['n_global_updates'] = None
-restrictions['n_steps'] = [10]
-restrictions['batch_size'] = [5]
+restrictions['n_steps'] = None#[10]
+restrictions['batch_size'] = None#[5]
+restrictions['sampling_frac_q'] = None#[.2]
 restrictions['learning_rate'] = [1e-2]
-restrictions['damping_factor'] = None#[.5]
+restrictions['damping_factor'] = None#[.1]
 
 # possible balance settings: (0,0), (.7,-3), (.75,.95)
-restrictions['data_bal_rho'] = [.0]
+restrictions['data_bal_rho'] = [0.]
 restrictions['data_bal_kappa'] = [0.]
 
 # set vars to add to title: key=variable name, value=var name in fig title
@@ -91,9 +107,24 @@ add_labels['damping_factor'] = 'damping'
 
 # save to disk (or just show)
 to_disk = 0
+
 # name for the current plot
-#fig_name = "{}_dpsgd_bal({},{})_eps1_1_and_2_7.pdf".format(dataset_name, restrictions['data_bal_rho'][0],restrictions['data_bal_kappa'][0])
-fig_name = "{}_hfa_non_dp_no_no_clip_bal({},{})_b{}.pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'], restrictions['batch_size'])
+#'''
+#fig_name = "{}_dpsgd_200clients_eps02_best_bal({},{}).pdf".format(dataset_name, 
+fig_name = "{}_dpsgd_200clients_eps02_best_bal({},{})_all.pdf".format(dataset_name, 
+        #restrictions['dp_C'], 
+        restrictions['data_bal_rho'],restrictions['data_bal_kappa'], 
+        #restrictions['batch_size'],restrictions['damping_factor'] 
+        )
+#'''
+'''
+fig_name = "{}_lfa_200clients_eps02_best_bal({},{}).pdf".format(dataset_name, 
+#fig_name = "{}_lfa_200clients_eps02_best_bal({},{})_all.pdf".format(dataset_name, 
+        #restrictions['dp_C'], 
+        restrictions['data_bal_rho'],restrictions['data_bal_kappa'], 
+        #restrictions['batch_size'],restrictions['damping_factor'] 
+        )
+#'''
 
 
 #####################
@@ -152,7 +183,16 @@ for i_run in runs_to_plot:
     filename = main_folder + str(i_run) + '/info.json'
     with open(filename, 'r') as f:
         apu = f.read()
-    apu = jsonpickle.unpickler.decode(apu)
+    try:
+        apu = jsonpickle.unpickler.decode(apu)
+    except:
+        print(f'error in JSON decoding in run {i_run}')
+        with open(filename, 'r') as f:
+            apu = f.read()
+        print('results from file: {}\n{}'.format(filename,apu))
+        sys.exit()
+
+
     #for k in apu:
     #    print(k)
     #sys.exit()
@@ -263,9 +303,15 @@ if plot_comparisons:
 
         for k in add_labels:
             try:
-                cur_label += ", {}={}".format(add_labels[k], config[k])
+                if k == 'dp_sigma':
+                    cur_label += ", {}={:.1f}".format(add_labels[k], config[k])
+                else:
+                    cur_label += ", {}={}".format(add_labels[k], config[k])
             except:
-                cur_label = "{}={}".format(add_labels[k], config[k])
+                if k == 'dp_sigma':
+                    cur_label = "{}={:.1f}".format(add_labels[k], config[k])
+                else:
+                    cur_label = "{}={}".format(add_labels[k], config[k])
         #cur_label = f"{config['sampling_type']}:dp_C={config['dp_C']},dp_sigma={config['dp_sigma']},n_steps={config['n_steps']}, batch_size={config['batch_size']}, lr={config['learning_rate']}"
         #cur_label = f"{config['sampling_type']}:dp_C={config['dp_C']},dp_sigma={config['dp_sigma']},n_steps={config['n_steps']}, batch_size={config['batch_size']}, lr={config['learning_rate']}"
         
@@ -291,11 +337,11 @@ if plot_comparisons:
 
         axs[0].set_ylabel('Acc')
         axs[0].set_xlabel('Global communications')
-        axs[0].legend()
+        axs[0].legend(loc='lower right')
         axs[0].grid(b=True, which='major', axis='both')
         axs[1].set_ylabel('Logl')
         axs[1].set_xlabel('Global communications')
-        axs[1].legend()
+        axs[1].legend(loc='lower right')
         axs[1].grid(b=True, which='major', axis='both')
 
         plt.suptitle(f"{dataset_name} dataset mean with 2*SEM over {config['n_rng_seeds']} runs" + cur_title)
