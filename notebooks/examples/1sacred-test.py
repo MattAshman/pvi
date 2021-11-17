@@ -28,20 +28,14 @@ logger.setLevel(logging.DEBUG)
 ex = Experiment('DP-PVI testing', save_git_info=False)
 
 # uncomment chosen experiment here, choose check configs below
-#ex.observers.append(FileStorageObserver('dp_pvi_hfa_adult'))
-#ex.observers.append(FileStorageObserver('hfa_adult_lr_clip_runs'))
-#ex.observers.append(FileStorageObserver('hfa_adult_dp_100clients_10global_runs'))
+#ex.observers.append(FileStorageObserver('lfa_adult_dp_200clients_eps02_5seeds_10global_runs'))
+ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_eps02_5seeds_runs'))
 #ex.observers.append(FileStorageObserver('dpsgd_adult_dp_100clients_runs'))
 #ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_runs'))
-ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_eps02_runs'))
+#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_eps02_runs'))
 #ex.observers.append(FileStorageObserver('dpsgd_adult_dp_10clients_runs'))
 #ex.observers.append(FileStorageObserver('dp_pvi_adult_optim'))
 #ex.observers.append(FileStorageObserver('dp_pvi_tests_adult_param_dp'))
-#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_swor'))
-#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_mushroom'))
-#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_credit'))
-#ex.observers.append(FileStorageObserver('dp_pvi_clipping_tests_bank'))
-#ex.observers.append(FileStorageObserver('dp_pvi_noise_tests'))
 
 # try handliong progress bars nicely
 ex.captured_out_filter = apply_backspaces_and_linefeeds
@@ -65,7 +59,7 @@ def short_test(_log):
     #folder = '../../data/data/bank/'
     #folder = '../../data/data/superconductor/'
     clients = 200
-    n_rng_seeds = 1 # number of repeats to do for a given experiment; initial seed from sacred
+    n_rng_seeds = 5 # number of repeats to do for a given experiment; initial seed from sacred
     #parallel_updates = True # parallel or sequential updates; for distr_vi can only use True
     #prior_sharing = 'same' # 'same' or 'split': for distr_vi, whether to use same or split prior in BCM
     batch_proc_size =  1 # batch proc size; currently needs to be 1 for DP-SGD
@@ -73,15 +67,15 @@ def short_test(_log):
     privacy_calculated = None # how many global steps assumed to run with the given privacy budget; doesn't stop run if global steps is more!
 
     # dynamic parameters; choose which combination to run by job_id
-    batch_size =  [None] # batch size; used for dp_mode: 'dpsgd', 'param', 'param_fixed'; for 'hfa' use always batch_size=1
+    batch_size =  [None] # batch size; used for dp_mode: 'dpsgd', 'param', 'param_fixed'; for 'lfa' use always batch_size=1
     n_global_updates = [20] # number of global updates
     n_steps = [10] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
     damping_factor = [.1,.2] # damping factor in (0,1], 1=no damping
     learning_rate = [1e-2]
-    sampling_frac_q = [5e-2] # sampling fraction; only used if sampling_type is 'poisson'
+    sampling_frac_q = [.05] # sampling fraction; only used if sampling_type is 'poisson'
     data_bal = [(0.,0.),(.75,.95),(.7,-3.)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
     dp_mode = 'dpsgd' # 'dpsgd', 'param' for param pert. by each client, 'param_fixed' for param. pert. by each client using a fixed minibatch per each global update, 'fha' for hier. fedavg, or 'server' (don't use!)
-    dp_sigma = [23.13] # dp noise std factor; noise magnitude will be C*sigma
+    dp_sigma = [23.15] # dp noise std factor; noise magnitude will be C*sigma
     dp_C = [1.5,1.] # max grad norm
     enforce_pos_var = False # enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!
     #server_add_dp = False # when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!
