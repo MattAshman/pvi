@@ -1,5 +1,6 @@
 
 from collections import defaultdict
+import itertools
 import logging
 import sys
 
@@ -12,11 +13,26 @@ from .base import Client
 
 logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
-#logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO)
 
 # =============================================================================
 # Local federated averaging client class
 # =============================================================================
+
+
+class VaryingBatchSampler():
+    """
+    Batch sampler class that supports different batch size for each batch
+    """
+
+    def __init__(self, batch_sizes):
+        self.batch_sizes = batch_sizes
+
+    def __iter__(self):
+        return iter([list(range(cur-b,cur)) for cur,b in zip(itertools.accumulate(self.batch_sizes),iter(self.batch_sizes))])
+
+    def __len__(self) -> int:
+        return len(self.batch_sizes)
 
 
 class LFAClient(Client):
@@ -37,8 +53,10 @@ class LFAClient(Client):
         self.model = model
 
         # Initialise optimiser states
-        #print(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
-        self.n_local_models = int(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
+        if config['batch_size'] is None:
+            self.n_local_models = int(np.ceil(1/(config['sampling_frac_q']))  )
+        else:
+            self.n_local_models = int(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
         
         self.optimiser_states = None
         
@@ -59,6 +77,18 @@ class LFAClient(Client):
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = p.non_trainable_copy()
+
+        if self.config['sampling_frac_q'] is not None:
+            # use different b for different models to use all data once: first models might have more data than last
+            # min batch_size from sampling frac
+            tmp1 = int(np.floor((self.data['y'].shape[-1])*self.config['sampling_frac_q']))
+            if tmp1 == 0:
+                raise ValueError('Using batch_size=0! Try increasing sampling frac!')
+            tmp2 = len(self.data['y']) - tmp1*self.n_local_models
+            batch_sizes = np.zeros(self.n_local_models, dtype=int) + tmp1
+            batch_sizes[:tmp2] += 1
+        else:
+            batch_sizes =  np.zeros(self.n_local_models, dtype=int) + self.config['batch_size']
 
         if self.t is None:
             # Standard VI: prior = old posterior.
@@ -98,6 +128,8 @@ class LFAClient(Client):
 
         # create optimiser states on the first call
         if self.optimiser_states is None:
+            if self.config['sampling_frac_q'] is not None:
+                print(f"Amount of local data:{len(self.data['y'])}, sampling frac:{self.config['sampling_frac_q']}, min,max batch_sizes:{np.amin(batch_sizes),np.amax(batch_sizes)}, sum of all batch sizes: {np.sum(batch_sizes)}, number of local models:{self.n_local_models}")
 
             optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -118,12 +150,15 @@ class LFAClient(Client):
 
         tensor_dataset = TensorDataset(x, y)
 
-        # sequential data pass modes
-        #if self.config['dp_mode'] not in ['dpsgd','param_fixed']:
-        loader = DataLoader(tensor_dataset,
-                        batch_size=self.config["batch_size"],
+        # when only using single batch size can use standard DataLoader
+        if len(np.unique(batch_sizes)) == 1:
+            loader = DataLoader(tensor_dataset,
+                        batch_size=int(batch_sizes[0]),
                         shuffle=False)
-
+        else:
+            loader = DataLoader(tensor_dataset,
+                        batch_sampler=VaryingBatchSampler(batch_sizes)
+                        )
 
         # Dict for logging optimisation progress
         # note: for LFA log just means (mean over all local training step)
@@ -135,9 +170,6 @@ class LFAClient(Client):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        #epoch_iter = tqdm(range(n_epochs), desc="Epoch", leave=True)
-        # for i in range(self.config["epochs"]):
-        #for i in epoch_iter:
 
         # NOTE: should fix these, maybe use means from all samples
         epoch = {
@@ -154,9 +186,7 @@ class LFAClient(Client):
 
         #for i_batch, (x_single, y_single) in enumerate(tqdm(iter(loader))):
         for i_batch, (x_batch, y_batch) in enumerate(batch_iter):
-
-            # process each sample separately
-            #for x_single, y_single in zip(x_batch,y_batch):
+            #print(f'batch=model number {i_batch} ')
 
             # start optimiser for the current sample from existing state
             optimiser = getattr(torch.optim, self.config["optimiser"])(
@@ -177,7 +207,7 @@ class LFAClient(Client):
 
                 # Compute KL divergence between q and q_cav.
                 try:
-                    #kl = q.kl_divergence(q_cav).sum() / self.config['batch_size'] # data size for each model = batch_size for LFA
+                    #kl = q.kl_divergence(q_cav).sum() / batch_sizes[i_batch] # data size for each model = batch_size for LFA
                     kl = q.kl_divergence(q_cav).sum() / len(x) # use true full data size for each model
                     #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
                     #print(kl)
@@ -195,7 +225,7 @@ class LFAClient(Client):
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
                     batch, q, self.config["num_elbo_samples"]).sum()
-                ll /= self.config['batch_size']
+                ll /= batch_sizes[i_batch] #batch_size
 
                 if self.t is not None:
                     # Compute E_q[log t(θ)]. this is only for bookkeeping, not used in loss

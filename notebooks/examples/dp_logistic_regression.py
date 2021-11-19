@@ -35,10 +35,11 @@ from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
 from utils import *
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-#logger.setLevel(logging.INFO)
+#logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
+#handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
@@ -65,7 +66,12 @@ def main(args, rng_seed, dataset_folder):
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
         logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
     elif args.dp_mode in ['lfa']:
-        logger.info(f'Using sequential data passes with batch size {args.batch_size} (separate models for each batch)')
+        if args.batch_size is not None and args.sampling_frac_q is not None:
+            raise ValueError("Exactly one of 'batch_size', 'sampling_frac_frac' needs to be None")
+        elif args.batch_size is None:
+            logger.info(f'Using sequential data passes with local sampling frac {args.sampling_frac_q} (separate models for each batch)')
+        elif args.sampling_frac_q is None:
+            logger.info(f'Using sequential data passes with batch size {args.batch_size} (separate models for each batch)')
     else:
         logger.info(f'Using sequential data passes with batch size {args.batch_size}')
 
@@ -110,7 +116,7 @@ def main(args, rng_seed, dataset_folder):
     client_config = {
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
         'batch_proc_size': args.batch_proc_size, # for DP-SGD and LFA
-        'sampling_frac_q' : args.sampling_frac_q, # sampling fraction, only used with Poisson random sampling type
+        'sampling_frac_q' : args.sampling_frac_q, # sampling fraction
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment? i guess not
         'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
@@ -441,9 +447,9 @@ if __name__ == '__main__':
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
     parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
-    parser.add_argument('--batch_size', default=100, type=int, help="batch size; used if dp_mode not 'dpsgd'")
+    parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or LFA, currently needs to be 1")
-    parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd are set based on this")
+    parser.add_argument('--sampling_frac_q', default=None, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
     parser.add_argument('--dp_sigma', default=1., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=2., type=float, help='gradient norm bound')
 
