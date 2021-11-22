@@ -80,13 +80,15 @@ class LFAClient(Client):
 
         if self.config['sampling_frac_q'] is not None:
             # use different b for different models to use all data once: first models might have more data than last
-            # min batch_size from sampling frac
-            tmp1 = int(np.floor((self.data['y'].shape[-1])*self.config['sampling_frac_q']))
+            # min batch_size from number of local models
+            tmp1 = int(np.floor((self.data['y'].shape[-1])/self.n_local_models))
             if tmp1 == 0:
                 raise ValueError('Using batch_size=0! Try increasing sampling frac!')
             tmp2 = len(self.data['y']) - tmp1*self.n_local_models
             batch_sizes = np.zeros(self.n_local_models, dtype=int) + tmp1
             batch_sizes[:tmp2] += 1
+            #print(tmp1,tmp2)
+            #sys.exit()
         else:
             batch_sizes =  np.zeros(self.n_local_models, dtype=int) + self.config['batch_size']
 
@@ -157,7 +159,8 @@ class LFAClient(Client):
                         shuffle=False)
         else:
             loader = DataLoader(tensor_dataset,
-                        batch_sampler=VaryingBatchSampler(batch_sizes)
+                        batch_sampler=VaryingBatchSampler(batch_sizes),
+                        shuffle=False
                         )
 
         # Dict for logging optimisation progress
