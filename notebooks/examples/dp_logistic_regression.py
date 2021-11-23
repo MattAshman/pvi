@@ -54,7 +54,7 @@ def main(args, rng_seed, dataset_folder):
     pbar = args.pbar
 
     # do some args checks
-    if args.dp_mode not in ['dpsgd', 'param','param_fixed','server','lfa']:
+    if args.dp_mode not in ['dpsgd', 'param','param_fixed','server','lfa', 'local_pvi']:
         raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
     if args.model not in ['pvi', 'bcm_split', 'bcm_same', 'global_vi']:
@@ -65,7 +65,7 @@ def main(args, rng_seed, dataset_folder):
 
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
         logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
-    elif args.dp_mode in ['lfa']:
+    elif args.dp_mode in ['lfa', 'local_pvi']:
         if args.batch_size is not None and args.sampling_frac_q is not None:
             raise ValueError("Exactly one of 'batch_size', 'sampling_frac_frac' needs to be None")
         elif args.batch_size is None:
@@ -94,15 +94,8 @@ def main(args, rng_seed, dataset_folder):
     logger.info(f'Proportion of positive examples in each client: {np.array(prop_positive).round(2)}')
     logger.info(f'Total number of examples in each client: {N}')
 
-    # might need some/all if optimising hyperparams?
+    # might need some/all if optimising hyperparams? in which case need to check values
     model_hyperparameters = {
-        #"D"                        : x_train.shape[1]-10, # ei näytä vaikuttavan mitenkään
-        #"optimiser"                : "Adam",
-        #"optimiser_params"         : {"lr": 1e-3},
-        #"epochs"                   : None,
-        #"batch_size"               : None,#100,
-        #"num_elbo_samples"         : 20,
-        #"num_predictive_samples"   : 10, # only used when use_probit_approximation = False
     }
     model_config = {
             "use_probit_approximation" : False, 
@@ -112,7 +105,6 @@ def main(args, rng_seed, dataset_folder):
 
     model = LogisticRegressionModel(hyperparameters=model_hyperparameters, config=model_config)
 
-    # note: for DP need to change to use actual sampling, no full data passes
     client_config = {
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
         'batch_proc_size': args.batch_proc_size, # for DP-SGD and LFA
@@ -147,7 +139,7 @@ def main(args, rng_seed, dataset_folder):
         "loc"   : torch.zeros(x_train.shape[1]+1),
         "scale" : torch.ones(x_train.shape[1]+1),
     }
-    # initial t-factor params, not proper distributions, dims as above
+    # these used as initial t-factor params, should match prior, dims as above
     init_nat_params = {
         "np1" : torch.zeros(x_train.shape[1] + 1),
         "np2" : torch.zeros(x_train.shape[1] + 1),
@@ -267,6 +259,7 @@ def main(args, rng_seed, dataset_folder):
         server.tick()
 
         if args.model != 'global_vi':
+
             # get client training curves
             for i_client in range(args.clients):
                 client_train_res['elbo'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']
@@ -319,7 +312,7 @@ def main(args, rng_seed, dataset_folder):
                     post_dp_norms[i_client,:] = client.post_dp_norms
             x1 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
             x2 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
-        elif args.dp_mode == 'lfa':
+        elif args.dp_mode in ['lfa','local_pvi']:
             pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
             post_dp_norms = np.zeros((args.clients, args.n_global_updates))
             for i_client, client in enumerate(clients):
@@ -350,6 +343,23 @@ def main(args, rng_seed, dataset_folder):
 
 
     if args.track_params and args.plot_tracked:
+        # plot distance from init
+        x = np.linspace(1,args.n_global_updates,args.n_global_updates)
+        y = [ np.sqrt( \
+            np.linalg.norm(param_trace1[0,:]-param_trace1[i+1,:],ord=2)**2 \
+            + np.linalg.norm(param_trace2[0,:]-param_trace2[i+1,:],ord=2)**2 ) \
+            for i in range(args.n_global_updates)]
+        fig,axs = plt.subplots(2,figsize=(10,7))
+        axs[0].plot(x,y)
+        axs[1].plot(x, validation_res['logl'])
+        axs[1].set_xlabel('Global update')
+        axs[0].set_ylabel('l2 distance from init')
+        axs[1].set_ylabel('Model logl')
+        figname = 'res_plots/param_traces/param_dist_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        plt.savefig(figname)
+        #plt.show()
+        #sys.exit('break ok')
+
         x = np.linspace(1,args.n_global_updates,args.n_global_updates)
         fig,axs = plt.subplots(2,figsize=(10,7))
         axs[0].plot(x, validation_res['acc'])
@@ -359,9 +369,9 @@ def main(args, rng_seed, dataset_folder):
         axs[0].set_ylabel('Model acc')
         axs[1].set_ylabel('Model logl')
         plt.suptitle("".format())
-        figname = 'res_plots/param_traces/model_perf_global{}_local{}_C{}_sigma{}.pdf'.format(args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
-        #plt.savefig(figname)
-        plt.show()
+        figname = 'res_plots/param_traces/model_perf_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        plt.savefig(figname)
+        #plt.show()
 
         #sys.exit()
         x = np.linspace(0,args.n_global_updates,args.n_global_updates+1)
@@ -372,9 +382,9 @@ def main(args, rng_seed, dataset_folder):
             axs[i].set_xlabel('Global updates')
         axs[0].set_ylabel('Loc params')
         axs[1].set_ylabel('Scale params')
-        figname = 'res_plots/param_traces/param_trace_global{}_local{}_C{}_sigma{}.pdf'.format(args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
-        #plt.savefig(figname)
-        plt.show()
+        figname = 'res_plots/param_traces/param_trace_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        plt.savefig(figname)
+        #plt.show()
 
     # compile possible tracked norms etc
     tracked = {}
@@ -391,7 +401,7 @@ def main(args, rng_seed, dataset_folder):
                 for i_client, client in enumerate(clients):
                     pre_dp_norms[i_client,:] = client.pre_dp_norms
                     post_dp_norms[i_client,:] = client.post_dp_norms
-        elif args.dp_mode == 'lfa':
+        elif args.dp_mode in ['lfa','local_pvi']:
             pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
             post_dp_norms = np.zeros((args.clients, args.n_global_updates))
             for i_client, client in enumerate(clients):

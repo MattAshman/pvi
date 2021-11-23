@@ -19,6 +19,7 @@ from pvi.models.logistic_regression import LogisticRegressionModel
 #from pvi.clients.synchronous_client import SynchronousClient
 from pvi.clients import Client
 from pvi.clients import LFAClient
+from pvi.clients import LocalPVIClient
 from pvi.servers.sequential_server import SequentialServer
 from pvi.distributions.exponential_family_distributions import MeanFieldGaussianDistribution
 from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
@@ -49,8 +50,10 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
         t = MeanFieldGaussianFactor(nat_params=init_nat_params)
 
         # Create client and store
-        if args.dp_mode == 'lfa':
+        if args.dp_mode in ['lfa']:
             client = LFAClient(data=data, model=model, t=t, config=config)
+        elif args.dp_mode in ['local_pvi']:
+            client = LocalPVIClient(data=data, model=model, t=t, config=config)
         else:
             client = Client(data=data, model=model, t=t, config=config)
         clients.append(client)
