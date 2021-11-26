@@ -74,13 +74,34 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
     """
 
     # Get data split
-    full_data_split = get_nth_split(total_splits, k_split, dataset_folder)
-    x_train, x_valid, y_train, y_valid = full_data_split
+    if 'mimic3' in dataset_folder:
+        logger.debug('Reading MIMIC-III data')
+        # read preprocessed mimic data that already includes client splits
+        filename = dataset_folder+f'mimic_in-hospital_split_{num_clients}clients.npz'
+        tmp = np.load(filename)
+        client_data = []
+        N, prop_positive = np.zeros(num_clients), np.zeros(num_clients)
+        for i_client in range(num_clients):
+            client_data.append({})
+            client_data[-1]['x'] = tmp[f'x_{i_client}']
+            client_data[-1]['y'] = tmp[f'y_{i_client}']
+            N[i_client] = int(len(client_data[-1]['y']))
+            prop_positive[i_client] = np.sum(client_data[-1]['y']==1)/N[i_client]
 
-    #logger.debug(f'shapes, x_train: {x_train.shape}, y_train: {y_train.shape}, x_valid: {x_valid.shape}, y_valid: {y_valid.shape}')
+        x_train = np.concatenate([data_dict['x'] for data_dict in client_data ])
+        y_train = np.concatenate([data_dict['y'] for data_dict in client_data ])
+        x_valid = torch.tensor(tmp['x_test'], dtype=torch.float)
+        y_valid = torch.tensor(tmp['y_test'], dtype=torch.float)
+        full_data_split = [x_train, x_valid, y_train, y_valid]
 
-    # Prepare training data held by each client
-    client_data, N, prop_positive, _ = generate_clients_data(x=x_train,
+    else:
+        full_data_split = get_nth_split(total_splits, k_split, dataset_folder)
+        x_train, x_valid, y_train, y_valid = full_data_split
+
+        #logger.debug(f'shapes, x_train: {x_train.shape}, y_train: {y_train.shape}, x_valid: {x_valid.shape}, y_valid: {y_valid.shape}')
+
+        # Prepare training data held by each client
+        client_data, N, prop_positive, _ = generate_clients_data(x=x_train,
                                                              y=y_train,
                                                              M=num_clients,
                                                              client_size_factor=client_size_factor,
