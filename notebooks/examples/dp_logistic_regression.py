@@ -131,8 +131,8 @@ def main(args, rng_seed, dataset_folder):
     # change batch_size for LFA
     #if args.dp_mode == 'lfa':
     #    client_config['batch_size'] = 1
-    if args.dp_mode == 'dpsgd':
-        client_config['batch_size'] = None
+    #if args.dp_mode == 'dpsgd':
+    #    client_config['batch_size'] = None
 
     # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
@@ -269,6 +269,7 @@ def main(args, rng_seed, dataset_folder):
         # get global train and validation acc & logl
         train_acc, train_logl = acc_and_ll(server, torch.tensor(x_train).float(), torch.tensor(y_train).float())
         valid_acc, valid_logl = acc_and_ll(server, valid_set['x'], valid_set['y'])
+
         train_res['acc'][i_global] = train_acc
         train_res['logl'][ i_global] = train_logl
         validation_res['acc'][i_global] = valid_acc
@@ -455,22 +456,24 @@ def plot_training_curves(client_train_res, clients):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
-    parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
+    parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or LFA, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=None, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
-    parser.add_argument('--dp_sigma', default=1., type=float, help='DP noise magnitude')
-    parser.add_argument('--dp_C', default=2., type=float, help='gradient norm bound')
+    parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
+    parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
+    #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
 
-    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
 
-    parser.add_argument('--clients', default=10, type=int, help='number of clients')
+    parser.add_argument('--clients', default=5, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')

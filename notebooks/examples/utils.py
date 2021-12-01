@@ -7,6 +7,8 @@ from matplotlib import pyplot as plt
 import numpy as np
 from sklearn.model_selection import KFold
 import torch
+import torch.utils.data
+from torchvision import transforms, datasets
 from tqdm import tqdm
 
 import fourier_accountant
@@ -16,7 +18,6 @@ if module_path not in sys.path:
     sys.path.append(module_path)
 
 from pvi.models.logistic_regression import LogisticRegressionModel
-#from pvi.clients.synchronous_client import SynchronousClient
 from pvi.clients import Client
 from pvi.clients import LFAClient
 from pvi.clients import LocalPVIClient
@@ -71,6 +72,7 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         dataset_seed : seed for client data splitting, None to avoid fixing separate dataset seed
         total_split : k for k-fold train-validation split
         k_split : which data split to use
+        # NOTE: need to check which ones are now actually useful
     """
 
     # Get data split
@@ -93,6 +95,73 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         x_valid = torch.tensor(tmp['x_test'], dtype=torch.float)
         y_valid = torch.tensor(tmp['y_test'], dtype=torch.float)
         full_data_split = [x_train, x_valid, y_train, y_valid]
+        # Validation set, to predict on using global model
+        valid_set = {'x' : torch.tensor(x_valid).float(),
+                     'y' : torch.tensor(y_valid).float()}
+
+    elif 'MNIST' in dataset_folder:
+        # note: use balanced split when class_balance_Factor == 0, unbalanced split otherwise
+        transform_train = transforms.Compose([transforms.ToTensor()])
+        transform_test = transforms.Compose([transforms.ToTensor()])
+
+        train_set = datasets.MNIST(root=dataset_folder, train=True, download=False, transform=transform_train)
+        test_set = datasets.MNIST(root=dataset_folder, train=False, download=False, transform=transform_test)
+
+        train_data = {
+            "x": ((train_set.data - 0) / 255).reshape(-1, 28 * 28),
+            "y": train_set.targets,
+        }
+
+        valid_set = {
+            "x": ((test_set.data - 0) / 255).reshape(-1, 28 * 28),
+            "y": test_set.targets,
+        }
+        logger.debug(f"MNIST shapes, train: {train_data['x'].shape}, {train_data['y'].shape}, test: {valid_set['x'].shape}, {valid_set['y'].shape}")
+        # balanced split
+        client_data = []
+        N = np.zeros(num_clients)
+        if class_balance_factor == 0:
+            logger.info('Using Fed MNIST data with balanced split.')
+            perm = np.random.permutation(len(train_data["y"]))
+            for i_client in range(num_clients):
+                client_idx = perm[i_client::num_clients]
+                client_data.append({"x": train_data["x"][client_idx], "y": train_data["y"][client_idx]})
+                N[i_client] = len(client_data[-1]['y'])
+            #print(len(client_data))
+            #print(client_data[0]['x'].shape,client_data[0]['y'].shape)
+
+        else:
+            logger.info('Using Fed MNIST data with unbalanced split.')
+            # note: distribution of MNIST labels is not exactly 6000/digit, so some shares might contain 2 labels even when using 100 clients
+            shard_len = 60000//(2*num_clients)
+            n_shards = 60000//shard_len
+            
+            sorted_inds = torch.argsort(train_data['y'])
+            shards = np.random.permutation(np.linspace(0,n_shards-1,n_shards))
+            for i_client in range(num_clients):
+                tmp_ind = shards[(2*i_client):(2*i_client+2)]
+                shard_inds = sorted_inds[ np.concatenate([ np.linspace(i*shard_len,(i+1)*shard_len-1,shard_len,dtype=int) for i in tmp_ind]) ]
+                client_data.append({"x": train_data["x"][shard_inds], "y": train_data["y"][shard_inds]})
+                N[i_client] = len(client_data[-1]['y'])
+            #print(len(client_data))
+            #print(client_data[0]['x'].shape,client_data[0]['y'].shape)
+
+            '''
+            # check label sums: each label used exactly once
+            tmp = np.zeros((2,10))
+            for i_client in range(num_clients):
+                for i in range(10):
+                    if i_client == 0:
+                        tmp[0,i] += torch.sum(train_data['y']==i)
+                    tmp[1,i] += torch.sum( client_data[i_client]['y']==i )
+
+            print(tmp)
+            '''
+            #raise NotImplementedError('Fed MNIST loader for unbalanced data not done!')
+
+        full_data_split = [train_data['x'], valid_set['x'], train_data['y'], valid_set['y']]
+        prop_positive = np.zeros(num_clients)*np.nan
+
 
     else:
         full_data_split = get_nth_split(total_splits, k_split, dataset_folder)
@@ -108,18 +177,16 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
                                                              class_balance_factor=class_balance_factor,
                                                              dataset_seed=dataset_seed)
 
-    # Validation set, to predict on using global model
-    valid_set = {'x' : torch.tensor(x_valid).float(),
-                 'y' : torch.tensor(y_valid).float()}
+        # Validation set, to predict on using global model
+        valid_set = {'x' : torch.tensor(x_valid).float(),
+                     'y' : torch.tensor(y_valid).float()}
 
     return client_data, valid_set, N, prop_positive, full_data_split
-
 
 
 def acc_and_ll(server, x, y):
     """Calculate model prediction acc & logl
     """
-
     pred_probs = server.model_predict(x)
     pred_probs = pred_probs.mean.detach().numpy()
     valid_acc = np.mean((pred_probs > 0.5) == y.numpy())
@@ -130,6 +197,29 @@ def acc_and_ll(server, x, y):
     
     return valid_acc, valid_loglik
 
+
+
+def acc_and_ll_bnn(server, x, y):
+    """Calculate model prediction acc & logl for BNNs
+    """
+    dataset = torch.utils.data.TensorDataset(x, y)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=50, shuffle=False)
+
+    preds, mlls = [], []
+    for (x_batch, y_batch) in loader:
+        #x_batch, y_batch = x_batch.to(device), y_batch.to(device)
+
+        pp = server.model_predict(x_batch)
+        preds.append(pp.component_distribution.probs.mean(1).cpu())
+        mlls.append(pp.log_prob(y_batch).cpu())
+
+    mll = torch.cat(mlls).mean()
+    preds = torch.cat(preds)
+    acc = sum(torch.argmax(preds, dim=-1) == loader.dataset.tensors[1]) / len(
+        loader.dataset.tensors[1]
+    )
+    
+    return acc, mll #valid_acc, valid_loglik
 
 
 def get_nth_split(n_splits, n, folder):
@@ -275,9 +365,9 @@ def bin_search_sigma(target_eps, ncomp, target_delta, q, nx, L, lbound, ubound, 
         else:
             lbound = cur
 
-        if np.abs(ubound - lbound) < 1e-2:
-            print('Upper and lower bounds too close, failing!')
-            return None
+        #if np.abs(ubound - lbound) < 1e-3:
+        #    print('Upper and lower bounds too close, failing!')
+        #    return None
         
     print(f'Did not converge! final sigma={cur:.5f} wirh eps={eps:.5f}')
 
@@ -291,10 +381,12 @@ if __name__ == '__main__':
     L=30.#26.
 
     target_delta = 1e-5
-    q = .05
+    #q = .2
 
-    ncomp=10*10
+    ncomp=60*10
+    #########################################
     # adult data:
+    #########################################
     #samples_per_client = 2442 # with 10 clients
     #samples_per_client = 244 # with 100 clients
     # [2.6, 1.1] eps pitäisi olla suunnilleen
@@ -331,8 +423,56 @@ if __name__ == '__main__':
     # q=.02
     #sigmas in [9.42]
 
+    #########################################
+    #########################################
 
-    sigma = bin_search_sigma(.2, ncomp, target_delta, q, nx, L, lbound=1., ubound=200., tol=1e-3, max_iters=20)
+
+    #########################################
+    # MIMIC3 data:
+    #########################################
+    # fixed 5 clients, use only sampling_fracs
+
+    # DPSGD:       eps in [1,     2]
+    # 100 comps:
+    #   q=.01 dp_sigma in [0.95,  0.75]
+    #   q=.05 dp_sigma in [3.73,  2.00]
+    #   q=.1 dp_sigma in  [7.46,  3.98]
+    #   q=.2 dp_sigma in  [14.92, 7.97]
+
+    # 200 comps:   eps in [1,     2]
+    #   q=.01 dp_sigma in [1.13,  0.81]
+    #   q=.05 dp_sigma in [5.28,  2.82]
+    #   q=.1 dp_sigma in  [10.56, 5.63]
+    #   q=.2 dp_sigma in  [21.11, 11.27]
+
+    # 300 comps: eps=1
+    #   q=.01 dp_sigma in [1.33]
+    #   q=.05 dp_sigma in [6.46]
+    #   q=.1 dp_sigma in  [12.92]
+    #   q=.2 dp_sigma in  [25.84]
+
+    # 400 comps: eps=1
+    #   q=.01 dp_sigma in [1.52]
+    #   q=.05 dp_sigma in [7.45]
+    #   q=.1 dp_sigma in  [14.92]
+    #   q=.2 dp_sigma in  [29.87]
+
+    # 600 comps: eps=1
+    #   q=.01 dp_sigma in [1.84]
+    #   q=.05 dp_sigma in [9.14]
+    #   q=.1 dp_sigma in  [18.28]
+    #   q=.2 dp_sigma in  [36.58]
+
+    # 1000 comps: eps=1
+    #   q=.01 dp_sigma in [2.36]
+    #   q=.05 dp_sigma in [11.79]
+    #   q=.1 dp_sigma in  [23.57]
+    #   q=.2 dp_sigma in  [47.15]
+    #########################################
+    #########################################
+    q = .01
+
+    sigma = bin_search_sigma(1, ncomp, target_delta, q, nx, L, lbound=.7, ubound=100., tol=1e-3, max_iters=30)
     if sigma is not None:
         eps = fourier_accountant.get_epsilon_S(target_delta=1e-5, sigma=sigma, q=q, ncomp=ncomp, nx=nx,L=L)
         print(f'eps={eps} with sigma={sigma}')
