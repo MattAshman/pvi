@@ -53,10 +53,16 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
         # Create client and store
         if args.dp_mode in ['lfa']:
             client = LFAClient(data=data, model=model, t=t, config=config)
+            if i == 0:
+                logger.debug('Init LFA clients')
         elif args.dp_mode in ['local_pvi']:
             client = LocalPVIClient(data=data, model=model, t=t, config=config)
+            if i == 0:
+                logger.debug('Init local DPPVI clients')
         else:
             client = Client(data=data, model=model, t=t, config=config)
+            if i == 0:
+                logger.debug('Init DPSGD/base clients')
         clients.append(client)
 
     #if args.sampling_type == 'poisson':
@@ -90,14 +96,11 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             N[i_client] = int(len(client_data[-1]['y']))
             prop_positive[i_client] = np.sum(client_data[-1]['y']==1)/N[i_client]
 
-        x_train = np.concatenate([data_dict['x'] for data_dict in client_data ])
-        y_train = np.concatenate([data_dict['y'] for data_dict in client_data ])
-        x_valid = torch.tensor(tmp['x_test'], dtype=torch.float)
-        y_valid = torch.tensor(tmp['y_test'], dtype=torch.float)
-        full_data_split = [x_train, x_valid, y_train, y_valid]
+        train_set = {'x' : torch.tensor(np.concatenate([data_dict['x'] for data_dict in client_data ])).float(),
+                     'y' : torch.tensor(np.concatenate([data_dict['y'] for data_dict in client_data ])).float() }
         # Validation set, to predict on using global model
-        valid_set = {'x' : torch.tensor(x_valid).float(),
-                     'y' : torch.tensor(y_valid).float()}
+        valid_set = {'x' : torch.tensor(tmp['x_test'], dtype=torch.float),
+                     'y' : torch.tensor(tmp['y_test'], dtype=torch.float)}
 
     elif 'MNIST' in dataset_folder:
         # note: use balanced split when class_balance_Factor == 0, unbalanced split otherwise
@@ -107,7 +110,7 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         train_set = datasets.MNIST(root=dataset_folder, train=True, download=False, transform=transform_train)
         test_set = datasets.MNIST(root=dataset_folder, train=False, download=False, transform=transform_test)
 
-        train_data = {
+        train_set = {
             "x": ((train_set.data - 0) / 255).reshape(-1, 28 * 28),
             "y": train_set.targets,
         }
@@ -116,16 +119,16 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             "x": ((test_set.data - 0) / 255).reshape(-1, 28 * 28),
             "y": test_set.targets,
         }
-        logger.debug(f"MNIST shapes, train: {train_data['x'].shape}, {train_data['y'].shape}, test: {valid_set['x'].shape}, {valid_set['y'].shape}")
+        logger.debug(f"MNIST shapes, train: {train_set['x'].shape}, {train_set['y'].shape}, test: {valid_set['x'].shape}, {valid_set['y'].shape}")
         # balanced split
         client_data = []
         N = np.zeros(num_clients)
         if class_balance_factor == 0:
             logger.info('Using Fed MNIST data with balanced split.')
-            perm = np.random.permutation(len(train_data["y"]))
+            perm = np.random.permutation(len(train_set["y"]))
             for i_client in range(num_clients):
                 client_idx = perm[i_client::num_clients]
-                client_data.append({"x": train_data["x"][client_idx], "y": train_data["y"][client_idx]})
+                client_data.append({"x": train_set["x"][client_idx], "y": train_set["y"][client_idx]})
                 N[i_client] = len(client_data[-1]['y'])
             #print(len(client_data))
             #print(client_data[0]['x'].shape,client_data[0]['y'].shape)
@@ -136,12 +139,12 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             shard_len = 60000//(2*num_clients)
             n_shards = 60000//shard_len
             
-            sorted_inds = torch.argsort(train_data['y'])
+            sorted_inds = torch.argsort(train_set['y'])
             shards = np.random.permutation(np.linspace(0,n_shards-1,n_shards))
             for i_client in range(num_clients):
                 tmp_ind = shards[(2*i_client):(2*i_client+2)]
                 shard_inds = sorted_inds[ np.concatenate([ np.linspace(i*shard_len,(i+1)*shard_len-1,shard_len,dtype=int) for i in tmp_ind]) ]
-                client_data.append({"x": train_data["x"][shard_inds], "y": train_data["y"][shard_inds]})
+                client_data.append({"x": train_set["x"][shard_inds], "y": train_set["y"][shard_inds]})
                 N[i_client] = len(client_data[-1]['y'])
             #print(len(client_data))
             #print(client_data[0]['x'].shape,client_data[0]['y'].shape)
@@ -152,14 +155,12 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             for i_client in range(num_clients):
                 for i in range(10):
                     if i_client == 0:
-                        tmp[0,i] += torch.sum(train_data['y']==i)
+                        tmp[0,i] += torch.sum(train_set['y']==i)
                     tmp[1,i] += torch.sum( client_data[i_client]['y']==i )
 
             print(tmp)
             '''
-            #raise NotImplementedError('Fed MNIST loader for unbalanced data not done!')
 
-        full_data_split = [train_data['x'], valid_set['x'], train_data['y'], valid_set['y']]
         prop_positive = np.zeros(num_clients)*np.nan
 
 
@@ -177,15 +178,17 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
                                                              class_balance_factor=class_balance_factor,
                                                              dataset_seed=dataset_seed)
 
+        train_set = {'x' : torch.tensor(x_train).float(),
+                     'y' : torch.tensor(y_train).float()}
         # Validation set, to predict on using global model
         valid_set = {'x' : torch.tensor(x_valid).float(),
                      'y' : torch.tensor(y_valid).float()}
 
-    return client_data, valid_set, N, prop_positive, full_data_split
+    return client_data, train_set, valid_set, N, prop_positive
 
 
 def acc_and_ll(server, x, y):
-    """Calculate model prediction acc & logl
+    """Calculate model prediction acc & logl with LogisticRegression model
     """
     pred_probs = server.model_predict(x)
     pred_probs = pred_probs.mean.detach().numpy()
@@ -203,7 +206,7 @@ def acc_and_ll_bnn(server, x, y):
     """Calculate model prediction acc & logl for BNNs
     """
     dataset = torch.utils.data.TensorDataset(x, y)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=50, shuffle=False)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=500, shuffle=False)
 
     preds, mlls = [], []
     for (x_batch, y_batch) in loader:

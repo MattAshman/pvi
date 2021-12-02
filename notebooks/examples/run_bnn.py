@@ -82,11 +82,11 @@ def main(args, rng_seed, dataset_folder):
     if torch.cuda.is_available() and torch.cuda.device_count() > 0:
       torch.cuda.manual_seed(rng_seed)
 
-    client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
+    client_data, train_set, valid_set, N, prop_positive = standard_client_split(
             None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder
             )
-    x_train, x_valid, y_train, y_valid = full_data_split
 
+    x_train, x_valid, y_train, y_valid = train_set['x'], valid_set['x'], train_set['y'], valid_set['y']
     #print(x_train.shape, x_valid.shape)
     #sys.exit()
 
@@ -100,7 +100,7 @@ def main(args, rng_seed, dataset_folder):
             "input_dim": x_valid.shape[-1],
             "latent_dim": args.latent_dim,
             "output_dim": args.n_classes,
-            "num_layers": 1,
+            "num_layers": args.n_layers,
             "prior_var": 1.0,
             "use_probit_approximation" : False, 
             "num_predictive_samples"   : 100, # only used when use_probit_approximation = False
@@ -471,16 +471,19 @@ if __name__ == '__main__':
     parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
-    parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--n_classes', default=10, type=int, help="Number of classes to predict")
-    parser.add_argument('--latent_dim', default=50, type=int, help="BNN latent dim")
-    parser.add_argument('--clients', default=10, type=int, help='number of clients')
+    parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--n_classes', default=2, type=int, help="Number of classes to predict")
+    parser.add_argument('--latent_dim', default=100, type=int, help="BNN latent dim")
+    parser.add_argument('--n_layers', default=1, type=int, help="number of BNN (latent) layers")
+
+    parser.add_argument('--clients', default=5, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')

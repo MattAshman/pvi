@@ -83,10 +83,12 @@ def main(args, rng_seed, dataset_folder):
     if torch.cuda.is_available() and torch.cuda.device_count() > 0:
       torch.cuda.manual_seed(rng_seed)
 
-    client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
+    #client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
+    client_data, train_set, valid_set, N, prop_positive  = standard_client_split(
             None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder
             )
-    x_train, x_valid, y_train, y_valid = full_data_split
+    #x_train, x_valid, y_train, y_valid = full_data_split
+    x_train, x_valid, y_train, y_valid = train_set['x'], valid_set['x'], train_set['y'], valid_set['y']
 
     #print(x_train.shape, x_valid.shape)
     #sys.exit()
@@ -266,8 +268,9 @@ def main(args, rng_seed, dataset_folder):
                 client_train_res['logl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['ll']
                 client_train_res['kl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['kl']
             
-        # get global train and validation acc & logl
-        train_acc, train_logl = acc_and_ll(server, torch.tensor(x_train).float(), torch.tensor(y_train).float())
+        # get global train and validation acc & logl, assume to be tensors here
+        #train_acc, train_logl = acc_and_ll(server, torch.tensor(x_train).float(), torch.tensor(y_train).float())
+        train_acc, train_logl = acc_and_ll(server, x_train, y_train)
         valid_acc, valid_logl = acc_and_ll(server, valid_set['x'], valid_set['y'])
 
         train_res['acc'][i_global] = train_acc
