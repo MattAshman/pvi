@@ -12,7 +12,7 @@ import numpy as np
 
 
 # numbers of runs to plot
-runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
+#runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
 #runs_to_plot = np.linspace(1,54,54,dtype=int)#[1]
 #runs_to_plot = np.linspace(1,84,84,dtype=int)#[1]
 #runs_to_plot = np.linspace(77,149,73,dtype=int)#[1]
@@ -22,16 +22,6 @@ runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
 #print(runs_to_plot)
 
 # main folder where the res are
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_swor/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_mushroom/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_credit/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_clipping_tests_bank/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_tests_adult_param_dp/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_adult_optim/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_adult_optim2/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dp_pvi_hfa_adult/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_lr_clip_runs/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_dp_runs/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_dp_100clients_runs/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_100clients_runs/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_runs/'
@@ -40,15 +30,30 @@ runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_runs/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_10global_runs/'
 
+### 200 client 5 seed runs:
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_5seeds_10global_runs/'
 #runs_to_plot = np.linspace(1,38,38,dtype=int)#[1]
 
-main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_eps02_5seeds_runs/'
-runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_eps02_5seeds_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
+
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_5seeds_10global_frac_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
+
+
+### mimic3 runs:
+main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic3_nondp_5clients_runs/'
+runs_to_plot = np.linspace(1,288,288,dtype=int)#[1]
+#runs_to_plot = np.linspace(289,324,36,dtype=int)#[1]
+
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic3_dpsgd_5clients_eps1_runs/'
+#runs_to_plot = np.linspace(181,288,108,dtype=int)#[1]
+#runs_to_plot = np.linspace(253,288,36,dtype=int)#[1]
 
 
 
-dataset_name = 'adult'
+dataset_name = 'mimic'
+#dataset_name = 'adult'
 #dataset_name = 'mushroom'
 #dataset_name = 'credit'
 #dataset_name = 'bank'
@@ -69,24 +74,37 @@ tmp['data_bal_kappa'] = [0.,0.]
 #tmp['data_bal_kappa'] = [-3.,-3.]
 #tmp['data_bal_kappa'] = [.95,.95]
 
+
+# set to None to skip:
+#baseline_acc = 0.761 # const acc for adult data
+#baseline_logl = None
+baseline_acc = 0.86959 # best non-dp found for mimic3
+baseline_logl = -0.35385 # best non-dp logl found for mimic3
+# NOTE: run global vi and check these accordingyy
+# NOTE: should use ocnst prediction as baseline, plot comparison models separately!
+
+ylims= ((.75,.9),None)
+plot_legends = 0
+
+
 restrictions = OD()
 restrictions['dp_sigma'] = None#[23.15]
-restrictions['dp_C'] = None#[.1]
+restrictions['dp_C'] = None#[1,2]
 restrictions['n_global_updates'] = None
 restrictions['n_steps'] = None#[10]
 restrictions['batch_size'] = None#[5]
-restrictions['sampling_frac_q'] = None#[.2]
+restrictions['sampling_frac_q'] = None#[.1]
 restrictions['learning_rate'] = [1e-2]
-restrictions['damping_factor'] = None#[.1]
+restrictions['damping_factor'] = [.4]
 
 # possible balance settings: (0,0), (.7,-3), (.75,.95)
-restrictions['data_bal_rho'] = [0.]
-restrictions['data_bal_kappa'] = [0.]
+restrictions['data_bal_rho'] = [.0]
+restrictions['data_bal_kappa'] = [.0]
 
 # set vars to add to title: key=variable name, value=var name in fig title
 add_to_title = {}
-add_to_title['data_bal_rho'] = 'rho'
-add_to_title['data_bal_kappa'] = 'kappa'
+#add_to_title['data_bal_rho'] = 'rho'
+#add_to_title['data_bal_kappa'] = 'kappa'
 add_to_title['clients'] = 'clients'
 add_to_title['dp_mode'] = 'dp mode'
 #add_to_title[''] = ''
@@ -99,6 +117,7 @@ add_labels['dp_C'] = 'C'
 add_labels['dp_sigma'] = 'sigma'
 add_labels['n_steps'] = 'steps'
 add_labels['batch_size'] = 'b'
+add_labels['sampling_frac_q'] = 'q'
 add_labels['learning_rate'] = 'lr'
 add_labels['damping_factor'] = 'damping'
 #add_labels['privacy_calculated'] = 'DP epochs'
@@ -108,8 +127,10 @@ add_labels['damping_factor'] = 'damping'
 # save to disk (or just show)
 to_disk = 0
 
+plot_test_error = 1 # if 0 plot training err instead
+
 # name for the current plot
-#'''
+'''
 #fig_name = "{}_dpsgd_200clients_eps02_best_bal({},{}).pdf".format(dataset_name, 
 fig_name = "{}_dpsgd_200clients_eps02_best_bal({},{})_all.pdf".format(dataset_name, 
         #restrictions['dp_C'], 
@@ -117,9 +138,10 @@ fig_name = "{}_dpsgd_200clients_eps02_best_bal({},{})_all.pdf".format(dataset_na
         #restrictions['batch_size'],restrictions['damping_factor'] 
         )
 #'''
+fig_name = "{}_dpsgd_5clients_nondp_all.pdf".format(dataset_name)
 '''
-fig_name = "{}_lfa_200clients_eps02_best_bal({},{}).pdf".format(dataset_name, 
-#fig_name = "{}_lfa_200clients_eps02_best_bal({},{})_all.pdf".format(dataset_name, 
+#fig_name = "{}_lfa_200clients_eps02_frac_best_bal({},{}).pdf".format(dataset_name, 
+#fig_name = "{}_lfa_200clients_eps02_frac_best_bal({},{})_all.pdf".format(dataset_name, 
         #restrictions['dp_C'], 
         restrictions['data_bal_rho'],restrictions['data_bal_kappa'], 
         #restrictions['batch_size'],restrictions['damping_factor'] 
@@ -138,7 +160,6 @@ colors = plt.rcParams['axes.prop_cycle'].by_key()['color'] # note: stasndard col
 #print(colors, len(colors))
 #sys.exit()
 
-baseline_acc = 0.761 # for adult data
 
 all_res = OD()
 all_res['config'] = OD()
@@ -264,6 +285,9 @@ if len(failed_runs) > 0:
 
 plot_comparisons = True
 if plot_comparisons:
+    best_acc = 0
+    best_logl = -1e6
+    best_confs = [None,None]
 
     # check restrictions
     list_to_print = []
@@ -317,35 +341,72 @@ if plot_comparisons:
         
         #else:
         #    cur_label = f"{config['sampling_type']}:dp_C=None,dp_sigma=None,n_steps={config['n_steps']}"
+        if np.amax(all_res['validation_res'][str(i_run)]['acc'].mean(-1) ) > best_acc:
+            best_acc = np.amax(all_res['validation_res'][str(i_run)]['acc'].mean(-1))
+            best_confs[0] = config
+        if np.amax(all_res['validation_res'][str(i_run)]['logl'].mean(-1)) > best_logl:
+            best_logl = np.amax(all_res['validation_res'][str(i_run)]['logl'].mean(-1))
+            best_confs[1] = config
 
         x = np.linspace(1,config['n_global_updates'],config['n_global_updates'])
-        axs[0].errorbar(x, all_res['validation_res'][str(i_run)]['acc'].mean(-1), 
-                yerr= 2*all_res['validation_res'][str(i_run)]['acc'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
-                label=cur_label, 
-                color=colors[i_line%len(colors)])
-        axs[1].errorbar(x, all_res['validation_res'][str(i_run)]['logl'].mean(-1), 
-                yerr= 2*all_res['validation_res'][str(i_run)]['logl'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
-                label=cur_label,
-                color=colors[i_line%len(colors)]
-                )
+        # testing error plot
+        if plot_test_error:
+            axs[0].errorbar(x, all_res['validation_res'][str(i_run)]['acc'].mean(-1), 
+                    yerr= 2*all_res['validation_res'][str(i_run)]['acc'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    label=cur_label, 
+                    color=colors[i_line%len(colors)])
+            axs[1].errorbar(x, all_res['validation_res'][str(i_run)]['logl'].mean(-1), 
+                    yerr= 2*all_res['validation_res'][str(i_run)]['logl'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    label=cur_label,
+                    color=colors[i_line%len(colors)]
+                    )
+        # training error plots
+        else:
+            axs[0].errorbar(x, all_res['train_res'][str(i_run)]['acc'].mean(-1), 
+                    yerr= 2*all_res['train_res'][str(i_run)]['acc'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    label=cur_label, 
+                    color=colors[i_line%len(colors)])
+            axs[1].errorbar(x, all_res['train_res'][str(i_run)]['logl'].mean(-1), 
+                    yerr= 2*all_res['train_res'][str(i_run)]['logl'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    label=cur_label,
+                    color=colors[i_line%len(colors)]
+                    )
         # add baseline if available
         if i_line == 0:
             try:
                 axs[0].hlines(baseline_acc, x[0],x[-1], color='Gray',linestyle=':')
             except:
                 pass
+            try:
+                axs[1].hlines(baseline_logl, x[0],x[-1], color='Gray',linestyle=':')
+            except:
+                pass
+        
 
         axs[0].set_ylabel('Acc')
         axs[0].set_xlabel('Global communications')
-        axs[0].legend(loc='lower right')
+        if plot_legends:
+            axs[0].legend(loc='lower right')
+            axs[1].legend(loc='lower right')
+        if ylims[0] is not None:
+            axs[0].set_ylim(ylims[0])
+        if ylims[1] is not None:
+            axs[1].set_ylim(ylims[1])
+
         axs[0].grid(b=True, which='major', axis='both')
         axs[1].set_ylabel('Logl')
         axs[1].set_xlabel('Global communications')
-        axs[1].legend(loc='lower right')
         axs[1].grid(b=True, which='major', axis='both')
 
-        plt.suptitle(f"{dataset_name} dataset mean with 2*SEM over {config['n_rng_seeds']} runs" + cur_title)
+        if plot_test_error:
+            plt.suptitle(f"{dataset_name} dataset mean with 2*SEM over {config['n_rng_seeds']} runs" + cur_title)
+        else:
+            plt.suptitle(f"{dataset_name} dataset training err mean with 2*SEM over {config['n_rng_seeds']} runs" + cur_title)
 
+    print(f'\nBest acc: {best_acc:.5f} found with config:\n{best_confs[0]}')
+    if best_confs[1] == best_confs[0]:
+        best_confs[1] = None
+    print(f'\nBest logl: {best_logl:.5f} found with config:\n{best_confs[1]}')
 
     if to_disk:
         plt.savefig(fig_folder+fig_name)
