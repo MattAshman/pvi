@@ -35,7 +35,7 @@ class VaryingBatchSampler():
         return len(self.batch_sizes)
 
 
-class LFAClient(Client):
+class LFA_Client(Client):
     
     def __init__(self, data, model, t, config=None):
         

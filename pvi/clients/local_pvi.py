@@ -39,7 +39,7 @@ class VaryingBatchSampler():
         return len(self.batch_sizes)
 
 
-class LocalPVIClient(Client):
+class Local_PVI_Client(Client):
     
     def __init__(self, data, model, t, config=None):
         

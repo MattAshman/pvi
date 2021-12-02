@@ -19,8 +19,10 @@ if module_path not in sys.path:
 
 from pvi.models.logistic_regression import LogisticRegressionModel
 from pvi.clients import Client
-from pvi.clients import LFAClient
-from pvi.clients import LocalPVIClient
+from pvi.clients import Param_DP_Client
+from pvi.clients import DPSGD_Client
+from pvi.clients import LFA_Client
+from pvi.clients import Local_PVI_Client
 from pvi.servers.sequential_server import SequentialServer
 from pvi.distributions.exponential_family_distributions import MeanFieldGaussianDistribution
 from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
@@ -52,17 +54,27 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
 
         # Create client and store
         if args.dp_mode in ['lfa']:
-            client = LFAClient(data=data, model=model, t=t, config=config)
+            client = LFA_Client(data=data, model=model, t=t, config=config)
             if i == 0:
                 logger.debug('Init LFA clients')
         elif args.dp_mode in ['local_pvi']:
-            client = LocalPVIClient(data=data, model=model, t=t, config=config)
+            client = Local_PVI_Client(data=data, model=model, t=t, config=config)
             if i == 0:
                 logger.debug('Init local DPPVI clients')
-        else:
+        elif args.dp_mode in ['param']:
+            client = Param_DP_Client(data=data, model=model, t=t, config=config)
+            if i == 0:
+                logger.debug('Init param DP clients')
+        elif args.dp_mode in ['dpsgd']:
+            client = DPSGD_Client(data=data, model=model, t=t, config=config)
+            if i == 0:
+                logger.debug('Init DPSGD clients')
+        elif args.dp_mode in ['nondp']:
             client = Client(data=data, model=model, t=t, config=config)
             if i == 0:
-                logger.debug('Init DPSGD/base clients')
+                logger.debug('Init non-DP base clients')
+        else:
+            raise ValueError(f'Unknown dp_mode: {args.dp_mode}!')
         clients.append(client)
 
     #if args.sampling_type == 'poisson':
@@ -101,6 +113,10 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         # Validation set, to predict on using global model
         valid_set = {'x' : torch.tensor(tmp['x_test'], dtype=torch.float),
                      'y' : torch.tensor(tmp['y_test'], dtype=torch.float)}
+
+        #print( (torch.sum(train_set['y']==0))/len(train_set['y']) )
+        #print( (torch.sum(valid_set['y']==0))/len(valid_set['y']) )
+        #sys.exit()
 
     elif 'MNIST' in dataset_folder:
         # note: use balanced split when class_balance_Factor == 0, unbalanced split otherwise
@@ -218,9 +234,8 @@ def acc_and_ll_bnn(server, x, y):
 
     mll = torch.cat(mlls).mean()
     preds = torch.cat(preds)
-    acc = sum(torch.argmax(preds, dim=-1) == loader.dataset.tensors[1]) / len(
-        loader.dataset.tensors[1]
-    )
+    #acc = sum(torch.argmax(preds, dim=-1) == loader.dataset.tensors[1]) / len(loader.dataset.tensors[1])
+    acc = torch.true_divide(sum(torch.argmax(preds, dim=-1) == loader.dataset.tensors[1]), len(loader.dataset.tensors[1]))
     
     return acc, mll #valid_acc, valid_loglik
 

@@ -13,12 +13,12 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # =============================================================================
-# Client class
+# Param DP client class
 # =============================================================================
 
 import sys
 
-class Client(ABC):
+class Param_DP_Client(ABC):
     
     def __init__(self, data, model, t=None, config=None):
 
@@ -40,6 +40,10 @@ class Client(ABC):
         self._can_update = True
 
         self.optimiser = None
+
+        if self._config['track_client_norms']:
+            self.pre_dp_norms = []
+            self.post_dp_norms = []
 
     @property
     def config(self):
@@ -151,11 +155,23 @@ class Client(ABC):
 
         tensor_dataset = TensorDataset(x, y)
 
-        loader = DataLoader(tensor_dataset,
+        # set up data loader with chosen sampling type
+        # sequential data pass modes
+        if self.config['dp_mode'] == 'param':
+            loader = DataLoader(tensor_dataset,
                             batch_size=batch_size,
                             shuffle=True)
-        n_epochs = self.config['epochs']
-        n_samples = len(loader)
+            n_epochs = self.config['epochs']
+            n_samples = len(loader)
+
+        # use only fixed single minibatch for local learning for each global update
+        elif self.config['dp_mode'] == 'param_fixed':
+            raise NotImplementedError('Check param_fixed code before running!')
+            inds = torch.randint(low=0,high=len(tensor_dataset),size=(batch_size,))
+            loader = DataLoader( torch.utils.data.Subset(tensor_dataset, indices=inds) )
+        else:
+            raise ValueError(f"Unexpected dp_mode in base client: {self.config['dp_mode']}")
+
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -166,10 +182,8 @@ class Client(ABC):
         }
         
         # Gradient-based optimisation loop -- loop over epochs
-        #epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch",
-        #                  leave=True)
         epoch_iter = tqdm(range(n_epochs), desc="Epoch", leave=True, disable=self.config['pbar'])
-        # for i in range(self.config["epochs"]):
+
         for i in epoch_iter:
             epoch = {
                 "elbo" : 0,
@@ -180,7 +194,6 @@ class Client(ABC):
             
             # Loop over batches in current epoch
             tmp = iter(loader)
-            #for i_step, (x_batch, y_batch) in enumerate(iter(loader)):
 
             for i_step in range(n_samples):
                 try:
@@ -190,6 +203,8 @@ class Client(ABC):
                     (x_batch, y_batch) = tmp.next()
 
                 #logger.debug(f'optimiser starting step {i_step} with total batch_size {len(y_batch)}')
+
+                logger.debug('no dpsgd optimiser')
 
                 optimiser.zero_grad()
                 batch = {
@@ -228,11 +243,18 @@ class Client(ABC):
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item() / n_samples
-                epoch["kl"] += kl.item() / n_samples
-                epoch["ll"] += ll.item() / n_samples
-                if self.t is not None:
-                    epoch["logt"] += logt.item() / n_samples
+                if self.config['dp_mode']== 'dpsgd':
+                    epoch["elbo"] += trace_tmp[1] /  (n_samples * batch_size)
+                    epoch["kl"] += kl.item() / n_samples
+                    epoch["ll"] += trace_tmp[0] / (n_samples * batch_size)
+                    if self.t is not None:
+                        epoch["logt"] += logt.item() / n_samples
+                else:
+                    epoch["elbo"] += -loss.item() / n_samples
+                    epoch["kl"] += kl.item() / n_samples
+                    epoch["ll"] += ll.item() / n_samples
+                    if self.t is not None:
+                        epoch["logt"] += logt.item() / n_samples
 
                 optimiser.step()
                 i_step += 1
@@ -266,6 +288,71 @@ class Client(ABC):
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
         
+        #'''
+        # NOTE: might make sense to define clipping & noise levels separately for np1, np2
+        # use single clip & noise level for now
+        # get norm of the change in params, clip and noisify
+        #'''
+
+        param_norm = 0
+        #for p_, p_old in zip(q.parameters(),p.trainable_copy().parameters()):
+        for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+            if i_params == 0:
+                # difference in params
+                param_norm += torch.sum((p_ - p_old)**2)
+                # params directly
+                #param_norm += torch.sum(p_**2)
+            elif i_params == 1:
+                # difference in params
+                param_norm += torch.sum( (p_ - p_old)**2)
+                # params directly
+                #param_norm += torch.sum(p_**2) # should use exp?
+
+            else:
+                sys.exit('Model has > 2 sets of params, DP not implemented for this!')
+            #print(p_)
+        param_norm = torch.sqrt(param_norm)
+        logger.debug(f'diff in param, norm before clip: {param_norm}')
+
+        # clip and add noise to the difference in params
+        # note sensitivities: even with add/replace DP needs 2*C
+        for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+            #p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+            if i_params == 0:
+                p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                # params directly
+                #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+            elif i_params == 1:
+
+                #if self.config['pos_def_constants'][0] > 0:
+                #    p_.data = p_old + torch.log( torch.clamp( (torch.exp(p_ - p_old))/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_), min=self.config['pos_def_constants'][0]))
+                #else:
+                # clip change in params
+                p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                
+                # params directly
+                #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+
+            else:
+                sys.exit('Model has > 2 sets of params, param DP not implemented for this!')
+        #'''
+
+        # check that clipping works properly, uses log-scale, fix if needed
+        '''
+        param_norm = 0
+        for p_, p_old in zip(q.parameters(),p.trainable_copy().parameters()):
+            param_norm += torch.sum((p_ - p_old)**2)
+            #print(p_)
+        param_norm = torch.sqrt(param_norm)
+        print(f'param norm after clip: {param_norm}')
+        #'''
+            
+
         # Create non-trainable copy to send back to server
         q_new = q.non_trainable_copy()
 
@@ -279,7 +366,7 @@ class Client(ABC):
                 valid_dist=self.config["valid_factors"],
                 update_log_coeff=self.config["update_log_coeff"])
 
-            # note: only t is currently used by server:
+            # note for DP: only t is currently used by server:
             return q_new, t_new
 
         else:
@@ -287,228 +374,3 @@ class Client(ABC):
             return q_new, None
 
 
-class ClientBayesianHypers(ABC):
-    """
-    PVI client with Bayesian treatment of model hyperparameters.
-    """
-    def __init__(self, data, model, t=None, teps=None, config=None):
-
-        if config is None:
-            config = {}
-
-        #self._config = self.get_default_config()
-        self._config = config
-
-        # Set data partition and likelihood
-        self.data = data
-        self.model = model
-
-        # Set likelihood approximating term
-        self.t = t
-        self.teps = teps
-
-        self.log = defaultdict(list)
-        self._can_update = True
-
-    @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config):
-        self._config = {**self._config, **config}
-
-    @classmethod
-    def get_default_config(cls):
-        return {}
-        '''
-            "damping_factor": 1.,
-            "valid_factors": False,
-            "epochs": 1,
-            "batch_size": 100,
-            "optimiser": "Adam",
-            "optimiser_params": {"lr": 0.05},
-            "num_elbo_samples": 10,
-            "num_elbo_hyper_samples": 1,
-            "print_epochs": 1
-        }'''
-
-    def can_update(self):
-        """
-        A check to see if this client can indeed update. Examples of reasons
-        one may not be is that they haven't finished optimisation.
-        :return:
-        """
-        return self._can_update
-
-    def fit(self, q, qeps):
-        """
-        Computes the refined approximating posterior (q) and associated
-        approximating likelihood term (t). This method differs from client to
-        client, but in all cases it calls Client.q_update internally.
-        """
-        return self.update_q(q, qeps)
-
-    def update_q(self, q, qeps):
-        """
-        Computes a refined approximate posterior and the associated
-        approximating likelihood term.
-        """
-        # Pass a trainable copy to optimise.
-        q_new, qeps_new, self.t, self.teps = self.gradient_based_update(
-            q.trainable_copy(), qeps.trainable_copy())
-
-        return q_new, qeps_new, self.t, self.teps
-
-    def gradient_based_update(self, q, qeps):
-        # Cannot update during optimisation.
-        self._can_update = False
-
-        if self.t is None:
-            # Old posterior = prior, make non-trainable.
-            q_cav = q.non_trainable_copy()
-            qeps_cav = qeps.non_trainable_copy()
-        else:
-            q_cav = q.non_trainable_copy()
-            q_cav.nat_params = {k: v - self.t.nat_params[k]
-                                for k, v in q_cav.nat_params.items()}
-
-            qeps_cav = qeps.non_trainable_copy()
-            for k1, v1 in qeps.distributions.items():
-                qeps.distributions[k1].nat_params = {
-                    k2: v2 - self.teps.factors[k1].nat_params[k2]
-                    for k2, v2 in v1.nat_params.items()}
-
-        parameters = list(q.parameters()) + qeps.parameters()
-
-        # Reset optimiser. Parameters are those of q(θ) and q(ε).
-        logging.info("Resetting optimiser")
-        optimiser = getattr(torch.optim, self.config["optimiser"])(
-            parameters, **self.config["optimiser_params"])
-
-        # Set up data
-        x = self.data["x"]
-        y = self.data["y"]
-
-        tensor_dataset = TensorDataset(x, y)
-        loader = DataLoader(tensor_dataset,
-                            batch_size=self.config["batch_size"],
-                            shuffle=True)
-
-        # Dict for logging optimisation progress
-        training_curve = {
-            "elbo": [],
-            "kl": [],
-            "kleps": [],
-            "ll": [],
-            "logt": [],
-            "logteps": [],
-        }
-
-        # Gradient-based optimisation loop -- loop over epochs
-        epoch_iter = tqdm(range(self.config["epochs"]), desc="Epoch")
-        # for i in range(self.config["epochs"]):
-        for i in epoch_iter:
-            epoch = {
-                "elbo": 0,
-                "kl": 0,
-                "kleps": 0,
-                "ll": 0,
-                "logt": 0,
-                "logteps": 0,
-            }
-
-            # Loop over batches in current epoch
-            for (x_batch, y_batch) in iter(loader):
-                optimiser.zero_grad()
-
-                batch = {
-                    "x": x_batch,
-                    "y": y_batch,
-                }
-
-                # Compute KL divergence between q and p.
-                kl = q.kl_divergence(q_cav).sum() / len(x)
-                kleps = sum(qeps.kl_divergence(qeps_cav).values()) / len(x)
-
-                # Estimate E_q[log p(y | x, θ, ε)].
-                ll = 0
-                for _ in range(self.config["num_elbo_hyper_samples"]):
-                    eps = qeps.rsample()
-                    self.model.hyperparameters = eps
-                    ll += self.model.expected_log_likelihood(
-                        batch, q, self.config["num_elbo_samples"]).sum()
-
-                ll /= (self.config["num_elbo_hyper_samples"] * len(x_batch))
-
-                if self.t is not None:
-                    logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                    logteps = sum(self.teps.eqlogt(
-                        qeps, self.config["num_elbo_samples"]).values())
-                    logt /= len(x)
-                    logteps /= len(x)
-
-                    # loss = kl + kleps - ll + logt - logteps
-
-                loss = kl + kleps - ll
-                loss.backward()
-                optimiser.step()
-
-                # Keep track of quantities for current batch
-                # Will be very slow if training on GPUs.
-                epoch["elbo"] += -loss.item() / len(loader)
-                epoch["kl"] += kl.item() / len(loader)
-                epoch["kleps"] += kleps.item() / len(loader)
-                epoch["ll"] += ll.item() / len(loader)
-
-                if self.t is not None:
-                    epoch["logt"] += logt.item() / len(loader)
-                    epoch["logteps"] += logteps.item() / len(loader)
-
-            # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["kleps"].append(epoch["kleps"])
-            training_curve["ll"].append(epoch["ll"])
-
-            if self.t is not None:
-                training_curve["logt"].append(epoch["logt"])
-                training_curve["logteps"].append(epoch["logteps"])
-
-            if i % self.config["print_epochs"] == 0:
-                logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
-                             f"LL: {epoch['ll']:.3f}, "
-                             f"KL: {epoch['kl']:.3f}, "
-                             f"KL eps: {epoch['kleps']:.3f}, "
-                             f"log t: {epoch['logt']: .3f},"
-                             f"log teps: {epoch['logteps']: .3f},"
-                             f"Epochs: {i}.")
-
-            epoch_iter.set_postfix(elbo=epoch["elbo"], kl=epoch["kl"],
-                                   ll=epoch["ll"], kleps=epoch["kleps"],
-                                   logt=epoch["logt"],
-                                   logteps=epoch["logteps"])
-
-        # Log the training curves for this update
-        self.log["training_curves"].append(training_curve)
-
-        # Create non_trainable_copy to send back to server.
-        q_new = q.non_trainable_copy()
-        qeps_new = qeps.non_trainable_copy()
-
-        # Finished optimisation, can now update.
-        self._can_update = True
-
-        if self.t is not None:
-            # Compute new local contribution from old distributions
-            t_new = self.t.compute_refined_factor(
-                q, q_cav, damping=self.config["damping_factor"],
-                valid_dist=self.config["valid_factors"])
-            teps_new = self.teps.compute_refined_factor(
-                qeps, qeps_cav, damping=self.config["damping_factor"],
-                valid_dist=self.config["valid_factors"])
-
-            return q_new, qeps_new, t_new, teps_new
-
-        else:
-            return q_new, qeps_new, None, None
