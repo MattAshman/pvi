@@ -3,6 +3,8 @@
 .idea
 rough
 
+*.swp
+
 # Data files
 datasets
 data/data
