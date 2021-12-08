@@ -54,7 +54,7 @@ def main(args, rng_seed, dataset_folder):
     pbar = args.pbar
 
     # do some args checks
-    if args.dp_mode not in ['dpsgd', 'param','param_fixed','server','lfa', 'local_pvi']:
+    if args.dp_mode not in ['nondp','dpsgd', 'param','param_fixed','server','lfa', 'local_pvi']:
         raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
     if args.model not in ['pvi', 'bcm_split', 'bcm_same', 'global_vi']:
@@ -211,9 +211,11 @@ def main(args, rng_seed, dataset_folder):
     train_res = {}
     train_res['acc'] = np.zeros((args.n_global_updates))
     train_res['logl'] = np.zeros((args.n_global_updates))
+    train_res['posneg'] = []
     validation_res = {}
     validation_res['acc'] = np.zeros((args.n_global_updates))
     validation_res['logl'] = np.zeros((args.n_global_updates))
+    validation_res['posneg'] = []
     client_train_res = {}
     client_train_res['elbo'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
     client_train_res['logl'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
@@ -270,13 +272,15 @@ def main(args, rng_seed, dataset_folder):
             
         # get global train and validation acc & logl, assume to be tensors here
         #train_acc, train_logl = acc_and_ll(server, torch.tensor(x_train).float(), torch.tensor(y_train).float())
-        train_acc, train_logl = acc_and_ll(server, x_train, y_train)
-        valid_acc, valid_logl = acc_and_ll(server, valid_set['x'], valid_set['y'])
+        train_acc, train_logl, train_posneg = acc_and_ll(server, x_train, y_train)
+        valid_acc, valid_logl, valid_posneg = acc_and_ll(server, valid_set['x'], valid_set['y'])
 
         train_res['acc'][i_global] = train_acc
         train_res['logl'][ i_global] = train_logl
+        train_res['posneg'].append(train_posneg)
         validation_res['acc'][i_global] = valid_acc
         validation_res['logl'][i_global] = valid_logl
+        validation_res['posneg'].append(valid_posneg)
 
         # param tracking
         if args.track_params:
@@ -415,6 +419,44 @@ def main(args, rng_seed, dataset_folder):
         tracked['client_norms']['pre_dp_norms'] = pre_dp_norms
         tracked['client_norms']['post_dp_norms'] = post_dp_norms
 
+
+    """ # ROC curve plotting and checks
+    posneg = validation_res['posneg'][-1]
+    n_points = 101
+
+    tmp = np.linspace(0,1,n_points)
+    to_plot = np.zeros((2,n_points)) # x,y for plotting
+    for i_thr,thr in enumerate(tmp):
+        to_plot[0,i_thr] = posneg['TN'][i_thr]/(posneg['TN'][i_thr]+posneg['FP'][i_thr])  # TNR
+        to_plot[1,i_thr] = posneg['TP'][i_thr]/(posneg['TP'][i_thr]+posneg['FN'][i_thr])  # TPR
+
+
+    #print(to_plot)
+    plt.plot(tmp,to_plot[0,:] )
+    plt.plot(tmp,to_plot[1,:] )
+    plt.show()
+    
+    plt.plot(1-to_plot[0,:],to_plot[1,:] )
+    plt.show()
+
+    sys.exit()
+    #"""
+    """
+    # plot balanced & non-balanced acc
+    x = np.linspace(1,args.n_global_updates,args.n_global_updates)
+    y = np.zeros((3,args.n_global_updates))
+    for i in range(args.n_global_updates):
+        y[0,i] = validation_res['posneg'][i]['balanced_acc']
+        y[1,i] = validation_res['posneg'][i]['avg_prec_score']
+        y[2,i] = validation_res['posneg'][i]['f1_score']
+    plt.plot(x, validation_res['acc'], label='acc')
+    plt.plot(x, y[0,:], label='balanced acc')
+    plt.plot(x, y[1,:], label='avg prec score')
+    plt.plot(x, y[2,:], label='f1')
+    plt.legend()
+    plt.show()
+    #"""
+
     return validation_res, train_res, client_train_res, prop_positive, tracked
 
 
@@ -468,22 +510,22 @@ if __name__ == '__main__':
     parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
     #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
 
-    #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
 
-    parser.add_argument('--clients', default=5, type=int, help='number of clients')
+    parser.add_argument('--clients', default=10, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg. Sampling type is set based on the mode.")
+    parser.add_argument('--dp_mode', default='nondp', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")

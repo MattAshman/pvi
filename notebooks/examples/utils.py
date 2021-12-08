@@ -6,6 +6,7 @@ import sys
 from matplotlib import pyplot as plt
 import numpy as np
 from sklearn.model_selection import KFold
+from sklearn import metrics
 import torch
 import torch.utils.data
 from torchvision import transforms, datasets
@@ -203,22 +204,29 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
     return client_data, train_set, valid_set, N, prop_positive
 
 
-def acc_and_ll(server, x, y):
+def acc_and_ll(server, x, y, n_points=101):
     """Calculate model prediction acc & logl with LogisticRegression model
+    n_points : (int) number of points to calculate classification results
     """
     pred_probs = server.model_predict(x)
     pred_probs = pred_probs.mean.detach().numpy()
-    valid_acc = np.mean((pred_probs > 0.5) == y.numpy())
+    acc = np.mean((pred_probs > 0.5) == y.numpy())
     
     probs = torch.clamp(torch.tensor(pred_probs),min= 0., max=1.)
-    valid_loglik = torch.distributions.Bernoulli(probs=probs).log_prob(y)
-    valid_loglik = valid_loglik.mean().numpy()
-    
-    return valid_acc, valid_loglik
+    loglik = torch.distributions.Bernoulli(probs=probs).log_prob(y)
+    loglik = loglik.mean().numpy()
+
+    # get true & false positives and negatives
+    if len(torch.unique(y)) == 2:
+        posneg = get_posneg(y.numpy(), pred_probs, n_points)
+    else:
+        posneg = None
+
+    return acc, loglik, posneg
 
 
 
-def acc_and_ll_bnn(server, x, y):
+def acc_and_ll_bnn(server, x, y, n_points=101):
     """Calculate model prediction acc & logl for BNNs
     """
     dataset = torch.utils.data.TensorDataset(x, y)
@@ -237,7 +245,56 @@ def acc_and_ll_bnn(server, x, y):
     #acc = sum(torch.argmax(preds, dim=-1) == loader.dataset.tensors[1]) / len(loader.dataset.tensors[1])
     acc = torch.true_divide(sum(torch.argmax(preds, dim=-1) == loader.dataset.tensors[1]), len(loader.dataset.tensors[1]))
     
-    return acc, mll #valid_acc, valid_loglik
+    # get true & false pos. and neg.
+    if len(torch.unique(y)) == 2:
+        posneg = get_posneg(y.numpy(), preds[:,1].numpy(), n_points)
+    else:
+        posneg = None
+
+    return acc, mll, posneg
+
+
+def get_posneg(y, pred_probs, n_points):
+    """Fun for calculating True & False positives and negatives from binary predictions
+    """
+
+    # binary classification
+    if len(np.unique(y)) == 2:
+        if n_points == 1:
+            posneg = {
+                    'TP' : [np.sum( (pred_probs > 0.5)[y==1] == y[y==1])],
+                    'FP' : [np.sum( (pred_probs > 0.5)[y==0] != y[y==0])],
+                    'TN' : [np.sum( (pred_probs <= 0.5)[y==0] == 1-y[y==0])],
+                    'FN' : [np.sum( (pred_probs <= 0.5)[y==1] != 1-y[y==1])],
+                    'n_points' : n_points,
+                    }
+        else:
+            tmp = np.linspace(0,1,n_points)
+            posneg = {
+                    'TP' : np.zeros(n_points, dtype=int),
+                    'FP' : np.zeros(n_points, dtype=int),
+                    'TN' : np.zeros(n_points, dtype=int),
+                    'FN' : np.zeros(n_points, dtype=int),
+                    'n_points' : n_points,
+                    }
+            for i_thr, thr in enumerate(tmp):
+                posneg['TP'][i_thr] =  int(np.sum( (pred_probs > thr)[y==1] == y[y==1]))
+                posneg['FP'][i_thr] =  int(np.sum( (pred_probs > thr)[y==0] != y[y==0]))
+                posneg['TN'][i_thr] =  int(np.sum( (pred_probs <= thr)[y==0] == 1-y[y==0]))
+                posneg['FN'][i_thr] =  int(np.sum( (pred_probs <= thr)[y==1] != 1-y[y==1]))
+
+        # add some ready metrics
+        posneg['avg_prec_score'] =  metrics.average_precision_score(y_true=y, y_score=pred_probs)
+        posneg['balanced_acc'] =  metrics.balanced_accuracy_score(y_true=y, y_pred=(pred_probs > .5))
+        posneg['f1_score'] =  metrics.f1_score(y_true=y, y_pred=(pred_probs > .5))
+
+    else:
+        # multiclass classification
+        raise NotImplementedError('multiclass bal acc etc not implemented!')
+
+
+    return posneg
+
 
 
 def get_nth_split(n_splits, n, folder):
@@ -401,7 +458,7 @@ if __name__ == '__main__':
     target_delta = 1e-5
     #q = .2
 
-    ncomp=60*10
+    ncomp=20*10
     #########################################
     # adult data:
     #########################################
@@ -455,12 +512,12 @@ if __name__ == '__main__':
     #   q=.01 dp_sigma in [0.95,  0.75]
     #   q=.05 dp_sigma in [3.73,  2.00]
     #   q=.1 dp_sigma in  [7.46,  3.98]
-    #   q=.2 dp_sigma in  [14.92, 7.97]
+    #   q=.2 dp_sigma in  [14.91, 7.97]
 
     # 200 comps:   eps in [1,     2]
     #   q=.01 dp_sigma in [1.13,  0.81]
-    #   q=.05 dp_sigma in [5.28,  2.82]
-    #   q=.1 dp_sigma in  [10.56, 5.63]
+    #   q=.05 dp_sigma in [5.27,  2.82]
+    #   q=.1 dp_sigma in  [10.54, 5.63]
     #   q=.2 dp_sigma in  [21.11, 11.27]
 
     # 300 comps: eps=1
@@ -488,7 +545,7 @@ if __name__ == '__main__':
     #   q=.2 dp_sigma in  [47.15]
     #########################################
     #########################################
-    q = .01
+    q = .2
 
     sigma = bin_search_sigma(1, ncomp, target_delta, q, nx, L, lbound=.7, ubound=100., tol=1e-3, max_iters=30)
     if sigma is not None:
