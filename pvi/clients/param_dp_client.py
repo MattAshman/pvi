@@ -25,7 +25,6 @@ class Param_DP_Client(ABC):
         if config is None:
             config = {}
 
-
         #self._config = self.get_default_config()
         self._config = config
         
@@ -97,7 +96,8 @@ class Param_DP_Client(ABC):
             batch_size = int(np.floor(self.config['sampling_frac_q']*len(self.data["y"])))
         else:
             batch_size = self.config['batch_size']
-        #print(f"batch size {batch_size}, noise std:{self.config['dp_sigma']}")
+        #print(f"batch size {batch_size}, noise std:{self.config['dp_sigma']}, noise var: {self.config['dp_sigma']**2}")
+        #sys.exit()
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = p.non_trainable_copy()
@@ -204,8 +204,6 @@ class Param_DP_Client(ABC):
 
                 #logger.debug(f'optimiser starting step {i_step} with total batch_size {len(y_batch)}')
 
-                logger.debug('no dpsgd optimiser')
-
                 optimiser.zero_grad()
                 batch = {
                     "x" : x_batch,
@@ -261,6 +259,8 @@ class Param_DP_Client(ABC):
 
                 ### end loop over minibatches ###
 
+            optimiser.zero_grad()
+
             # Log progress for current epoch
             training_curve["elbo"].append(epoch["elbo"])
             training_curve["kl"].append(epoch["kl"])
@@ -288,70 +288,79 @@ class Param_DP_Client(ABC):
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
         
-        #'''
         # NOTE: might make sense to define clipping & noise levels separately for np1, np2
         # use single clip & noise level for now
-        # get norm of the change in params, clip and noisify
-        #'''
 
-        param_norm = 0
-        #for p_, p_old in zip(q.parameters(),p.trainable_copy().parameters()):
-        for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
-            if i_params == 0:
-                # difference in params
-                param_norm += torch.sum((p_ - p_old)**2)
-                # params directly
-                #param_norm += torch.sum(p_**2)
-            elif i_params == 1:
-                # difference in params
-                param_norm += torch.sum( (p_ - p_old)**2)
-                # params directly
-                #param_norm += torch.sum(p_**2) # should use exp?
+        with torch.no_grad():
+            param_norm = 0
+
+            # clip and noisify natural params as opposed to (unconstrained) loc-scale
+            if self.config['noisify_np']:
+                for k in q.nat_params:
+                    param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
 
             else:
-                sys.exit('Model has > 2 sets of params, DP not implemented for this!')
-            #print(p_)
-        param_norm = torch.sqrt(param_norm)
-        logger.debug(f'diff in param, norm before clip: {param_norm}')
+                # in unconstrained space
+                for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+                    if i_params == 0:
+                        # difference in params
+                        param_norm += torch.sum((p_ - p_old)**2)
+                        # params directly
+                        #param_norm += torch.sum(p_**2)
+                    elif i_params == 1:
+                        # difference in params
+                        param_norm += torch.sum( (p_ - p_old)**2)
+                        # params directly
+                        #param_norm += torch.sum(p_**2) # should use exp?
+                    else:
+                        sys.exit('Model has > 2 sets of params, DP not implemented for this!')
 
-        # clip and add noise to the difference in params
-        # note sensitivities: even with add/replace DP needs 2*C
-        for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
-            #p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-            if i_params == 0:
-                p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
-                # params directly
-                #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
-            elif i_params == 1:
+            param_norm = torch.sqrt(param_norm)
+            #logger.debug(f'diff in param, norm before clip: {param_norm}')
 
-                #if self.config['pos_def_constants'][0] > 0:
-                #    p_.data = p_old + torch.log( torch.clamp( (torch.exp(p_ - p_old))/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_), min=self.config['pos_def_constants'][0]))
-                #else:
-                # clip change in params
-                p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
-                
-                # params directly
-                #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+            # clip and add noise to the difference in params
+            # note on sensitivities: even with add/replace needs 2*C
+            if self.config['noisify_np']:
+                #print('\nbefore noising: {}\n'.format(q.nat_params))
+                tmp = {}
+                for k in q.nat_params:
+                    tmp[k] = (p.nat_params[k] + (q.nat_params[k]-p.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                                + 2*self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k])).detach().clone()
 
+                tmp = q._unc_from_std(q._std_from_nat(tmp))
+                for p_new, k in zip(q.parameters(),tmp):
+                    p_new.data =  tmp[k]
+
+                # check clipping:
+                '''
+                param_norm = 0
+                for k in q.nat_params:
+                    param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
+                param_norm = torch.sqrt(param_norm)
+                print(f'norm after clipping and noise: {param_norm}')
+
+                print('\nafter noising: {}\n'.format(q.nat_params))
+                sys.exit()
+                '''
             else:
-                sys.exit('Model has > 2 sets of params, param DP not implemented for this!')
-        #'''
+                for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+                    if i_params == 0:
+                        p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                                + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                        # params directly
+                        #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                        #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+                    elif i_params == 1:
+                        # clip change in params
+                        p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                                + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                        
+                        # params directly
+                        #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                        #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
 
-        # check that clipping works properly, uses log-scale, fix if needed
-        '''
-        param_norm = 0
-        for p_, p_old in zip(q.parameters(),p.trainable_copy().parameters()):
-            param_norm += torch.sum((p_ - p_old)**2)
-            #print(p_)
-        param_norm = torch.sqrt(param_norm)
-        print(f'param norm after clip: {param_norm}')
-        #'''
-            
+                    else:
+                        sys.exit('Model has > 2 sets of params, param DP not implemented for this!')
 
         # Create non-trainable copy to send back to server
         q_new = q.non_trainable_copy()
