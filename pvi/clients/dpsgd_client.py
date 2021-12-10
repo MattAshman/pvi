@@ -1,11 +1,14 @@
 import logging
 import torch
 import numpy as np
+import sys
 
 from abc import ABC
 from collections import defaultdict
 from torch.utils.data import TensorDataset, DataLoader
 from tqdm.auto import tqdm
+
+from .base import Client
 
 logger = logging.getLogger(__name__)
 
@@ -16,9 +19,8 @@ logger.setLevel(logging.INFO)
 # Client class
 # =============================================================================
 
-import sys
 
-class DPSGD_Client(ABC):
+class DPSGD_Client(Client):
     
     def __init__(self, data, model, t=None, config=None):
 
@@ -44,50 +46,6 @@ class DPSGD_Client(ABC):
         if self._config['track_client_norms']:
             self.pre_dp_norms = []
             self.post_dp_norms = []
-
-    @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config):
-        self._config = {**self._config, **config}
-
-    @classmethod
-    def get_default_config(cls):
-        return {}
-
-    def can_update(self):
-        """
-        A check to see if this client can indeed update. Examples of reasons
-        one may not be is that they haven't finished optimisation.
-        """
-        return self._can_update
-    
-    def fit(self, q, init_q=None):
-        """
-        Computes the refined approximating posterior (q) and associated
-        approximating likelihood term (t). This method differs from client to
-        client, but in all cases it calls Client.q_update internally.
-        """
-        return self.update_q(q, init_q)
-
-    def update_q(self, q, init_q=None):
-        """
-        Computes a refined approximate posterior and the associated
-        approximating likelihood term.
-        """
-
-        # Type(q) is self.model.conjugate_family.
-        if str(type(q)) == str(self.model.conjugate_family) \
-                and not self.config["train_model"]:
-            # No need to make q trainable.
-            q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
-        else:
-            # Pass a trainable copy to optimise.
-            q_new, self.t = self.gradient_based_update(p=q, init_q=init_q)
-
-        return q_new, self.t
 
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
@@ -282,21 +240,10 @@ class DPSGD_Client(ABC):
                     print(f'grad_norm after clipping: {g_norm2}')
                     #'''
 
-                #print(f"noise std={self.config['dp_sigma']}")
                 # add noise to clipped grads and avg
                 for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
-                    #print(f'grad before:\n{p_.grad}')
-                    #print(f"noiseless accumulated grads/batch:\n{cum_grads[key]/self.config['batch_size']}")
-                    #print("grad std before noise {}, var {}".format(torch.std(cum_grads[key]), torch.var(cum_grads[key] )))
-                    #print("grad std before noise/batch {}, var {}".format(torch.std(cum_grads[key]/self.config['batch_size']), torch.var(cum_grads[key]/self.config['batch_size'] )))
-                    #print(self.config['dp_C']*self.config['dp_sigma'])
-                    #p_.grad = (self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]).detach().clone()
                     p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
                     p_.grad /= batch_size
-                    #print("true grad std after noise {}, var {}".format(torch.std(p_.grad),torch.var(p_.grad) ))
-                    #print("grad std after noise {}, var {}".format(torch.std(cum_grads[key]+self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad)), torch.var(cum_grads[key]+self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) ) ))
-                    #sys.exit()
-
 
                 if self._config['track_client_norms']:
                     self.pre_dp_norms.append(grad_norm_tracker)

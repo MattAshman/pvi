@@ -12,15 +12,19 @@ logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 logger.setLevel(logging.INFO)
 
+from .base import Client
+
 # =============================================================================
 # Param DP client class
 # =============================================================================
 
 import sys
 
-class Param_DP_Client(ABC):
+class Param_DP_Client(Client):
     
     def __init__(self, data, model, t=None, config=None):
+
+        super().__init__(data=data, model=model, t=t, config=config)
 
         if config is None:
             config = {}
@@ -44,49 +48,6 @@ class Param_DP_Client(ABC):
             self.pre_dp_norms = []
             self.post_dp_norms = []
 
-    @property
-    def config(self):
-        return self._config
-
-    @config.setter
-    def config(self, config):
-        self._config = {**self._config, **config}
-
-    @classmethod
-    def get_default_config(cls):
-        return {}
-
-    def can_update(self):
-        """
-        A check to see if this client can indeed update. Examples of reasons
-        one may not be is that they haven't finished optimisation.
-        """
-        return self._can_update
-    
-    def fit(self, q, init_q=None):
-        """
-        Computes the refined approximating posterior (q) and associated
-        approximating likelihood term (t). This method differs from client to
-        client, but in all cases it calls Client.q_update internally.
-        """
-        return self.update_q(q, init_q)
-
-    def update_q(self, q, init_q=None):
-        """
-        Computes a refined approximate posterior and the associated
-        approximating likelihood term.
-        """
-
-        # Type(q) is self.model.conjugate_family.
-        if str(type(q)) == str(self.model.conjugate_family) \
-                and not self.config["train_model"]:
-            # No need to make q trainable.
-            q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
-        else:
-            # Pass a trainable copy to optimise.
-            q_new, self.t = self.gradient_based_update(p=q, init_q=init_q)
-
-        return q_new, self.t
 
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
