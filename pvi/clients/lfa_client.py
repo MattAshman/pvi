@@ -1,4 +1,5 @@
 
+from abc import ABC
 from collections import defaultdict
 import itertools
 import logging
@@ -39,7 +40,7 @@ class LFA_Client(Client):
     
     def __init__(self, data, model, t, config=None):
         
-        super().__init__(data=data, model=model, t=t, config=config)
+        #super().__init__(data=data, model=model, t=t, config=config)
 
         if config is None:
             config = {}
@@ -56,8 +57,9 @@ class LFA_Client(Client):
         if config['batch_size'] is None:
             self.n_local_models = int(np.ceil(1/(config['sampling_frac_q']))  )
         else:
-            self.n_local_models = int(np.ceil((self.data['y'].shape[-1])/config['batch_size']))
-        
+            self.n_local_models = int(np.floor((self.data['y'].shape[-1])/config['batch_size']))
+            #print(f"data len={len(self.data['y'])}, b={config['batch_size']}, n_models={self.n_local_models}, would need data len {config['batch_size']*self.n_local_models}")
+            #sys.exit()
         self.optimiser_states = None
         
         # Set likelihood approximating term
@@ -78,19 +80,18 @@ class LFA_Client(Client):
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = p.non_trainable_copy()
 
-        if self.config['sampling_frac_q'] is not None:
-            # use different b for different models to use all data once: first models might have more data than last
-            # min batch_size from number of local models
-            tmp1 = int(np.floor((self.data['y'].shape[-1])/self.n_local_models))
-            if tmp1 == 0:
-                raise ValueError('Using batch_size=0! Try increasing sampling frac!')
-            tmp2 = len(self.data['y']) - tmp1*self.n_local_models
-            batch_sizes = np.zeros(self.n_local_models, dtype=int) + tmp1
-            batch_sizes[:tmp2] += 1
-            #print(tmp1,tmp2)
-            #sys.exit()
-        else:
-            batch_sizes =  np.zeros(self.n_local_models, dtype=int) + self.config['batch_size']
+        # use different b for different models to use all data once: first models might have more data than last
+        logger.debug('Using differing batch_size in local models to use all local data')
+        tmp1 = int(np.floor((self.data['y'].shape[-1])/self.n_local_models))
+        if tmp1 < 1:
+            raise ValueError('Using batch_size < 1! Try increasing sampling frac!')
+        tmp2 = len(self.data['y']) - tmp1*self.n_local_models
+        batch_sizes = np.zeros(self.n_local_models, dtype=int) + tmp1
+        batch_sizes[:tmp2] += 1
+        #print(tmp1,tmp2)
+        #print(np.unique(batch_sizes))
+        #print(batch_sizes)
+        #print(np.sum(batch_sizes), len(self.data['y']))
 
         if self.t is None:
             # Standard VI: prior = old posterior.
@@ -125,13 +126,16 @@ class LFA_Client(Client):
             parameters = q.parameters()
 
         param_accumulator = {}
-        for i_p,p in enumerate(q.parameters()):
-            param_accumulator[str(i_p)] = torch.zeros_like(p)
+        if self.config['noisify_np']:
+            for k in q.nat_params:
+                param_accumulator[k] = torch.zeros_like(q._nat_params[k])
+        else:
+            for i_p,p in enumerate(q.parameters()):
+                param_accumulator[str(i_p)] = torch.zeros_like(p)
 
         # create optimiser states on the first call
         if self.optimiser_states is None:
-            if self.config['sampling_frac_q'] is not None:
-                print(f"Amount of local data:{len(self.data['y'])}, sampling frac:{self.config['sampling_frac_q']}, min,max batch_sizes:{np.amin(batch_sizes),np.amax(batch_sizes)}, sum of all batch sizes: {np.sum(batch_sizes)}, number of local models:{self.n_local_models}")
+            #print(f"Amount of local data:{len(self.data['y'])}, sampling frac:{self.config['sampling_frac_q']}, min,max batch_sizes:{np.amin(batch_sizes),np.amax(batch_sizes)}, sum of all batch sizes: {np.sum(batch_sizes)}, number of local models:{self.n_local_models}")
 
             optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -142,9 +146,6 @@ class LFA_Client(Client):
             self.optimiser_states = []
             for i_state in range(self.n_local_models):
                 self.optimiser_states.append(optimiser.state_dict())
-
-            #print(self.optimiser_states[0])
-            #sys.exit()
 
         # Set up data
         x = self.data["x"]
@@ -187,7 +188,6 @@ class LFA_Client(Client):
         # Loop over samples
         batch_iter = tqdm(iter(loader), desc="Batch", leave=True, disable=self.config['pbar'])
 
-        #for i_batch, (x_single, y_single) in enumerate(tqdm(iter(loader))):
         for i_batch, (x_batch, y_batch) in enumerate(batch_iter):
             #print(f'batch=model number {i_batch} ')
 
@@ -204,16 +204,11 @@ class LFA_Client(Client):
             # optimise separate model on each batch for some number of steps
             for i_step in range(self.config['epochs']):
 
-                # eli: n_epochs=lokaalien askelten määrä/malli; len(loader)=len(x) (tällä hetkellä)
-
                 optimiser.zero_grad()
 
                 # Compute KL divergence between q and q_cav.
                 try:
-                    #kl = q.kl_divergence(q_cav).sum() / batch_sizes[i_batch] # data size for each model = batch_size for LFA
-                    kl = q.kl_divergence(q_cav).sum() / len(x) # use true full data size for each model
-                    #print(f'kl shape: {q.kl_divergence(q_cav).shape}')
-                    #print(kl)
+                    kl = q.kl_divergence(q_cav).sum() / len(x)
                 except ValueError as err:
                     # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
                     print('\nException in KL: probably caused by invalid cavity distribution')
@@ -228,13 +223,11 @@ class LFA_Client(Client):
                 # Sample θ from q and compute p(y | θ, x) for each θ
                 ll = self.model.expected_log_likelihood(
                     batch, q, self.config["num_elbo_samples"]).sum()
-                ll /= batch_sizes[i_batch] #batch_size
+                ll /= batch_sizes[i_batch]
 
                 if self.t is not None:
                     # Compute E_q[log t(θ)]. this is only for bookkeeping, not used in loss
                     logt = self.t.eqlogt(q, self.config["num_elbo_samples"])
-                    #logt = torch.zeros(1)
-                    #logt /= len(x) # not used for optimisation, only for bookkeeping; use same scaling as for other methods
 
                 # Negative local free energy is KL minus log-probability.
                 loss = kl - ll # NOTE: doesn't have LFA regularizer at the moment, should add?
@@ -275,7 +268,6 @@ class LFA_Client(Client):
                     if self.t is not None:
                         training_curve["logt"][i_step] += epoch["logt"] / len(loader)
 
-
                 optimiser.step()
 
             batch_iter.set_postfix(elbo=epoch["elbo"]/(i_batch+1), kl=epoch["kl"]/(i_batch+1),
@@ -286,38 +278,70 @@ class LFA_Client(Client):
             self.optimiser_states[i_batch] = optimiser.state_dict()
            
             # get norm of the change in params
-            delta_param_norm = 0
-            for p0, p in zip(model_checkpoint.parameters(), q.parameters()):
-                delta_param_norm += torch.sum((p0-p)**2)
-            delta_param_norm = torch.sqrt(delta_param_norm)
-            #print(f'delta norm: {delta_param_norm}')
+            with torch.no_grad():
+                delta_param_norm = 0
+                # clip and noisify natural params as opposed to (unconstrained) loc-scale
+                if self.config['noisify_np']:
+                    for k in q.nat_params:
+                        delta_param_norm += torch.sum((q.nat_params[k] - model_checkpoint.nat_params[k])**2)
+                else:
+                    for p0, p in zip(model_checkpoint.parameters(), q.parameters()):
+                        delta_param_norm += torch.sum((p0-p)**2)
+                delta_param_norm = torch.sqrt(delta_param_norm)
+                logger.debug(f'delta norm: {delta_param_norm}')
 
-            # clip, accumulate clipped change in params, and return to the model checkpoint
-            for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
-                #if clip_params_directly:
-                #    weight_acc[str(i_param)] += p.detach().clone()/torch.clamp(param_norm/dp_C, min=1)
-                #else:
-                param_accumulator[str(i_param)] += ((p-p0)/torch.clamp(delta_param_norm/self.config['dp_C'], min=1)).detach().clone()
+                # clip, accumulate clipped change in params, and return to the model checkpoint
+                if self.config['noisify_np']:
 
-                # return to model checkpoint for the next sample
-                p.data = p0.detach().clone()
+                    #print('\nbefore noising: {}\n'.format(q.nat_params))
+                    #tmp = {}
+                    for k in q.nat_params:
+                        param_accumulator[k] += ((q.nat_params[k]-model_checkpoint.nat_params[k])/torch.clamp(delta_param_norm/self.config['dp_C'], min=1)).detach().clone()
+
+                    # return to model checkpoint
+                    for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
+                        p.data = p0.detach().clone()
+
+                else:
+                    for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
+                        #if clip_params_directly:
+                        #    weight_acc[str(i_param)] += p.detach().clone()/torch.clamp(param_norm/dp_C, min=1)
+                        #else:
+                        param_accumulator[str(i_param)] += ((p-p0)/torch.clamp(delta_param_norm/self.config['dp_C'], min=1)).detach().clone()
+
+                        # return to model checkpoint for the next sample
+                        p.data = p0.detach().clone()
+
+            for p in q.parameters():
                 p.requires_grad = True
 
+        # add noise to sum of clipped change in parameters, take avg, add DP change in params to starting point to get new params
+        if self.config['noisify_np']:
+            tmp = {}
+            for k in q.nat_params:
+                tmp[k] = (model_checkpoint.nat_params[k] + (param_accumulator[k] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k]) )/self.n_local_models).detach().clone()
 
-        # add noise for DP and do local avg
-        for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
-            # add noise to sum of clipped change in parameters and take avg, add DP change in params to starting point to get new params
-            p.data = (p0 +  (param_accumulator[str(i_param)] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n_local_models).detach().clone()
+            tmp = q._unc_from_std(q._std_from_nat(tmp))
+            for p_new, k in zip(q.parameters(),tmp):
+                p_new.data =  tmp[k]
+
+        else:
+            for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
+                p.data = (p0 +  (param_accumulator[str(i_param)] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n_local_models).detach().clone()
 
 
         if self.config['track_client_norms']:
             # get norm of the change in params
             delta_param_norm = 0
-            for p0, p in zip(model_checkpoint.parameters(), q.parameters()):
-                delta_param_norm += torch.sum((p0-p)**2)
+            if self.config['noisify_np']:
+                for k in q.nat_params:
+                    delta_param_norm += torch.sum((q.nat_params[k] - model_checkpoint.nat_params[k])**2)
+            else:
+                for p0, p in zip(model_checkpoint.parameters(), q.parameters()):
+                    delta_param_norm += torch.sum((p0-p)**2)
             delta_param_norm = torch.sqrt(delta_param_norm)
             #param_norm_trace[i_batch] = delta_param_norm.cpu().numpy()
-            self.post_dp_norms.append(delta_param_norm.item()) 
+            self.post_dp_norms.append(delta_param_norm.item())
 
         #if i % self.config["print_epochs"] == 0:
         logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
