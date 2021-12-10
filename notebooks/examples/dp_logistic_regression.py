@@ -129,6 +129,7 @@ def main(args, rng_seed, dataset_folder):
         'track_client_norms' : args.track_client_norms,
         'clients' : args.clients, # total number of clients
         "pbar" : pbar, 
+        'noisify_np': True, # for param DP and related dp modes: if True clip and noisify natural parameters, otherwise use unconstrained loc-scale. No effect on DPSGD.
     }
     # change batch_size for LFA
     #if args.dp_mode == 'lfa':
@@ -525,7 +526,7 @@ if __name__ == '__main__':
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='nondp', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
+    parser.add_argument('--dp_mode', default='lfa', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")

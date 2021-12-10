@@ -132,6 +132,7 @@ def main(args, rng_seed, dataset_folder):
         'track_client_norms' : args.track_client_norms,
         'clients' : args.clients, # total number of clients
         "pbar" : pbar, 
+        'noisify_np': True, # for param DP and related dp modes: if True clip and noisify natural parameters, otherwise use unconstrained loc-scale. No effect on DPSGD.
     }
     # change batch_size for LFA
     #if args.dp_mode == 'lfa':
@@ -146,9 +147,6 @@ def main(args, rng_seed, dataset_folder):
 
     # Initialise clients, q and server
     clients = set_up_clients(model, client_data, init_nat_params, client_config, args)
-
-    #print(clients[0])
-    #sys.exit()
 
     # Initial parameters.
     init_q_std_params = {
@@ -246,21 +244,10 @@ def main(args, rng_seed, dataset_folder):
     if args.track_params:
         logger.warning('tracking all parameter histories, this might be costly!')
         
-        #print(server.q.__dict__)
-        #print(server.q._nat_params)
-        #print(server.q._std_from_nat())
-        #sys.exit()
-        #def _std_from_nat(cls, nat_params):
-        #np1 = nat_params["np1"]
-        #np2 = nat_params["np2"]
-
-        # note: after training get natural params
         param_trace1 = np.zeros((args.n_global_updates+1, len(server.q._std_params['loc']))) 
         param_trace2 = np.zeros((args.n_global_updates+1, len(server.q._std_params['scale'])))
         param_trace1[0,:] = server.q._std_params['loc'].detach().numpy()
         param_trace2[0,:] = server.q._std_params['scale'].detach().numpy()
-
-    
 
     i_global = 0
     logger.info('Starting model training')
@@ -352,8 +339,6 @@ def main(args, rng_seed, dataset_folder):
         plt.show()
         
         #sys.exit()
-
-
 
     if args.track_params and args.plot_tracked:
         # plot distance from init
@@ -447,22 +432,6 @@ def main(args, rng_seed, dataset_folder):
     sys.exit()
     #"""
 
-    """
-    # plot balanced & non-balanced acc
-    x = np.linspace(1,args.n_global_updates,args.n_global_updates)
-    y = np.zeros((3,args.n_global_updates))
-    for i in range(args.n_global_updates):
-        y[0,i] = validation_res['posneg'][i]['balanced_acc']
-        y[1,i] = validation_res['posneg'][i]['avg_prec_score']
-        y[2,i] = validation_res['posneg'][i]['f1_score']
-    plt.plot(x, validation_res['acc'], label='acc')
-    plt.plot(x, y[0,:], label='balanced acc')
-    plt.plot(x, y[1,:], label='avg prec score')
-    plt.plot(x, y[2,:], label='f1')
-    plt.legend()
-    plt.show()
-    #"""
-
 
     return validation_res, train_res, client_train_res, prop_positive, tracked
 
@@ -509,26 +478,26 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
     parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
-    parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
+    parser.add_argument('-lr', '--learning_rate', default=2e-3, type=float, help='learning rate')
     parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or LFA, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
     parser.add_argument('--dp_sigma', default=None, type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=None, type=float, help='gradient norm bound')
     #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
     parser.add_argument('--n_classes', default=2, type=int, help="Number of classes to predict")
     parser.add_argument('--latent_dim', default=50, type=int, help="BNN latent dim")
     parser.add_argument('--n_layers', default=1, type=int, help="number of BNN (latent) layers")
     parser.add_argument('--init_var', default=1e-3, type=float, help='Initial BNN variance')
 
-    parser.add_argument('--clients', default=5, type=int, help='number of clients')
+    parser.add_argument('--clients', default=10, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
@@ -538,7 +507,7 @@ if __name__ == '__main__':
     parser.add_argument('--damping_factor', default=.4, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='nondp', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
+    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
 
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
