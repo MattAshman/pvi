@@ -319,13 +319,12 @@ class Param_DP_Client(ABC):
             #logger.debug(f'diff in param, norm before clip: {param_norm}')
 
             # clip and add noise to the difference in params
-            # note on sensitivities: even with add/replace needs 2*C
             if self.config['noisify_np']:
                 #print('\nbefore noising: {}\n'.format(q.nat_params))
                 tmp = {}
                 for k in q.nat_params:
                     tmp[k] = (p.nat_params[k] + (q.nat_params[k]-p.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                                + 2*self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k])).detach().clone()
+                                + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k])).detach().clone()
 
                 tmp = q._unc_from_std(q._std_from_nat(tmp))
                 for p_new, k in zip(q.parameters(),tmp):
@@ -346,18 +345,18 @@ class Param_DP_Client(ABC):
                 for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
                     if i_params == 0:
                         p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                                + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                                + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
                         # params directly
                         #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                        #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+                        #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
                     elif i_params == 1:
                         # clip change in params
                         p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                                + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
+                                + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
                         
                         # params directly
                         #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                        #        + 2*self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
+                        #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
 
                     else:
                         sys.exit('Model has > 2 sets of params, param DP not implemented for this!')
