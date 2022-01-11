@@ -1,8 +1,8 @@
-from .base import ExponentialFamilyDistribution
-from pvi.utils.psd_utils import psd_inverse, psd_logdet, safe_psd_inverse
-
 import torch
 import numpy as np
+
+from .base import ExponentialFamilyDistribution
+from pvi.utils.psd_utils import psd_inverse, psd_logdet, safe_psd_inverse
 
 
 # =============================================================================
@@ -206,8 +206,21 @@ class DirichletDistribution(ExponentialFamilyDistribution):
         return torch.distributions.Dirichlet
 
     @property
-    def mean_params(self):
-        raise NotImplementedError
+    def batch_dims(self):
+        batch_dims = len(self.nat_params["np1"].shape) - 1
+
+        return batch_dims
+
+    def log_a(self, nat_params=None):
+        if nat_params is None:
+            nat_params = self.nat_params
+
+        np1 = nat_params["np1"]
+        conc = np1 + 1.0
+        log_a = torch.lgamma(conc).sum(-1)
+        log_a -= torch.lgamma(conc.sum(-1))
+
+        return log_a
 
     @staticmethod
     def _std_from_unc(unc_params):
@@ -222,7 +235,7 @@ class DirichletDistribution(ExponentialFamilyDistribution):
     def _unc_from_std(std_params):
 
         conc = std_params["concentration"].detach()
-        log_conc = torch.exp(conc)
+        log_conc = torch.log(conc)
 
         unc = {"up1": torch.nn.Parameter(log_conc)}
 
@@ -248,7 +261,11 @@ class DirichletDistribution(ExponentialFamilyDistribution):
 
     @staticmethod
     def _mean_from_std(std_params):
-        raise NotImplementedError
+        conc = std_params["concentration"]
+
+        mp = {"m1": torch.digamma(conc) - torch.digamma(conc.sum(-1))}
+
+        return mp
 
 
 # =============================================================================
@@ -412,3 +429,169 @@ class LogNormalDistribution(MeanFieldGaussianDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.LogNormal
+
+
+# =============================================================================
+# Categorical distribution
+# =============================================================================
+
+
+class CategoricalDistribution(ExponentialFamilyDistribution):
+    @property
+    def torch_dist_class(self):
+        return torch.distributions.Categorical
+
+    @property
+    def batch_dims(self):
+        batch_dims = len(self.nat_params["np1"].shape) - 1
+
+        return batch_dims
+
+    def log_a(self, nat_params=None):
+        return 0
+
+    @ExponentialFamilyDistribution.std_params.setter
+    def std_params(self, std_params):
+        std_params["probs"] = std_params["probs"] / std_params["probs"].sum(
+            -1
+        ).unsqueeze(-1)
+
+        ExponentialFamilyDistribution.std_params.fset(self, std_params)
+
+    @ExponentialFamilyDistribution.nat_params.setter
+    def nat_params(self, nat_params):
+        log_p = nat_params["log_probs"]
+        p = log_p.exp()
+        p = p / p.sum(-1).unsqueeze(-1)
+        nat_params["log_probs"] = p.log()
+
+        ExponentialFamilyDistribution.nat_params.fset(self, nat_params)
+
+    @staticmethod
+    def _std_from_unc(unc_params):
+        log_p = unc_params["log_probs"]
+        p = log_p.exp()
+        p = p / p.sum(-1).unsqueeze(-1)
+
+        std = {"probs": p}
+
+        return std
+
+    @staticmethod
+    def _unc_from_std(std_params):
+        p = std_params["probs"].detach()
+
+        unc = {
+            "log_probs": torch.nn.Parameter(p.log()),
+        }
+
+        return unc
+
+    @staticmethod
+    def _nat_from_std(std_params):
+        p = std_params["probs"]
+
+        nat = {"log_probs": torch.log(p)}
+
+        return nat
+
+    @staticmethod
+    def _std_from_nat(nat_params):
+        log_p = nat_params["log_probs"]
+
+        std = {
+            "probs": log_p.exp(),
+        }
+
+        return std
+
+    @staticmethod
+    def _mean_from_std(std_params):
+        p = std_params["probs"]
+
+        mp = {
+            "probs": p,
+        }
+
+        return mp
+
+
+# =============================================================================
+# Beta distribution
+# =============================================================================
+
+
+class BetaDistribution(ExponentialFamilyDistribution):
+    @property
+    def torch_dist_class(self):
+        return torch.distributions.Beta
+
+    @property
+    def batch_dims(self):
+        batch_dims = len(self.nat_params["np1"].shape) - 1
+
+        return batch_dims
+
+    def log_a(self, nat_params=None):
+        if nat_params is None:
+            nat_params = self.nat_params
+
+        np1 = nat_params["np1"]
+        np2 = nat_params["np2"]
+
+        log_a = (
+            torch.lgamma(np1 + 1) + torch.lgamma(np2 + 1) - torch.lgamma(np1 + np2 + 2)
+        ).sum(-1)
+
+        return log_a
+
+    @staticmethod
+    def _std_from_unc(unc_params):
+        log_alpha = unc_params["log_alpha"]
+        log_beta = unc_params["log_beta"]
+
+        std = {"concentration1": log_alpha.exp(), "concentration0": log_beta.exp()}
+
+        return std
+
+    @staticmethod
+    def _unc_from_std(std_params):
+        alpha = std_params["concentration1"]
+        beta = std_params["concentration0"]
+
+        unc = {
+            "log_alpha": torch.nn.Parameter(alpha.log()),
+            "log_beta": torch.nn.Parameter(beta.log()),
+        }
+
+        return unc
+
+    @staticmethod
+    def _nat_from_std(std_params):
+        alpha = std_params["concentration1"]
+        beta = std_params["concentration0"]
+
+        nat = {"np1": alpha - 1, "np2": beta - 1}
+
+        return nat
+
+    @staticmethod
+    def _std_from_nat(nat_params):
+        np1 = nat_params["np1"]
+        np2 = nat_params["np2"]
+
+        std = {"concentration1": np1 + 1, "concentration0": np2 + 2}
+
+        return std
+
+    @staticmethod
+    def _mean_from_std(std_params):
+        alpha = std_params["concentration1"]
+        beta = std_params["concentration0"]
+
+        mp = {
+            "m1": torch.digamma(alpha) - torch.digamma(alpha + beta),
+            "m2": torch.digamma(beta) - torch.digamma(alpha + beta),
+        }
+
+        return mp
