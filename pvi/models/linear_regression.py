@@ -22,12 +22,12 @@ class LinearRegressionModel(Model, nn.Module):
         self.train_sigma = train_sigma
         if self.train_sigma:
             self.register_parameter("log_outputsigma", nn.Parameter(
-                torch.tensor(self.hyperparameters["outputsigma"]).log(),
+                torch.as_tensor(self.hyperparameters["outputsigma"]).log(),
                 requires_grad=True))
         else:
             self.register_buffer(
                 "log_outputsigma",
-                torch.tensor(self.hyperparameters["outputsigma"]).log())
+                torch.as_tensor(self.hyperparameters["outputsigma"]).log())
 
         # Set ε after model is constructed.
         self.hyperparameters = self.hyperparameters
@@ -71,7 +71,7 @@ class LinearRegressionModel(Model, nn.Module):
         :return: A default set of ε for the model.
         """
         return {
-            "outputsigma": torch.tensor(1.),
+            "outputsigma": torch.tensor(.1),
         }
 
     def forward(self, x, q, **kwargs):
@@ -82,20 +82,51 @@ class LinearRegressionModel(Model, nn.Module):
         :param q: The approximate posterior distribution q(θ).
         :return: ∫ p(y | θ, x) q(θ) dθ.
         """
-        prec = -2 * q.nat_params["np2"]
-        mu = torch.solve(
-            q.nat_params["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
-
         if self.include_bias:
             x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
         else:
             x_ = x
+            
+        std_params = q.std_params
+        q_loc = std_params["loc"]
+                    
+        if isinstance(q.distribution, distributions.Normal):
+            q_scale = std_params["scale"]
+            q_cov = q_scale.diag_embed() ** 2
+        elif isinstance(q.distribution, distributions.MultivariateNormal):
+            q_cov = std_params["covariance_matrix"]
+            
+        for _ in range(len(q_loc.shape) - 1):
+            x_ = x_.unsqueeze(0)
+            
+        # (*, N, D, 1).
+        x_ = x_.unsqueeze(-1)
+        
+        # (*, 1, D).
+        q_loc = q_loc.unsqueeze(-2)
+        
+        # (*, 1, D, D).
+        q_cov = q_cov.unsqueeze(-3)
+        
+        qy_loc = q_loc.unsqueeze(-2).matmul(x_).reshape(*q_loc.shape[:-2], -1)
+        qy_var = x_.transpose(-1, -2).matmul(q_cov).matmul(x_).reshape(*q_loc.shape[:-2], -1)
+        
+        return distributions.Normal(qy_loc, qy_var ** 0.5)
+            
+        # prec = -2 * q.nat_params["np2"]
+        # mu = torch.solve(
+        #     q.nat_params["np1"].unsqueeze(-1), prec)[0].squeeze(-1)
 
-        ppmu = x_.matmul(mu)
-        ppvar = x_.unsqueeze(-2).matmul(
-            torch.solve(x_.unsqueeze(-1), prec)[0]).reshape(-1)
+        # if self.include_bias:
+        #     x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
+        # else:
+        #     x_ = x
 
-        return distributions.Normal(ppmu, ppvar**0.5)
+        # ppmu = x_.matmul(mu)
+        # ppvar = x_.unsqueeze(-2).matmul(
+        #     torch.solve(x_.unsqueeze(-1), prec)[0]).reshape(-1)
+
+        # return distributions.Normal(ppmu, ppvar**0.5)
 
     def likelihood_forward(self, x, theta, **kwargs):
         """
@@ -104,26 +135,27 @@ class LinearRegressionModel(Model, nn.Module):
         :param theta: The latent variables of the model, (*, D + 1).
         :return: p(y | θ, x)
         """
-        assert len(x.shape) in [1, 2], "x must be (*, D)."
-        assert len(x.shape) in [1, 2], "theta must be (*, D)."
+        assert len(x.shape) == 2, "x must be (N, D)."
+        assert len(theta.shape) > 1, "Must have at least one batch dimension."
+        assert theta.shape[-1] == (x.shape[-1] + self.include_bias)
 
         if self.include_bias:
             x_ = torch.cat((x, torch.ones(len(x)).unsqueeze(-1)), dim=1)
         else:
             x_ = x
-
-        if len(theta.shape) == 1:
-            mu = x.unsqueeze(-2).matmul(theta.unsqueeze(-1)).reshape(-1)
-        else:
-            if len(x.shape) == 1:
-                x_r = x_.unsqueeze(0).repeat(len(theta), 1)
-                mu = x_r.unsqueeze(-2).matmul(theta.unsqueeze(-1)).reshape(-1)
-            else:
-                x_r = x.unsqueeze(0).repeat(len(theta), 1, 1)
-                theta_r = theta.unsqueeze(1).repeat(1, len(x_), 1)
-                mu = x_r.unsqueeze(-2).matmul(theta_r.unsqueeze(-1)).reshape(
-                    len(theta), len(x_))
-
+            
+        for _ in range(len(theta.shape) - 1):
+            x_ = x_.unsqueeze(0)
+        
+        # (*, N, 1, D).
+        x_ = x_.unsqueeze(-2)
+        
+        # (*, 1, D, 1).
+        theta = theta.unsqueeze(-2).unsqueeze(-1)
+        
+        # (*, N).
+        mu = x_.matmul(theta).squeeze(-1).squeeze(-1)
+            
         return distributions.Normal(mu, self.outputsigma)
 
     def conjugate_update(self, data, q, t=None):

@@ -64,7 +64,6 @@ class LogisticRegressionModel(Model, nn.Module):
         """
         if self.config["use_probit_approximation"]:
             # Use Probit approximation.
-            q_loc = q.std_params["loc"]
 
             if self.include_bias:
                 x_ = torch.cat(
@@ -72,19 +71,33 @@ class LogisticRegressionModel(Model, nn.Module):
             else:
                 x_ = x
 
-            x_ = x_.unsqueeze(-1)
-
-            if str(type(q)) == str(MultivariateGaussianDistribution):
+            q_loc = q.std_params["loc"]
+            if isinstance(q.distribution, distributions.MultivariateNormal):
                 q_cov = q.std_params["covariance_matrix"]
-            else:
+            elif isinstance(q.distribution, distributions.Normal):
                 q_scale = q.std_params["scale"]
                 q_cov = q_scale.diag_embed() ** 2
+                
+            for _ in range(len(q_loc.shape) - 1):
+                    x_ = x_.unsqueeze(0)
+                 
+            # (*, N, D, 1).   
+            x_ = x_.unsqueeze(-1)
+            
+            # (*, 1, D). 
+            q_loc = q_loc.unsqueeze(-2)
+                    
+            # (*, 1, D, D).
+            q_cov = q_cov.unsqueeze(-3)
 
-            denom = x_.transpose(-1, -2).matmul(q_cov).matmul(x_).reshape(-1)
+            # (*, N).
+            denom = x_.transpose(-1, -2).matmul(q_cov).matmul(x_).reshape(*q_loc.shape[:-2], -1)
             denom = (1 + np.pi * denom / 8) ** 0.5
-            logits = q_loc.unsqueeze(-2).matmul(x_).reshape(-1) / denom
-
-            return distributions.Bernoulli(logits=logits)
+            logits = q_loc.unsqueeze(-2).matmul(x_).reshape(*q_loc.shape[:-2], -1) / denom
+            
+            # batch_shape = (*, N).
+            dist = distributions.Bernoulli(logits=logits)
+            return dist
 
         else:
             thetas = q.distribution.sample(
@@ -99,30 +112,33 @@ class LogisticRegressionModel(Model, nn.Module):
     def likelihood_forward(self, x, theta, **kwargs):
         """
         Returns the model's likelihood p(y | θ, x).
-        :param x: Input of shape (*, D).
+        :param x: Input of shape (N, D).
         :param theta: Parameters of shape (*, D + 1).
         :return: Bernoulli distribution.
         """
-        assert len(x.shape) in [1, 2], "x must be (*, D)."
-        assert len(theta.shape) in [1, 2], "theta must be (*, D)."
+        assert len(x.shape) == 2, "x must be (N, D)."
+        assert len(theta.shape) > 1, "θ must have at least one batch dimension."
+        assert theta.shape[-1] == (x.shape[-1] + self.include_bias)
 
         if self.include_bias:
             x_ = torch.cat((x, torch.ones(len(x)).to(x).unsqueeze(-1)), dim=1)
         else:
             x_ = x
 
-        if len(theta.shape) == 1:
-            logits = x_.unsqueeze(-2).matmul(theta.unsqueeze(-1))
+        if len(x.shape) == 1:
+            x_r = x_.unsqueeze(0).repeat(len(theta), 1)
+            logits = x_r.unsqueeze(-2).matmul(
+                theta.unsqueeze(-1)).reshape(-1)
         else:
-            if len(x.shape) == 1:
-                x_r = x_.unsqueeze(0).repeat(len(theta), 1)
-                logits = x_r.unsqueeze(-2).matmul(
-                    theta.unsqueeze(-1)).reshape(-1)
-            else:
-                x_r = x_.unsqueeze(0).repeat(len(theta), 1, 1)
-                theta_r = theta.unsqueeze(1).repeat(1, len(x_), 1)
-                logits = x_r.unsqueeze(-2).matmul(
-                    theta_r.unsqueeze(-1)).reshape(len(theta), len(x_))
+            for _ in range(len(theta.shape) - 1):
+                x_ = x_.unsqueeze(0)
+            # (*, N, 1, D).
+            x_ = x_.unsqueeze(-2)
+                
+            # (*, 1, D, 1).
+            theta = theta.unsqueeze(-2).unsqueeze(-1)
+            
+            logits = x_.matmul(theta).squeeze(-1).squeeze(-1)
 
         return distributions.Bernoulli(logits=logits)
 

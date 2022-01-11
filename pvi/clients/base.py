@@ -324,8 +324,16 @@ class Client:
 
             if self.t is not None:
                 training_metrics["logt"].append(epoch["logt"])
+                
+            stop_early = self.config["early_stopping"](
+                training_metrics, model=q.non_trainable_copy()
+            )
 
-            if i > 0 and i % self.config["print_epochs"] == 0:
+            if (
+                (i > 0 and i % self.config["print_epochs"] == 0)
+                or i == (self.config["epochs"] - 1)
+                or stop_early
+            ):
                 # Update global posterior before evaluating performance.
                 self.q = q.non_trainable_copy()
 
@@ -360,9 +368,7 @@ class Client:
                 lr_scheduler.step()
 
             # Check whether to stop early.
-            if self.config["early_stopping"](
-                scores=training_metrics, model=q.non_trainable_copy()
-            ):
+            if stop_early:
                 break
 
         # Log the training curves for this update.

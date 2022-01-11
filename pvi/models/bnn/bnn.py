@@ -28,7 +28,6 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
 
     def get_default_config(self):
         return {
-            "num_predictive_samples": 10,
             "latent_dim": 128,
             "num_layers": 2,
         }
@@ -39,11 +38,10 @@ class FullyConnectedBNN(Model, nn.Module, ABC):
         """
         return {}
 
-    def forward(self, x, q, **kwargs):
+    def forward(self, x, q, num_samples=10, **kwargs):
 
-        # Number of θ samples to draw
-        num_pred_samples = self.config["num_predictive_samples"]
-        theta = q.distribution.sample((num_pred_samples,))
+        # Number of θ samples to draw.
+        theta = q.distribution.sample((num_samples,))
 
         # Collection of output distributions, one for each θ, x pair
         # Distribution assumed to be of shape (S, N, D).
