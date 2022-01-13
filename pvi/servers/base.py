@@ -42,7 +42,7 @@ class Server(ABC):
         # Clients.
         self.clients = clients
 
-        # Union of clients data
+        # Union of clients data.
         if data is None:
             self.data = {
                 k: torch.cat([client.data[k] for client in self.clients], dim=0)
@@ -141,9 +141,10 @@ class Server(ABC):
             metrics = {**default_metrics, **metrics}
 
         if self.config["performance_metrics"] is not None:
-            train_metrics = self.config["performance_metrics"](self, self.data)
-            for k, v in train_metrics.items():
-                metrics["train_" + k] = v
+            if self.data is not None:
+                train_metrics = self.config["performance_metrics"](self, self.data)
+                for k, v in train_metrics.items():
+                    metrics["train_" + k] = v
 
             if self.val_data is not None:
                 val_metrics = self.config["performance_metrics"](self, self.val_data)
