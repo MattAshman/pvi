@@ -70,14 +70,14 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
             if i == 0:
                 logger.debug('Init param DP clients')
         elif args.dp_mode in ['dpsgd']:
-            if args.batch_size is None or args.sampling_frac_q is None:
-                client = DPSGD_Client(data=data, model=model, t=t, config=config)
-                if i == 0:
-                    logger.debug('Init DPSGD clients')
-            else:
+            if args.batch_size is not None and args.sampling_frac_q is not None:
                 client = Userlevel_DPSGD_Client(data=data, model=model, t=t, config=config)
                 if i == 0:
                     logger.debug('Init user-level DPSGD clients')
+            else:
+                client = DPSGD_Client(data=data, model=model, t=t, config=config)
+                if i == 0:
+                    logger.debug('Init DPSGD clients')
         elif args.dp_mode in ['nondp']:
             client = Client(data=data, model=model, t=t, config=config)
             if i == 0:
