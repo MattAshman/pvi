@@ -21,7 +21,10 @@ if module_path not in sys.path:
 from pvi.models.logistic_regression import LogisticRegressionModel
 from pvi.clients import Client
 from pvi.clients import Param_DP_Client
-from pvi.clients import DPSGD_Client
+
+from pvi.clients import DPSGD_Client # regular dpsgd client
+from pvi.clients import Userlevel_DPSGD_Client # adding sampling on users
+
 from pvi.clients import LFA_Client
 from pvi.clients import Local_PVI_Client
 from pvi.servers.sequential_server import SequentialServer
@@ -67,9 +70,14 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
             if i == 0:
                 logger.debug('Init param DP clients')
         elif args.dp_mode in ['dpsgd']:
-            client = DPSGD_Client(data=data, model=model, t=t, config=config)
-            if i == 0:
-                logger.debug('Init DPSGD clients')
+            if args.batch_size is None or args.sampling_frac_q is None:
+                client = DPSGD_Client(data=data, model=model, t=t, config=config)
+                if i == 0:
+                    logger.debug('Init DPSGD clients')
+            else:
+                client = Userlevel_DPSGD_Client(data=data, model=model, t=t, config=config)
+                if i == 0:
+                    logger.debug('Init user-level DPSGD clients')
         elif args.dp_mode in ['nondp']:
             client = Client(data=data, model=model, t=t, config=config)
             if i == 0:
@@ -208,7 +216,16 @@ def acc_and_ll(server, x, y, n_points=101):
     """Calculate model prediction acc & logl with LogisticRegression model
     n_points : (int) number of points to calculate classification results
     """
+    #try:
     pred_probs = server.model_predict(x)
+    '''
+    except:
+        print('got error in predicting')
+        #print(server.__dict__)
+        #print(server.model)
+        print(server.q.__dict__)
+        sys.exit()
+    '''
     pred_probs = pred_probs.mean.detach().numpy()
     acc = np.mean((pred_probs > 0.5) == y.numpy())
     
@@ -429,10 +446,10 @@ def bin_search_sigma(target_eps, ncomp, target_delta, q, nx, L, lbound, ubound, 
         cur = (ubound+lbound)/2
 
         eps = fourier_accountant.get_epsilon_S(target_delta=target_delta, sigma=cur, q=q, ncomp=ncomp, nx=nx,L=L)
-        print(f'iter {i_iter}, sigma={cur}, eps={eps:.5f}, upper={ubound}, lower={lbound}')
+        logger.debug(f'iter {i_iter}, sigma={cur}, eps={eps:.5f}, upper={ubound}, lower={lbound}')
 
         if np.abs(eps - target_eps) <= tol:
-            print(f'found eps={eps:.5f} with sigma={cur:.5f}')
+            logger.debug(f'found eps={eps:.5f} with sigma={cur:.5f}')
             return cur
 
         if eps < target_eps:
@@ -444,7 +461,7 @@ def bin_search_sigma(target_eps, ncomp, target_delta, q, nx, L, lbound, ubound, 
         #    print('Upper and lower bounds too close, failing!')
         #    return None
         
-    print(f'Did not converge! final sigma={cur:.5f} wirh eps={eps:.5f}')
+    logger.info(f'Did not converge! final sigma={cur:.5f} wirh eps={eps:.5f}')
 
 
 
@@ -453,12 +470,12 @@ if __name__ == '__main__':
 
     # calculate privacy costs with fourier accountant
     nx=int(1E6)
-    L=30.#26.
+    L=35.#26.
 
     target_delta = 1e-5
     #q = .2
 
-    ncomp=20*10
+    #ncomp=40*10
     #########################################
     # adult data:
     #########################################
@@ -514,11 +531,11 @@ if __name__ == '__main__':
     #   q=.1 dp_sigma in  [7.46,  3.98]
     #   q=.2 dp_sigma in  [14.91, 7.97]
 
-    # 200 comps:   eps in [1,     2]
-    #   q=.01 dp_sigma in [1.13,  0.81]
-    #   q=.05 dp_sigma in [5.27,  2.82]
-    #   q=.1 dp_sigma in  [10.54, 5.63]
-    #   q=.2 dp_sigma in  [21.11, 11.27]
+    # 200 comps:   eps in [1,     2         4]
+    #   q=.01 dp_sigma in [1.13,  0.81      ]
+    #   q=.05 dp_sigma in [5.27,  2.82      1.54 ]
+    #   q=.1 dp_sigma in  [10.54, 5.63      3.05]
+    #   q=.2 dp_sigma in  [21.11, 11.27     6.10]
 
     # 300 comps: eps=1
     #   q=.01 dp_sigma in [1.33]
@@ -526,31 +543,76 @@ if __name__ == '__main__':
     #   q=.1 dp_sigma in  [12.92]
     #   q=.2 dp_sigma in  [25.84]
 
-    # 400 comps: eps=1
-    #   q=.01 dp_sigma in [1.52]
-    #   q=.05 dp_sigma in [7.45]
-    #   q=.1 dp_sigma in  [14.92]
-    #   q=.2 dp_sigma in  [29.87]
+    # 400 comps: eps in   [.2   , 1,       2.]
+    #   q=.01 dp_sigma in [     , 1.52,        ]
+    #   q=.05 dp_sigma in [     , 7.45,    3.98]
+    #   q=.1 dp_sigma in  [65.00, 14.92,   7.97]
+    #   q=.2 dp_sigma in  [     , 29.87,   15.95]
 
-    # 600 comps: eps=1
-    #   q=.01 dp_sigma in [1.84]
-    #   q=.05 dp_sigma in [9.14]
-    #   q=.1 dp_sigma in  [18.28]
-    #   q=.2 dp_sigma in  [36.58]
+    # 600 comps: eps in   [1,       2       4]
+    #   q=.01 dp_sigma in [1.84,            ]
+    #   q=.05 dp_sigma in [9.14,    4.88    2.64]
+    #   q=.1 dp_sigma in  [18.28,   9.77    5.29]
+    #   q=.2 dp_sigma in  [36.58,   19.54   10.59]
 
-    # 1000 comps: eps=1
-    #   q=.01 dp_sigma in [2.36]
-    #   q=.05 dp_sigma in [11.79]
-    #   q=.1 dp_sigma in  [23.57]
-    #   q=.2 dp_sigma in  [47.15]
+    # 800 comps: eps in   [1,       2       4]
+    #   q=.01 dp_sigma in [ ,                ]
+    #   q=.05 dp_sigma in [ ,                ]
+    #   q=.1 dp_sigma in  [ ,       11.27,   ]
+    #   q=.2 dp_sigma in  [ ,       22.55,   ]
+
+    # 1000 comps: eps in   [.02,    1,       2       4]
+    #   q=.01 dp_sigma in [         2.36,            ]
+    #   q=.05 dp_sigma in [         11.79,           ]
+    #   q=.1 dp_sigma in  [103.58   23.59,   12.60,  ]
+    #   q=.2 dp_sigma in  [         47.15,   25.21,  ]
+
+    # 2000 comps: eps in    [.2,     1,       2 ]
+    #   q=0.1, dp_sigma in: [145.67, ?,      17.83]
+    #   q=0.2, dp_sigma in: [?,      ?,      35.66]
+
+    # 4000 comps: eps in    [.2,     1.,    2.]
+    #   q=0.1, dp_sigma in: [206.47, 47.15, 25.21]
+    #   q=0.2, dp_sigma in: [?,      94.38, 50.45]
+
+    # 6000 comps: eps in    [1.,    2.   ]
+    #   q=0.1, dp_sigma in: [?,     30.88]
+
+    # 8000 comps: eps in    [1.,    2.   ]
+    #   q=0.1, dp_sigma in: [66.68, 35.66]
+
+
     #########################################
     #########################################
-    q = .2
+    all_comps = [10*800]
+    all_q = [.1]
+    all_eps = [2.]
 
-    sigma = bin_search_sigma(1, ncomp, target_delta, q, nx, L, lbound=.7, ubound=100., tol=1e-3, max_iters=30)
-    if sigma is not None:
-        eps = fourier_accountant.get_epsilon_S(target_delta=1e-5, sigma=sigma, q=q, ncomp=ncomp, nx=nx,L=L)
-        print(f'eps={eps} with sigma={sigma}')
+    # run binary seach on all configurations
+    all_res = {}
+    for i_comp,ncomp in enumerate(all_comps):
+        print(f'Starting ncomp={ncomp}: {i_comp+1}/{len(all_comps)}')
+        for i_q, q in enumerate(all_q):
+            for i_eps,target_eps in enumerate(all_eps):
+                sigma = bin_search_sigma(target_eps, ncomp, target_delta, q, nx, L, lbound=.7, ubound=300., tol=1e-3, max_iters=30)
+                if sigma is not None:
+                    eps = fourier_accountant.get_epsilon_S(target_delta=1e-5, sigma=sigma, q=q, ncomp=ncomp, nx=nx,L=L)
+                else:
+                    eps = None
+                    #print(f'eps={eps} with sigma={sigma}')
+                all_res[f"ncomp{ncomp}_q{q}_eps{target_eps}"] = [np.round(eps,4),np.round(sigma,4)]
+
+    # print results
+    for i_comp,ncomp in enumerate(all_comps):
+        print(f'\nNumber of compositions={ncomp}')
+        tmp = ""
+        for i_q, q in enumerate(all_q):
+            #tmp += "\t"
+            tmp += f"\tq={q}, eps,sigma pairs:\n"
+            for i_eps,target_eps in enumerate(all_eps):
+                tmp += "\t\t" + str(all_res[f"ncomp{ncomp}_q{q}_eps{target_eps}"]) + "\n"
+        print(tmp)
+
 
     if 0:
         all_sigmas = [2.2, 4.7]
