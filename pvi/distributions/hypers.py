@@ -1,12 +1,11 @@
-class HyperparameterDistribution:
+class DistributionDict:
     """
-    Maintains the distributions over hyperparameters.
+    Maintains a dictionary of distributions.
     """
 
     def __init__(self, distributions=None):
         """
-        :param distributions: A dictionary of (hyperparameter, distribution)
-        pairs.
+        :param distributions: A dictionary of (name, distribution) pairs.
         """
         self.distributions = distributions
 
@@ -87,16 +86,18 @@ class HyperparameterDistribution:
     def create_new(cls, **kwargs):
         return cls(**kwargs)
 
+    def create_factor(self, **kwargs):
+        return FactorDict({k: v.create_factor(**kwargs) for k, v in self.distributions.items()})
 
-class HyperparameterFactor:
+
+class FactorDict:
     """
-    Maintains the factors over hyperparameters.
+    Maintains a dictionary of factors.
     """
 
     def __init__(self, factors=None):
         """
-        :param factors: A dictionary of (hyperparameter, factor)
-        pairs.
+        :param factors: A dictionary of (name, factor) pairs.
         """
         self.factors = factors
 
@@ -104,9 +105,7 @@ class HyperparameterFactor:
         return type(self)(
             factors={
                 k: v.compute_refined_factor(
-                    q1.distributions[k],
-                    q2.distributions[k],
-                    **kwargs
+                    q1.distributions[k], q2.distributions[k], **kwargs
                 )
                 for k, v in self.factors.items()
             }

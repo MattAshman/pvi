@@ -1,10 +1,5 @@
-import logging
-import time
-
 from tqdm.auto import tqdm
 from .base import Server
-
-logger = logging.getLogger(__name__)
 
 
 class BayesianCommitteeMachineSame(Server):
@@ -26,11 +21,9 @@ class BayesianCommitteeMachineSame(Server):
         }
 
     def _tick(self):
-        logger.debug("Getting client updates.")
         nps = []
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
-                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
 
                 if self.iterations == 0:
                     q_i, _ = client.fit(self.q, self.init_q)
@@ -41,8 +34,6 @@ class BayesianCommitteeMachineSame(Server):
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
 
-        logger.debug("Received client updates. Updating global posterior.")
-
         # Update global posterior.
         q_nps = {
             k: sum([np[k] for np in nps]) - (len(self.clients) - 1) * v
@@ -50,8 +41,6 @@ class BayesianCommitteeMachineSame(Server):
         }
 
         self.q = self.q.create_new(nat_params=q_nps, is_trainable=False)
-
-        logger.debug(f"Iteration {self.iterations} complete.")
         self.communications += 1
 
     def should_stop(self):
@@ -73,7 +62,7 @@ class BayesianCommitteeMachineSplit(Server):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        nk = [client.data["x"].shape[0] for client in self.clients]
+        nk = [len(client.data["x"]) for client in self.clients]
         client_props = [n / sum(nk) for n in nk]
         self.client_props = client_props
 
@@ -84,11 +73,9 @@ class BayesianCommitteeMachineSplit(Server):
         }
 
     def _tick(self):
-        logger.debug("Getting client updates.")
         nps = []
         for i, client in tqdm(enumerate(self.clients), leave=False):
             if client.can_update():
-                logger.debug(f"On client {i + 1} of {len(self.clients)}.")
 
                 # Client prior is weighted by (N_k / N).
                 p_i_nps = {
@@ -105,18 +92,10 @@ class BayesianCommitteeMachineSplit(Server):
                 np = {k: v.detach().clone() for k, v in q_i.nat_params.items()}
                 nps.append(np)
 
-        logger.debug("Received client updates. Updating global posterior.")
-
         # Update global posterior.
         q_nps = {k: sum([np[k] for np in nps]) for k, v in self.q.nat_params.items()}
 
         self.q = self.q.create_new(nat_params=q_nps, is_trainable=False)
-
-        logger.debug(
-            f"Iteration {self.iterations} complete."
-            f"\nNew natural parameters:\n{self.q.nat_params}\n."
-        )
-
         self.communications += 1
 
     def should_stop(self):

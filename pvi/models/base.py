@@ -21,13 +21,6 @@ class Model(ABC):
         self._hyperparameters = self.get_default_hyperparameters()
         self.hyperparameters = hyperparameters
 
-    @abstractmethod
-    def get_default_nat_params(self):
-        """
-        :return: A default set of natural parameters for the prior.
-        """
-        raise NotImplementedError
-
     @property
     def config(self):
         return self._config
@@ -36,12 +29,11 @@ class Model(ABC):
     def config(self, config):
         self._config = {**self._config, **config}
 
-    @abstractmethod
     def get_default_config(self):
         """
         :return: A default set of config for the model.
         """
-        raise NotImplementedError
+        return {}
 
     @property
     def hyperparameters(self):
@@ -51,12 +43,11 @@ class Model(ABC):
     def hyperparameters(self, hyperparameters):
         self._hyperparameters = {**self._hyperparameters, **hyperparameters}
 
-    @abstractmethod
     def get_default_hyperparameters(self):
         """
         :return: A default set of parameters for the model.
         """
-        raise NotImplementedError
+        return {}
 
     @abstractmethod
     def forward(self, x, q, **kwargs):
@@ -88,7 +79,6 @@ class Model(ABC):
         dist = self.likelihood_forward(data["x"], theta)
         return dist.log_prob(data["y"])
 
-    @abstractmethod
     def conjugate_update(self, data, q, t=None):
         """
         If the likelihood is conjugate with q(θ), performs a conjugate update.

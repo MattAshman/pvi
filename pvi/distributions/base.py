@@ -158,6 +158,9 @@ class ExponentialFamilyFactor(ABC):
 
 
 class ExponentialFamilyDistribution(ABC, nn.Module):
+
+    factor_cls = ExponentialFamilyFactor
+
     def __init__(self, std_params=None, nat_params=None, is_trainable=False):
 
         super().__init__()
@@ -421,3 +424,12 @@ class ExponentialFamilyDistribution(ABC, nn.Module):
     @classmethod
     def create_new(cls, **kwargs):
         return cls(**kwargs)
+
+    @property
+    @abstractmethod
+    def factor_class(self):
+        raise NotImplementedError
+
+    def create_factor(self, **kwargs):
+        nat_params = {k: torch.zeros_like(v) for k, v in self.nat_params.items()}
+        return self.factor_class(nat_params)

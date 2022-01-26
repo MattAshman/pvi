@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import pvi
 
 from .base import ExponentialFamilyDistribution
 from pvi.utils.psd_utils import psd_inverse, psd_logdet, safe_psd_inverse
@@ -14,6 +15,10 @@ class MeanFieldGaussianDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Normal
+
+    @property
+    def factor_class(self):
+        return pvi.distributions.MeanFieldGaussianFactor
 
     @property
     def batch_dims(self):
@@ -101,6 +106,10 @@ class MultivariateGaussianDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.MultivariateNormal
+
+    @property
+    def factor_class(self):
+        return pvi.distributions.MultivariateGaussianFactor
 
     @property
     def batch_dims(self):
@@ -204,6 +213,10 @@ class DirichletDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Dirichlet
+
+    @property
+    def factor_class(self):
+        return pvi.distributions.DirichletFactor
 
     @property
     def batch_dims(self):
@@ -349,6 +362,10 @@ class MultinomialDistribution(ExponentialFamilyDistribution):
     def torch_dist_class(self):
         return torch.distributions.Multinomial
 
+    @property
+    def factor_class(self):
+        return pvi.distributions.MultinomialFactor
+
 
 # =============================================================================
 # Gamma distribution
@@ -419,6 +436,10 @@ class GammaDistribution(ExponentialFamilyDistribution):
     def torch_dist_class(self):
         return torch.distributions.Gamma
 
+    @property
+    def factor_class(self):
+        return pvi.distributions.GammaFactor
+
 
 # =============================================================================
 # Log-Normal distributions
@@ -430,6 +451,10 @@ class LogNormalDistribution(MeanFieldGaussianDistribution):
     def torch_dist_class(self):
         return torch.distributions.LogNormal
 
+    @property
+    def factor_class(self):
+        return pvi.distributions.LogNormalFactor
+
 
 # =============================================================================
 # Categorical distribution
@@ -440,6 +465,10 @@ class CategoricalDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Categorical
+
+    @property
+    def factor_class(self):
+        return pvi.distributions.CategoricalFactor
 
     @property
     def batch_dims(self):
@@ -525,6 +554,10 @@ class BetaDistribution(ExponentialFamilyDistribution):
     @property
     def torch_dist_class(self):
         return torch.distributions.Beta
+
+    @property
+    def factor_class(self):
+        return pvi.distributions.BetaFactor
 
     @property
     def batch_dims(self):

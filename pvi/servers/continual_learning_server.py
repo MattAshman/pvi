@@ -1,10 +1,6 @@
-import logging
-import time
 import copy
 
 from pvi.servers.base import Server, ServerBayesianHypers
-
-logger = logging.getLogger(__name__)
 
 
 class ContinualLearningServer(Server):
@@ -36,7 +32,6 @@ class ContinualLearningServer(Server):
         }
 
     def _tick(self):
-        logger.debug("Getting client updates.")
         client = self.clients[self.client_idx]
         if client.can_update():
 
@@ -53,17 +48,6 @@ class ContinualLearningServer(Server):
                 self.log["model_state_dict"].append(
                     copy.deepcopy(self.model.state_dict())
                 )
-        # Log time and which client was updated.
-        updated_client_times = {**self.timer.get()}
-        updated_client_times[self.client_idx] = self.clients[self.client_idx].log[
-            "update_time"
-        ][-1]
-        self.log["updated_client_times"].append(updated_client_times)
-
-        logger.debug(
-            f"Iteration {self.iterations} complete."
-            f"\nNew natural parameters:\n{self.q.nat_params}\n."
-        )
 
         self.client_idx = (self.client_idx + 1) % len(self.clients)
 
@@ -88,7 +72,6 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
         }
 
     def _tick(self):
-        logger.debug("Getting client updates.")
 
         client = self.clients[self.client_idx]
 
@@ -103,15 +86,7 @@ class ContinualLearningServerBayesianHypers(ServerBayesianHypers):
             self.q = q_new.non_trainable_copy()
             self.qeps = qeps_new.non_trainable_copy()
             self.communications += 1
-
-            # self.log["q"].append(self.q.non_trainable_copy())
-            # self.log["qeps"].append(self.qeps.non_trainable_copy())
             self.log["communications"].append(self.communications)
-
-        logger.debug(
-            f"Iteration {self.iterations} complete."
-            f"\nNew natural parameters:\n{self.q.nat_params}\n."
-        )
 
         self.client_idx = (self.client_idx + 1) % len(self.clients)
 

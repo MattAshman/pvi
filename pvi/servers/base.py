@@ -1,12 +1,7 @@
-import logging
-import time
 import torch
 
 from abc import ABC, abstractmethod
 from collections import defaultdict
-from pvi.utils.training_utils import Timer
-
-logger = logging.getLogger(__name__)
 
 
 class Server(ABC):
@@ -64,13 +59,6 @@ class Server(ABC):
 
         self.log["communications"].append(self.communications)
 
-        # Evaluate performance of prior.
-        # if self.q is not None:
-        #    self.evaluate_performance()
-
-        # Will initialise these in self.tick().
-        self.timer = Timer()
-
     @property
     def config(self):
         return self._config
@@ -95,9 +83,6 @@ class Server(ABC):
         """ """
         if self.should_stop():
             return False
-
-        if not self.timer.started:
-            self.timer.start()
 
         self._tick()
 
@@ -129,13 +114,9 @@ class Server(ABC):
 
     def evaluate_performance(self, default_metrics=None):
         metrics = {
-            **self.timer.get(),
             "communications": self.communications,
             "iterations": self.iterations,
         }
-
-        # Pause timer whilst getting performance metrics.
-        self.timer.pause()
 
         if default_metrics is not None:
             metrics = {**default_metrics, **metrics}
@@ -156,9 +137,6 @@ class Server(ABC):
             metrics["npq"] = {k: v.detach().cpu() for k, v in self.q.nat_params.items()}
 
         self.log["performance_metrics"].append(metrics)
-
-        # Resume timer.
-        self.timer.resume()
 
     def update_hyperparameters(self):
         """
@@ -223,16 +201,6 @@ class Server(ABC):
 
             self.q = self.q.create_new(nat_params=q_new_nps, is_trainable=False)
 
-        parameters = {k: v.data for k, v in self.model.named_parameters()}
-        logger.debug(
-            f"Updated model hyperparameters."
-            f"\nNew model hyperparameters:\n{parameters}\n."
-        )
-        print(
-            f"Updated model hyperparameters."
-            f"\nNew model hyperparameters:\n{parameters}\n."
-        )
-
         return
 
     def model_predict(self, x, **kwargs):
@@ -288,9 +256,6 @@ class ServerBayesianHypers(Server):
         """
         if self.should_stop():
             return False
-
-        if not self.timer.started:
-            self.timer.start()
 
         self._tick()
 
