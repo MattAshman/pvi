@@ -15,6 +15,10 @@ import torch
 import tqdm.auto as tqdm
 from sklearn.model_selection import KFold
 
+
+#from mle_logging import MLELogger
+
+
 module_path = os.path.abspath(os.path.join("../.."))
 if module_path not in sys.path:
     sys.path.append(module_path)
@@ -64,10 +68,19 @@ def main(args, rng_seed, dataset_folder):
     logger.info(f"Starting {args.model} run with data folder: {dataset_folder}, dp_mode: {args.dp_mode}")
 
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
-        logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
+        if args.sampling_frac_q is not None and args.batch_size is not None:
+            logger.info(f'Using user-level SWOR sampling with sampling frac {args.sampling_frac_q} and fixed user data of size {args.batch_size}. Full batch is used when user is sampled.)')
+        
+        elif args.sampling_frac_q is not None:
+            logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
+        elif args.batch_size is not None:
+            logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
+        else:
+            raise ValueError("Need to set at least one of 'batch_size', 'sampling_frac_q'!")
+
     elif args.dp_mode in ['lfa', 'local_pvi']:
         if args.batch_size is not None and args.sampling_frac_q is not None:
-            raise ValueError("Exactly one of 'batch_size', 'sampling_frac_frac' needs to be None")
+            raise ValueError("Exactly one of 'batch_size', 'sampling_frac_q' needs to be None")
         elif args.batch_size is None:
             logger.info(f'Using sequential data passes with local sampling frac {args.sampling_frac_q} (separate models for each batch)')
         elif args.sampling_frac_q is None:
@@ -201,7 +214,13 @@ def main(args, rng_seed, dataset_folder):
         args.clients = 1
 
     elif args.model == 'pvi':
-        ChosenServer = SynchronousServer
+        if args.server == 'synchronous':
+            ChosenServer = SynchronousServer
+        elif args.server == 'sequential':
+            ChosenServer = SequentialServer
+        else:
+            raise ValueError(f'Unknown server type: {args.server}')
+
 
     server = ChosenServer(model=model,
                             p=q,
@@ -255,6 +274,30 @@ def main(args, rng_seed, dataset_folder):
     #plt.plot
     #sys.exit()
 
+    
+    ### try MLE logger
+    '''
+    # Instantiate logging to experiment_dir
+    log = MLELogger(time_to_track=['global_steps', 'local_steps'],
+                    what_to_track=['global_train_logl', 'global_test_logl', 'local_train_loss'],
+                    experiment_dir="mle_experiment_dir/",
+                    # config_dict = {},
+                    model_type='numpy', # tätä tuskin voi käyttää kun mallit on hajautettu ympäriinsä
+                    verbose=0,
+                    overwrite=1,
+                    use_tboard=False)
+
+    #time_tic = {'global_steps': 1, 'local_steps': args.n_steps}
+    # pitää lisätä tähän kaikki mitä halutaan träkätä yli ajon, myös jos haluaa käyttää MLELoggeria tallentamaan ja noutamaan yli eri ajojen
+    #stats_tic = {'global_train_loss': 0.1234, 'global_test_loss': .1, 'local_train_loss': 0.1235}
+
+    # Update the log with collected data & save it to .hdf5
+    #log.update(time_tic, stats_tic)
+    #log.save()
+    #sys.exit()
+    ###################
+    '''
+
 
     i_global = 0
     logger.info('Starting model training')
@@ -283,6 +326,18 @@ def main(args, rng_seed, dataset_folder):
         validation_res['logl'][i_global] = valid_logl
         validation_res['posneg'].append(valid_posneg)
 
+
+        ### mle testing:
+        '''
+        time_tic = {'global_steps': 1, 'local_steps': args.n_steps}
+        stats_tic = {'global_train_logl': train_logl, 'global_test_logl': valid_logl, 'local_train_loss': -1}
+
+        # Update the log with collected data & save it to .hdf5
+        log.update(time_tic, stats_tic)
+        '''
+        ###############
+
+
         # param tracking
         if args.track_params:
             #print(server.__dict__,'\n')
@@ -305,6 +360,10 @@ def main(args, rng_seed, dataset_folder):
     #print(server.__dict__)
     #sys.exit()
 
+    ### mle testing
+    #log.save()
+    ###############
+
     if args.track_client_norms and args.plot_tracked:
         # separate script for lfa/dpsgd etc?
         if args.dp_mode == 'dpsgd':
@@ -321,7 +380,7 @@ def main(args, rng_seed, dataset_folder):
                     post_dp_norms[i_client,:] = client.post_dp_norms
             x1 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
             x2 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
-        elif args.dp_mode in ['lfa','local_pvi']:
+        elif args.dp_mode in ['lfa']:
             pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
             post_dp_norms = np.zeros((args.clients, args.n_global_updates))
             for i_client, client in enumerate(clients):
@@ -329,6 +388,15 @@ def main(args, rng_seed, dataset_folder):
                 post_dp_norms[i_client,:] = client.post_dp_norms
             x1 = np.linspace(1,args.n_global_updates*args.n_steps, args.n_global_updates*args.n_steps)
             x2 = np.linspace(1,args.n_global_updates, args.n_global_updates)
+        elif args.dp_mode in ['local_pvi']:
+            pre_dp_norms = np.zeros((args.clients, args.n_global_updates))
+            post_dp_norms = np.zeros((args.clients, args.n_global_updates))
+            for i_client, client in enumerate(clients):
+                pre_dp_norms[i_client,:] =  client.pre_dp_norms
+                post_dp_norms[i_client,:] = client.post_dp_norms
+            x1 = np.linspace(1,args.n_global_updates, args.n_global_updates)
+            x2 = np.linspace(1,args.n_global_updates, args.n_global_updates)
+
 
         fig,axs = plt.subplots(2,figsize=(10,7))
         for i_client in range(args.clients):
@@ -344,8 +412,9 @@ def main(args, rng_seed, dataset_folder):
 
 
         figname = 'res_plots/client_norm_traces/client_norms_{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.dp_mode,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
-        #plt.savefig(figname)
-        plt.show()
+        plt.tight_layout()
+        plt.savefig(figname)
+        #plt.show()
         
         #sys.exit()
 
@@ -365,7 +434,9 @@ def main(args, rng_seed, dataset_folder):
         axs[0].set_ylabel('l2 distance from init')
         axs[1].set_ylabel('Model logl')
         figname = 'res_plots/param_traces/param_dist_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        plt.tight_layout()
         plt.savefig(figname)
+        plt.close()
         #plt.show()
         #sys.exit('break ok')
 
@@ -379,7 +450,9 @@ def main(args, rng_seed, dataset_folder):
         axs[1].set_ylabel('Model logl')
         plt.suptitle("".format())
         figname = 'res_plots/param_traces/model_perf_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        plt.tight_layout()
         plt.savefig(figname)
+        plt.close()
         #plt.show()
 
         #sys.exit()
@@ -392,7 +465,9 @@ def main(args, rng_seed, dataset_folder):
         axs[0].set_ylabel('Loc params')
         axs[1].set_ylabel('Scale params')
         figname = 'res_plots/param_traces/param_trace_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        plt.tight_layout()
         plt.savefig(figname)
+        plt.close()
         #plt.show()
 
     # compile possible tracked norms etc
@@ -410,53 +485,56 @@ def main(args, rng_seed, dataset_folder):
                 for i_client, client in enumerate(clients):
                     pre_dp_norms[i_client,:] = client.pre_dp_norms
                     post_dp_norms[i_client,:] = client.post_dp_norms
-        elif args.dp_mode in ['lfa','local_pvi']:
+        elif args.dp_mode in ['lfa']:
             pre_dp_norms = np.zeros((args.clients, args.n_global_updates * args.n_steps))
             post_dp_norms = np.zeros((args.clients, args.n_global_updates))
+            noise_norms = np.zeros((args.clients, args.n_global_updates))
             for i_client, client in enumerate(clients):
                 pre_dp_norms[i_client,:] = np.concatenate([norms for norms in client.pre_dp_norms])
                 post_dp_norms[i_client,:] = client.post_dp_norms
+                noise_norms[i_client,:] = client.noise_norms
+
+        elif args.dp_mode == 'local_pvi':
+            pre_dp_norms = np.zeros((args.clients, args.n_global_updates))
+            post_dp_norms = np.zeros((args.clients, args.n_global_updates))
+            noise_norms = np.zeros((args.clients, args.n_global_updates))
+            for i_client, client in enumerate(clients):
+                pre_dp_norms[i_client,:] = client.pre_dp_norms
+                #post_dp_norms[i_client,:] = client.post_dp_norms
+                noise_norms[i_client,:] = client.noise_norms
+
         tracked['client_norms'] = {}
         tracked['client_norms']['pre_dp_norms'] = pre_dp_norms
         tracked['client_norms']['post_dp_norms'] = post_dp_norms
+        try:
+            tracked['client_norms']['noise_norms'] = noise_norms
+        except:
+            pass
 
+    # some tracked norm plotting for local PVI
+    if args.track_client_norms and args.plot_tracked:
+        fix, axs = plt.subplots(1,3)
+        for i_client, client in enumerate(clients):
+            axs[0].plot(tracked['client_norms']['pre_dp_norms'][i_client,:])
+            axs[1].plot(tracked['client_norms']['noise_norms'][i_client,:]/tracked['client_norms']['pre_dp_norms'][i_client,:])
+        #axs[2].plot(np.sum(tracked['client_norms']['noise_norms'],0)/server.param_update_norms)
+        axs[2].plot(server.param_update_norms)
+        for i in range(3):
+            axs[i].set_xlabel('Global updates')
+        axs[0].set_ylabel('Pre DP norm')
+        axs[1].set_ylabel('Relative effect of noise')
+        #axs[2].set_ylabel('Relative noise on global update norms')
+        axs[2].set_ylabel('Global update norm')
+        figname = 'res_plots/client_norm_traces/relative_noise_effect_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+        plt.tight_layout()
+        plt.savefig(figname)
+        #plt.close()
+        #plt.show()
+        #plt.plot(client.noise_norms)
+        #plt.show()
 
-    """ # ROC curve plotting and checks
-    posneg = validation_res['posneg'][-1]
-    n_points = 101
-
-    tmp = np.linspace(0,1,n_points)
-    to_plot = np.zeros((2,n_points)) # x,y for plotting
-    for i_thr,thr in enumerate(tmp):
-        to_plot[0,i_thr] = posneg['TN'][i_thr]/(posneg['TN'][i_thr]+posneg['FP'][i_thr])  # TNR
-        to_plot[1,i_thr] = posneg['TP'][i_thr]/(posneg['TP'][i_thr]+posneg['FN'][i_thr])  # TPR
-
-
-    #print(to_plot)
-    plt.plot(tmp,to_plot[0,:] )
-    plt.plot(tmp,to_plot[1,:] )
-    plt.show()
+    #sys.exit()
     
-    plt.plot(1-to_plot[0,:],to_plot[1,:] )
-    plt.show()
-
-    sys.exit()
-    #"""
-    """
-    # plot balanced & non-balanced acc
-    x = np.linspace(1,args.n_global_updates,args.n_global_updates)
-    y = np.zeros((3,args.n_global_updates))
-    for i in range(args.n_global_updates):
-        y[0,i] = validation_res['posneg'][i]['balanced_acc']
-        y[1,i] = validation_res['posneg'][i]['avg_prec_score']
-        y[2,i] = validation_res['posneg'][i]['f1_score']
-    plt.plot(x, validation_res['acc'], label='acc')
-    plt.plot(x, y[0,:], label='balanced acc')
-    plt.plot(x, y[1,:], label='avg prec score')
-    plt.plot(x, y[2,:], label='f1')
-    plt.legend()
-    plt.show()
-    #"""
 
     return validation_res, train_res, client_train_res, prop_positive, tracked
 
@@ -502,6 +580,7 @@ def plot_training_curves(client_train_res, clients):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
+    parser.add_argument('--server', default='synchronous', type=str, help="Which server to use: \'synchronous\', or \'sequential\'")
     parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
@@ -518,6 +597,7 @@ if __name__ == '__main__':
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default=None, type=str, help='path to combined train-test folder')
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
@@ -526,7 +606,7 @@ if __name__ == '__main__':
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='lfa', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
+    parser.add_argument('--dp_mode', default='nondp', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")
