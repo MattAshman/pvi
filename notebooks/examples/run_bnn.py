@@ -63,7 +63,15 @@ def main(args, rng_seed, dataset_folder):
     logger.info(f"Starting {args.model} run with data folder: {dataset_folder}, dp_mode: {args.dp_mode}")
 
     if args.dp_mode in ['dpsgd','param_fixed']:#[seq','swor']:
-        logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
+        if args.sampling_frac_q is not None and args.batch_size is not None:
+            logger.info(f'Using user-level SWOR sampling with sampling frac {args.sampling_frac_q} and fixed user data of size {args.batch_size}. Full batch is used when user is sampled.)')
+        
+        elif args.sampling_frac_q is not None:
+            logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
+        elif args.batch_size is not None:
+            logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
+        else:
+            raise ValueError("Need to set at least one of 'batch_size', 'sampling_frac_q'!")
     elif args.dp_mode in ['lfa', 'local_pvi']:
         if args.batch_size is not None and args.sampling_frac_q is not None:
             raise ValueError("Exactly one of 'batch_size', 'sampling_frac_frac' needs to be None")
@@ -137,13 +145,14 @@ def main(args, rng_seed, dataset_folder):
     # change batch_size for LFA
     #if args.dp_mode == 'lfa':
     #    client_config['batch_size'] = 1
-    if args.dp_mode == 'dpsgd':
-        client_config['batch_size'] = None
+    #if args.dp_mode == 'dpsgd':
+    #    client_config['batch_size'] = None
 
     init_nat_params = {
         "np1": torch.zeros(model.num_parameters),
         "np2": torch.zeros(model.num_parameters),
     }
+
 
     # Initialise clients, q and server
     clients = set_up_clients(model, client_data, init_nat_params, client_config, args)
@@ -212,13 +221,36 @@ def main(args, rng_seed, dataset_folder):
         args.clients = 1
 
     elif args.model == 'pvi':
-        ChosenServer = SynchronousServer
+        if args.server == 'synchronous':
+            ChosenServer = SynchronousServer
+        elif args.server == 'sequential':
+            ChosenServer = SequentialServer
 
     server = ChosenServer(model=model,
                             p=p,
                             init_q=init_q,
                             clients=clients,
                             config=server_config)
+
+
+    '''
+    print(model)
+    print('model dict: {}'.format(model.__dict__))
+    
+    #print(server.__dict__)
+    print(server.model.__dict__)
+    sys.exit()
+
+    dataset = torch.utils.data.TensorDataset(x, y)
+    loader = torch.utils.data.DataLoader(dataset, batch_size=500, shuffle=False)
+    pp = server.model_predict(x_batch)
+    preds.append(pp.component_distribution.probs.mean(1).cpu())
+    mlls.append(pp.log_prob(y_batch).cpu())
+
+    mll = torch.cat(mlls).mean()
+    preds = torch.cat(preds)
+    sys.exit()
+    '''
 
     train_res = {}
     train_res['acc'] = np.zeros((args.n_global_updates))
@@ -409,30 +441,6 @@ def main(args, rng_seed, dataset_folder):
         tracked['client_norms']['pre_dp_norms'] = pre_dp_norms
         tracked['client_norms']['post_dp_norms'] = post_dp_norms
 
-
-    """ # ROC curve plotting and checks
-    posneg = validation_res['posneg'][-1]
-    n_points = 101
-
-    tmp = np.linspace(0,1,n_points)
-    to_plot = np.zeros((2,n_points)) # x,y for plotting
-    for i_thr,thr in enumerate(tmp):
-        to_plot[0,i_thr] = posneg['TN'][i_thr]/(posneg['TN'][i_thr]+posneg['FP'][i_thr])  # TNR
-        to_plot[1,i_thr] = posneg['TP'][i_thr]/(posneg['TP'][i_thr]+posneg['FN'][i_thr])  # TPR
-
-
-    print(to_plot)
-    plt.plot(tmp,to_plot[0,:] )
-    plt.plot(tmp,to_plot[1,:] )
-    plt.show()
-    
-    plt.plot(1-to_plot[0,:],to_plot[1,:] )
-    plt.show()
-
-    sys.exit()
-    #"""
-
-
     return validation_res, train_res, client_train_res, prop_positive, tracked
 
 
@@ -477,6 +485,7 @@ def plot_training_curves(client_train_res, clients):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
+    parser.add_argument('--server', default='synchronous', type=str, help="Which server to use: \'synchronous\', or \'sequential\'")
     parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=2e-3, type=float, help='learning rate')
     parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
@@ -484,21 +493,21 @@ if __name__ == '__main__':
     parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
     parser.add_argument('--dp_sigma', default=None, type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=None, type=float, help='gradient norm bound')
-    #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--n_classes', default=2, type=int, help="Number of classes to predict")
-    parser.add_argument('--latent_dim', default=50, type=int, help="BNN latent dim")
+    parser.add_argument('--n_classes', default=10, type=int, help="Number of classes to predict")
+    parser.add_argument('--latent_dim', default=20, type=int, help="BNN latent dim")
     parser.add_argument('--n_layers', default=1, type=int, help="number of BNN (latent) layers")
     parser.add_argument('--init_var', default=1e-3, type=float, help='Initial BNN variance')
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
-    parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
+    parser.add_argument('--n_steps', default=2, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     # NOTE: rho & kappa only make sense for UCI data
