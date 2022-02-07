@@ -24,29 +24,30 @@ class Param_DP_Client(Client):
     
     def __init__(self, data, model, t=None, config=None):
 
-        super().__init__(data=data, model=model, t=t, config=config)
-
         if config is None:
             config = {}
 
+        super().__init__(data=data, model=model, t=t, config=config)
+
         #self._config = self.get_default_config()
-        self._config = config
+        #self._config = config
         
         # Set data partition and likelihood
-        self.data = data
-        self.model = model
+        #self.data = data
+        #self.model = model
         
         # Set likelihood approximating term
-        self.t = t
+        #self.t = t
         
-        self.log = defaultdict(list)
-        self._can_update = True
+        #self.log = defaultdict(list)
+        #self._can_update = True
 
-        self.optimiser = None
+        #self.optimiser = None
 
         if self._config['track_client_norms']:
             self.pre_dp_norms = []
             self.post_dp_norms = []
+            self.noise_norms = []
 
 
     def gradient_based_update(self, p, init_q=None):
@@ -93,11 +94,14 @@ class Param_DP_Client(Client):
                     {"params": self.model.parameters()}
                 ]
         else:
+            if self.freeze_var_updates > self.update_counter:
+                logger.debug('Freezing log_scale params')
+                q._unc_params['log_scale'].requires_grad = False
             parameters = q.parameters()
 
         # Reset optimiser
         # NOTE: why is optimiser reset here?
-        logging.info("Resetting optimiser")
+        #logging.info("Resetting optimiser")
         #if self.optimiser is None:
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -278,15 +282,24 @@ class Param_DP_Client(Client):
 
             param_norm = torch.sqrt(param_norm)
             #logger.debug(f'diff in param, norm before clip: {param_norm}')
+            if self.config['track_client_norms']:
+                self.pre_dp_norms.append(param_norm)
+                #self.noise_norms
 
             # clip and add noise to the difference in params
             if self.config['noisify_np']:
                 #print('\nbefore noising: {}\n'.format(q.nat_params))
                 tmp = {}
+                tmp0 = 0.
                 for k in q.nat_params:
+                    noise = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k])
+                    if self.config['track_client_norms']:
+                        tmp0 += torch.linalg.norm(noise, ord=2)
                     tmp[k] = (p.nat_params[k] + (q.nat_params[k]-p.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                                + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k])).detach().clone()
+                                + noise).detach().clone()
 
+                if self.config['track_client_norms']:
+                    self.noise_norms.append(tmp0)
                 tmp = q._unc_from_std(q._std_from_nat(tmp))
                 for p_new, k in zip(q.parameters(),tmp):
                     p_new.data =  tmp[k]
@@ -322,10 +335,20 @@ class Param_DP_Client(Client):
                     else:
                         sys.exit('Model has > 2 sets of params, param DP not implemented for this!')
 
+            if self.config['track_client_norms']:
+                if self.config['noisify_np']:
+                    for k in q.nat_params:
+                        param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
+                else:
+                    raise NotImplementedError('norm tracking not implemented properly!')
+                param_norm = torch.sqrt(param_norm)
+                self.post_dp_norms.append(param_norm)
+
         # Create non-trainable copy to send back to server
         q_new = q.non_trainable_copy()
 
         # Finished optimisation, can now update.
+        self.update_counter += 1
         self._can_update = True
 
         if self.t is not None:

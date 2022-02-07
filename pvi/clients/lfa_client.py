@@ -40,18 +40,19 @@ class LFA_Client(Client):
     
     def __init__(self, data, model, t, config=None):
         
-        #super().__init__(data=data, model=model, t=t, config=config)
 
         if config is None:
             config = {}
 
-        self._config = config
+        super().__init__(data=data, model=model, t=t, config=config)
+
+        #self._config = config
         
         #print(self.config)
         
         # Set data partition and likelihood
-        self.data = data
-        self.model = model
+        #self.data = data
+        #self.model = model
 
         # Initialise optimiser states
         if config['batch_size'] is None:
@@ -63,15 +64,15 @@ class LFA_Client(Client):
         self.optimiser_states = None
         
         # Set likelihood approximating term
-        self.t = t
+        #self.t = t
         
-        self.log = defaultdict(list)
-        self._can_update = True
+        #self.log = defaultdict(list)
+        #self._can_update = True
 
         # actually tracks norm of change in params for LFA
-        if self._config['track_client_norms']:
-            self.pre_dp_norms = []
-            self.post_dp_norms = []
+        #if self._config['track_client_norms']:
+        #    self.pre_dp_norms = []
+        #    self.post_dp_norms = []
 
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
@@ -123,6 +124,9 @@ class LFA_Client(Client):
                     {"params": self.model.parameters()}
                 ]
         else:
+            if self.freeze_var_updates > self.update_counter:
+                logger.debug('Freezing log_scale params')
+                q._unc_params['log_scale'].requires_grad = False
             parameters = q.parameters()
 
         param_accumulator = {}
@@ -358,8 +362,9 @@ class LFA_Client(Client):
         
         # Create non-trainable copy to send back to server
         q_new = q.non_trainable_copy()
-
+        
         # Finished optimisation, can now update.
+        self.update_counter += 1
         self._can_update = True
 
         if self.t is not None:

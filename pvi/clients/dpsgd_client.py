@@ -12,8 +12,11 @@ from .base import Client
 
 logger = logging.getLogger(__name__)
 
-#logger.setLevel(logging.DEBUG)
-logger.setLevel(logging.INFO)
+
+
+
+logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.INFO)
 
 # =============================================================================
 # Client class
@@ -27,25 +30,27 @@ class DPSGD_Client(Client):
         if config is None:
             config = {}
 
+        super().__init__(data, model,t=t, config=config)
 
         #self._config = self.get_default_config()
-        self._config = config
+        #self._config = config
         
         # Set data partition and likelihood
-        self.data = data
-        self.model = model
+        #self.data = data
+        #self.model = model
         
         # Set likelihood approximating term
-        self.t = t
+        #self.t = t
         
-        self.log = defaultdict(list)
-        self._can_update = True
+        #self.log = defaultdict(list)
+        #self._can_update = True
 
-        self.optimiser = None
+        #self.optimiser = None
 
-        if self._config['track_client_norms']:
-            self.pre_dp_norms = []
-            self.post_dp_norms = []
+        #if self._config['track_client_norms']:
+        #    self.pre_dp_norms = []
+        #    self.post_dp_norms = []
+
 
     def gradient_based_update(self, p, init_q=None):
         # Cannot update during optimisation.
@@ -56,6 +61,7 @@ class DPSGD_Client(Client):
         else:
             batch_size = self.config['batch_size']
         #print(f"batch size {batch_size}, noise std:{self.config['dp_sigma']}")
+        assert batch_size > 0
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = p.non_trainable_copy()
@@ -90,7 +96,14 @@ class DPSGD_Client(Client):
                     {"params": self.model.parameters()}
                 ]
         else:
+            #print(q._unc_params['log_scale'].requires_grad)
+            if self.freeze_var_updates > self.update_counter:
+                logger.debug('Freezing log_scale params')
+                q._unc_params['log_scale'].requires_grad = False
+
             parameters = q.parameters()
+
+        #print(q._unc_params['log_scale'].requires_grad)
 
         # Reset optimiser
         # NOTE: why is optimiser reset here?
@@ -301,6 +314,8 @@ class DPSGD_Client(Client):
 
         # Finished optimisation, can now update.
         self._can_update = True
+
+        self.update_counter += 1
 
         if self.t is not None:
             # Compute new local contribution from old distributions
@@ -567,7 +582,7 @@ class Userlevel_DPSGD_Client(Client):
                     print(f'grad_norm after clipping: {g_norm2}')
                     #'''
 
-                # add noise to clipped grads and avg
+                # add noise to clipped grads and avg over different users
                 for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
                     p_.grad = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p_.grad) + cum_grads[key]
                     p_.grad /= self.batch_size

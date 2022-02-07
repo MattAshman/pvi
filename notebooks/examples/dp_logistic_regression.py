@@ -39,14 +39,18 @@ from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
 from utils import *
 
 logger = logging.getLogger(__name__)
-#logger.setLevel(logging.DEBUG)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-#handler.setLevel(logging.DEBUG)
-handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+handler.setLevel(logging.DEBUG)
+
+logging.basicConfig(
+    level=logging.DEBUG, 
+    format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+    handlers=[handler]
+)
+
+
 
 def main(args, rng_seed, dataset_folder):
     """
@@ -58,7 +62,7 @@ def main(args, rng_seed, dataset_folder):
     pbar = args.pbar
 
     # do some args checks
-    if args.dp_mode not in ['nondp','dpsgd', 'param','param_fixed','server','lfa', 'local_pvi']:
+    if args.dp_mode not in ['nondp_batches', 'nondp_epochs','dpsgd', 'param','param_fixed','server','lfa', 'local_pvi']:
         raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
     if args.model not in ['pvi', 'bcm_split', 'bcm_same', 'global_vi']:
@@ -86,7 +90,12 @@ def main(args, rng_seed, dataset_folder):
         elif args.sampling_frac_q is None:
             logger.info(f'Using sequential data passes with batch size {args.batch_size} (separate models for each batch)')
     else:
-        logger.info(f'Using sequential data passes with batch size {args.batch_size}')
+        if args.dp_mode in ['nondp_batches']:
+            logger.info(f'Sampling {args.n_steps} batches per global update with batch size {args.batch_size}')
+        elif args.dp_mode in ['nondp_epochs']: 
+            logger.info(f'Sampling {args.n_steps} epochs per global update with batch size {args.batch_size}')
+        else:
+            raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
 
     # fix random seeds
@@ -143,6 +152,7 @@ def main(args, rng_seed, dataset_folder):
         'clients' : args.clients, # total number of clients
         "pbar" : pbar, 
         'noisify_np': True, # for param DP and related dp modes: if True clip and noisify natural parameters, otherwise use unconstrained loc-scale. No effect on DPSGD.
+        "freeze_var_updates" : args.freeze_var_updates,
     }
     # change batch_size for LFA
     #if args.dp_mode == 'lfa':
@@ -598,6 +608,7 @@ if __name__ == '__main__':
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default=None, type=str, help='path to combined train-test folder')
+    parser.add_argument('--freeze_var_updates', default=0, type=int, help='Freeze var params for first given number of global updates')
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
@@ -606,7 +617,7 @@ if __name__ == '__main__':
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='nondp', type=str, help="DP mode: 'nondp': no clipping or noise, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'server': clip and noisify change in params on (synchronous) server end, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode.")
+    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'nondp_epochs': no clipping or noise, do n_steps epochs per global update, 'nondp_batches': no clipping or noise, do n_steps batches per global update, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode. Additionally: 'lfa_dpsgd' and 'pvi_dpsgd' run lfa/local_pvi for the first global updates, then change to dpsgd.")
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")

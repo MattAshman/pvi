@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 logger.setLevel(logging.INFO)
 
+
 # =============================================================================
 # Client class
 # =============================================================================
@@ -40,6 +41,9 @@ class Client(ABC):
         self._can_update = True
 
         self.optimiser = None
+
+        self.freeze_var_updates = config['freeze_var_updates']
+        self.update_counter = 0
 
     @property
     def config(self):
@@ -128,6 +132,10 @@ class Client(ABC):
                     {"params": self.model.parameters()}
                 ]
         else:
+            #print(q._unc_params['log_scale'].requires_grad)
+            if self.freeze_var_updates > self.update_counter:
+                logger.debug('Freezing log_scale params')
+                q._unc_params['log_scale'].requires_grad = False
             parameters = q.parameters()
 
         # Reset optimiser
@@ -280,6 +288,8 @@ class Client(ABC):
 
         # Finished optimisation, can now update.
         self._can_update = True
+
+        self.update_counter += 1
 
         if self.t is not None:
             # Compute new local contribution from old distributions

@@ -39,10 +39,13 @@ logger.setLevel(logging.DEBUG)
 #logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
 handler.setLevel(logging.DEBUG)
-#handler.setLevel(logging.INFO)
-formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-handler.setFormatter(formatter)
-logger.addHandler(handler)
+
+logging.basicConfig(
+    level=logging.DEBUG, 
+    format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
+    handlers=[handler]
+)
+
 
 def main(args, rng_seed, dataset_folder):
     """
@@ -146,6 +149,7 @@ def main(args, rng_seed, dataset_folder):
         'clients' : args.clients, # total number of clients
         "pbar" : pbar, 
         'noisify_np': True, # for param DP and related dp modes: if True clip and noisify natural parameters, otherwise use unconstrained loc-scale. No effect on DPSGD.
+        "freeze_var_updates" : args.freeze_var_updates,
     }
     # change batch_size for LFA
     #if args.dp_mode == 'lfa':
@@ -526,6 +530,8 @@ if __name__ == '__main__':
     parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'nondp_epochs': no clipping or noise, do n_steps epochs per global update, 'nondp_batches': no clipping or noise, do n_steps batches per global update, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode. Additionally: 'lfa_dpsgd' and 'pvi_dpsgd' run lfa/local_pvi for the first global updates, then change to dpsgd.")
     # add dp_mode options: lfa_dpsgd ja pvi_dpsgd
     parser.add_argument('--mixed_dp_mode_change', default=1, type=int, help="Change dp mode after given number of global updates. Only when using \'lfa_dpsgd\' or \'pvi_dpsgd\' dp_mode")
+    parser.add_argument('--mixed_dp_mode_C', default=1., type=int, help="Clipping constant for \'lfa_dpsgd\' or \'pvi_dpsgd\' first dp_mode.")
+    parser.add_argument('--mixed_dp_mode_sigma', default=0., type=int, help="DP noise sigma for \'lfa_dpsgd\' or \'pvi_dpsgd\' first dp_mode.")
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")

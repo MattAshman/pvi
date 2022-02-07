@@ -78,9 +78,11 @@ class Local_PVI_Client(Client):
 
         # note: no tracking currently
         # actually tracks norm of change in params for LFA
-        #if self._config['track_client_norms']:
-        #    self.pre_dp_norms = []
-        #    self.post_dp_norms = []
+        if self._config['track_client_norms']:
+            # LISÄÄ TRÄKKÄYS: HALUTAAN SUMMAN+KOHINA, JA ERIKSEEN KOHINAN SUHTEELLINEN OSUUS SUMMASTA
+            self.pre_dp_norms = []
+            self.post_dp_norms = []
+            self.noise_norms = []
 
 
     def gradient_based_update(self, p, init_q=None):
@@ -127,7 +129,7 @@ class Local_PVI_Client(Client):
                 client_config['dp_sigma'] = self.config['dp_sigma']/(np.sqrt(self.n_local_models)) # without secure aggregation
                 #print(f"pseudo-client var: {client_config['dp_sigma']**2} will sum to {self.n_local_models*client_config['dp_sigma']**2}, should equal {self.config['dp_sigma']**2}")
                 client_config['clients'] = self.n_local_models
-                client_config['batch_size'] = int(b)
+                client_config['batch_size'] = int(b) # note: here batch_size=data size for a given local model
                 client_config['sampling_frac_q'] = 1. # should be obsolete
 
                 t = MeanFieldGaussianFactor(nat_params = self.t.nat_params)
@@ -208,6 +210,20 @@ class Local_PVI_Client(Client):
                 cur_t['np2'] += client.t.nat_params['np2'].detach().clone()*self.config['damping_factor']
         #'''
         
+        if self.config['track_client_norms']:
+            tmp = np.zeros(3)
+            for client in self.pseudo_clients:
+                tmp[0] += client.pre_dp_norms[-1]
+                tmp[1] += client.post_dp_norms[-1]
+                tmp[2] += client.noise_norms[-1]
+                #print(client.pre_dp_norms, client.noise_norms)
+                #print(len(client.pre_dp_norms),len(client.noise_norms) )
+                #sys.exit()
+            self.pre_dp_norms.append(tmp[0]/len(self.pseudo_clients))
+            self.post_dp_norms.append(tmp[1]/len(self.pseudo_clients))
+            self.noise_norms.append(tmp[2]/len(self.pseudo_clients))
+
+
         if self.t is not None:
             # Compute new local contribution from old distributions
 
