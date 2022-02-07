@@ -132,7 +132,7 @@ class Client(ABC):
 
         # Reset optimiser
         # NOTE: why is optimiser reset here?
-        logging.info("Resetting optimiser")
+        #logging.info("Resetting optimiser")
         #if self.optimiser is None:
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -151,11 +151,20 @@ class Client(ABC):
 
         tensor_dataset = TensorDataset(x, y)
 
+
         loader = DataLoader(tensor_dataset,
                             batch_size=batch_size,
                             shuffle=True)
-        n_epochs = self.config['epochs']
-        n_samples = len(loader)
+
+        # sample either given number of full epochs or given number of batches
+        if self.config['dp_mode'] == 'nondp_batches':
+            n_epochs = 1
+            n_samples = self.config['epochs']
+        elif self.config['dp_mode'] == 'nondp_epochs':
+            n_epochs = self.config['epochs']
+            n_samples = len(loader)
+        else:
+            raise ValueError(f"Unknown dp_mode: {self.config['dp_mode']}!")
 
         # Dict for logging optimisation progress
         training_curve = {

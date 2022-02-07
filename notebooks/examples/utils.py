@@ -78,7 +78,7 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
                 client = DPSGD_Client(data=data, model=model, t=t, config=config)
                 if i == 0:
                     logger.debug('Init DPSGD clients')
-        elif args.dp_mode in ['nondp']:
+        elif args.dp_mode in ['nondp_epochs', 'nondp_batches']:
             client = Client(data=data, model=model, t=t, config=config)
             if i == 0:
                 logger.debug('Init non-DP base clients')
@@ -93,7 +93,7 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
 
 
 
-def standard_client_split(dataset_seed, num_clients, client_size_factor, class_balance_factor, total_splits=2, k_split=0, dataset_folder='../../data/data/adult/'):
+def standard_client_split(dataset_seed, num_clients, client_size_factor, class_balance_factor, total_splits=2, k_split=0, dataset_folder='../../data/data/adult/', data_args=None):
     """
     Args:
         dataset_seed : seed for client data splitting, None to avoid fixing separate dataset seed
@@ -103,7 +103,83 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
     """
 
     # Get data split
-    if 'mimic3' in dataset_folder:
+    if dataset_folder is None:
+        #print(data_args['sample_size'])
+        #if data_args is None:
+        #    raise ValueError('Need to have proper data_args to generate data when dataset_folder is None!')
+
+        logger.info('Generating data')
+        client_data = []
+        # set data generation parameters
+        data_args = {}
+        data_args['mean'], data_args['cov'],data_args['sample_size'],data_args['coef'] = {},{},{},{}
+        data_args['mean']['train'], data_args['cov']['train'],data_args['sample_size']['train'],data_args['coef']['train'] = [],[],[],[]
+        data_args['mean']['test'] = torch.zeros(1)
+        data_args['cov']['test'] = torch.eye(1)
+        data_args['sample_size']['test'] = 1000
+        data_args['coef']['test'] = torch.tensor([1.,2.]) # y mean included as 0th coef
+        for i_client in range(num_clients):
+            data_args['mean']['train'].append(torch.zeros(1))
+            data_args['cov']['train'].append(torch.eye(1))
+            data_args['sample_size']['train'].append(500)
+            data_args['coef']['train'].append(torch.tensor([1.,2.])) # y mean included as 0th coef
+
+        # generate training and test data for logistic regression
+        for i_client in range(num_clients):
+            client_data.append({})
+            client_data[-1]['x'] = torch.distributions.multivariate_normal.MultivariateNormal(
+                    loc=data_args['mean']['train'][i_client], covariance_matrix=data_args['cov']['train'][i_client]).sample( [data_args['sample_size']['train'][i_client],])
+            
+            tmp = torch.nn.Sigmoid()(torch.matmul(client_data[-1]['x'],data_args['coef']['train'][i_client][1:]) + data_args['coef']['train'][i_client][0] )
+            #print(client_data[-1]['x'].shape,tmp.shape)
+            #print(tmp)
+            client_data[-1]['y'] = torch.bernoulli(tmp)
+            #client_data[-1]['y'] = torch.matmul(client_data[-1]['x'],data_args['coef']['train'][i_client][1:]) + data_args['coef']['train'][i_client][0]
+
+            #plt.scatter(tmp, client_data[-1]['y'] )
+            #plt.show()
+
+            #from sklearn.linear_model import LogisticRegression as LR
+            #lr = LR().fit(client_data[-1]['x'].numpy(),client_data[-1]['y'].numpy())
+            #print(lr.intercept_, lr.coef_)
+        # generate some training and test data for linear regression
+        '''
+        for i_client in range(num_clients):
+            client_data.append({})
+            client_data[-1]['x'] = torch.distributions.multivariate_normal.MultivariateNormal(
+                    loc=data_args['mean']['train'][i_client], covariance_matrix=data_args['cov']['train'][i_client]).sample( [data_args['sample_size']['train'][i_client],])
+            
+            client_data[-1]['y'] = torch.matmul(client_data[-1]['x'],data_args['coef']['train'][i_client][1:]) + data_args['coef']['train'][i_client][0]
+            # check that generation matches params
+            #print(f"client data x shape: {client_data[-1]['x'].shape}, y shape: {client_data[-1]['y'].shape}")
+            #from sklearn.linear_model import LinearRegression as LR
+            #lr = LR().fit(client_data[-1]['x'].numpy(),client_data[-1]['y'].numpy())
+            #print(lr.intercept_, lr.coef_)
+        '''
+
+        N, prop_positive = data_args['sample_size']['train'], np.zeros(num_clients)
+        train_set = {'x' : torch.tensor(np.concatenate([data_dict['x'] for data_dict in client_data ])).float(),
+                     'y' : torch.tensor(np.concatenate([data_dict['y'] for data_dict in client_data ])).float() }
+
+        tmp_x = torch.distributions.multivariate_normal.MultivariateNormal(
+                    loc=data_args['mean']['test'], covariance_matrix=data_args['cov']['test']).sample([data_args['sample_size']['test'],])
+        # logistic regression data:
+
+        tmp_y = torch.bernoulli(torch.nn.Sigmoid()(torch.matmul(tmp_x,data_args['coef']['test'][1:]) + data_args['coef']['test'][0] ))
+        #print(client_data[-1]['x'].shape,tmp.shape)
+        #print(tmp)
+
+        # linear regression data:
+        #tmp_y = torch.matmul(tmp_x,data_args['coef']['test'][1:]) + data_args['coef']['test'][0]
+        # Validation set, to predict on using global model
+        valid_set = {   'x' : tmp_x,
+                        'y' : tmp_y,
+                     
+                    }
+        del tmp_x, tmp_y
+        #'''
+
+    elif 'mimic3' in dataset_folder:
         logger.debug('Reading MIMIC-III data')
         # read preprocessed mimic data that already includes client splits
         filename = dataset_folder+f'mimic_in-hospital_split_{num_clients}clients.npz'
@@ -136,18 +212,18 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         test_set = datasets.MNIST(root=dataset_folder, train=False, download=False, transform=transform_test)
 
         train_set = {
-            "x": ((train_set.data - 0) / 255).reshape(-1, 28 * 28),
+            "x": ((train_set.data - 0) / 255.).reshape(-1, 28 * 28),
             "y": train_set.targets,
         }
 
         valid_set = {
-            "x": ((test_set.data - 0) / 255).reshape(-1, 28 * 28),
+            "x": ((test_set.data - 0) / 255.).reshape(-1, 28 * 28),
             "y": test_set.targets,
         }
         logger.debug(f"MNIST shapes, train: {train_set['x'].shape}, {train_set['y'].shape}, test: {valid_set['x'].shape}, {valid_set['y'].shape}")
-        # balanced split
         client_data = []
         N = np.zeros(num_clients)
+        # balanced split
         if class_balance_factor == 0:
             logger.info('Using Fed MNIST data with balanced split.')
             perm = np.random.permutation(len(train_set["y"]))
@@ -163,6 +239,9 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             # note: distribution of MNIST labels is not exactly 6000/digit, so some shares might contain 2 labels even when using 100 clients
             shard_len = 60000//(2*num_clients)
             n_shards = 60000//shard_len
+            #print(f"using {n_shards} shards with len {shard_len}")
+            #for i in range(10):
+            #    print(f"{i}: {torch.sum(train_set['y']==i)}")
             
             sorted_inds = torch.argsort(train_set['y'])
             shards = np.random.permutation(np.linspace(0,n_shards-1,n_shards))
@@ -185,6 +264,17 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
 
             print(tmp)
             '''
+
+        # check client data distribution
+        '''
+        for i_client in range(num_clients):
+            print(f"uniques: {torch.unique(client_data[i_client]['y'])}")
+            tmp = []
+            for i in range(10):
+                tmp.append( torch.sum(client_data[i_client]['y'] == i)/len(client_data[i_client]['y']))
+            print(f"fractions: {tmp}")
+        sys.exit()
+        #'''
 
         prop_positive = np.zeros(num_clients)*np.nan
 
@@ -210,6 +300,16 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
                      'y' : torch.tensor(y_valid).float()}
 
     return client_data, train_set, valid_set, N, prop_positive
+
+def cont_acc_and_ll(server, x, y):
+    """Calculate model prediction mean sq err with LinearRegression model
+    """
+    pred_probs = server.model_predict(x)
+    #print(pred_probs, x.shape,y.shape)
+    pred_probs = pred_probs.mean.detach().numpy() # mean for each x
+    acc = np.mean((pred_probs-y.numpy())**2)
+    loglik = np.nan
+    return acc, loglik, None
 
 
 def acc_and_ll(server, x, y, n_points=101):
@@ -584,7 +684,7 @@ if __name__ == '__main__':
 
     #########################################
     #########################################
-    all_comps = [10*800]
+    all_comps = [10*400]
     all_q = [.1]
     all_eps = [2.]
 
