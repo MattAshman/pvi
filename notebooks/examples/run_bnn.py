@@ -155,6 +155,7 @@ def main(args, rng_seed, dataset_folder):
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
         'batch_proc_size': args.batch_proc_size, # for DP-SGD and LFA
         'sampling_frac_q' : args.sampling_frac_q, # sampling fraction
+        'pseudo_client_q' : args.pseudo_client_q, # sampling frac for local_pvi pseudo-clients
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment? i guess not
         'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
@@ -569,6 +570,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or LFA, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
+    parser.add_argument('--pseudo_client_q', default=1., type=float, help="sampling fraction used by pseudo-clients in local pvi")
     parser.add_argument('--pre_clip_sigma', default=0., type=float, help='noise magnitude for noise added before clipping (biass mitigation)')
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=1000., type=float, help='gradient norm bound')
