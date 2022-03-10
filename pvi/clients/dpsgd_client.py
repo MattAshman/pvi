@@ -12,11 +12,8 @@ from .base import Client
 
 logger = logging.getLogger(__name__)
 
-
-
-
-logger.setLevel(logging.DEBUG)
-#logger.setLevel(logging.INFO)
+#logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 # =============================================================================
 # Client class
@@ -45,14 +42,13 @@ class DPSGD_Client(Client):
         #self.log = defaultdict(list)
         #self._can_update = True
 
-        #self.optimiser = None
 
         #if self._config['track_client_norms']:
         #    self.pre_dp_norms = []
         #    self.post_dp_norms = []
 
 
-    def gradient_based_update(self, p, init_q=None):
+    def gradient_based_update(self, p, init_q=None, global_prior=None):
         # Cannot update during optimisation.
         self._can_update = False
 
@@ -103,22 +99,17 @@ class DPSGD_Client(Client):
 
             parameters = q.parameters()
 
-        #print(q._unc_params['log_scale'].requires_grad)
-
-        # Reset optimiser
-        # NOTE: why is optimiser reset here?
-        #logging.info("Resetting optimiser")
-        #if self.optimiser is None:
+        # reset optimiser after each global update
         optimiser = getattr(torch.optim, self.config["optimiser"])(
-            parameters, **self.config["optimiser_params"])
-        lr_scheduler = getattr(torch.optim.lr_scheduler,
+                    parameters, **self.config["optimiser_params"])
+        if self.config['use_lr_scheduler']:
+            lr_scheduler = getattr(torch.optim.lr_scheduler,
                            self.config["lr_scheduler"])(
-            optimiser, **self.config["lr_scheduler_params"])
-        self.optimiser = optimiser
-        self.lr_scheduler = lr_scheduler
-        #else:
-        #    optimiser = self.optimiser
-        #    lr_scheduler = self.lr_scheduler
+                            optimiser, **self.config["lr_scheduler_params"])
+            try:
+                lr_scheduler.load_state_dict(self.lr_scheduler_states)
+            except:
+                pass
         
         # Set up data
         x = self.data["x"]
@@ -150,7 +141,7 @@ class DPSGD_Client(Client):
         # Gradient-based optimisation loop -- loop over epochs
         epoch_iter = tqdm(range(n_epochs), desc="Epoch", leave=True, disable=self.config['pbar'])
         # for i in range(self.config["epochs"]):
-        for i in epoch_iter:
+        for i in epoch_iter: # note: this is now always single iteration, could remove loop
             epoch = {
                 "elbo" : 0,
                 "kl"   : 0,
@@ -239,6 +230,11 @@ class DPSGD_Client(Client):
                         # track mean grad norm over samples in the minibatch
                         grad_norm_tracker += g_norm.item()/batch_size
 
+                    # pre noise to mitigate bias due to clipping
+                    if self.config['pre_clip_sigma'] > 0:
+                        for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
+                            p_.grad = p_.grad + self.config['pre_clip_sigma']*torch.randn_like(p_.grad)
+
                     # clip and accumulate grads
                     for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
                         #if p_.grad is not None:
@@ -252,6 +248,8 @@ class DPSGD_Client(Client):
                     g_norm2 = torch.sqrt(g_norm2)
                     print(f'grad_norm after clipping: {g_norm2}')
                     #'''
+
+                ### end loop over single samples in minibatch ###
 
                 # add noise to clipped grads and avg
                 for key, p_ in zip( cum_grads, filter(lambda p_: p_.requires_grad, q.parameters()) ):
@@ -267,7 +265,6 @@ class DPSGD_Client(Client):
                     g_norm = torch.sqrt(g_norm)
                     self.post_dp_norms.append(g_norm.item())
 
-                ### end loop over single samples in minibatch ###
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
@@ -280,15 +277,17 @@ class DPSGD_Client(Client):
                 optimiser.step()
                 i_step += 1
 
+                # Log progress for current epoch
+                training_curve["elbo"].append(epoch["elbo"])
+                training_curve["kl"].append(epoch["kl"])
+                training_curve["ll"].append(epoch["ll"])
+
+                if self.t is not None:
+                    training_curve["logt"].append(epoch["logt"])
                 ### end loop over minibatches ###
 
-            # Log progress for current epoch
-            training_curve["elbo"].append(epoch["elbo"])
-            training_curve["kl"].append(epoch["kl"])
-            training_curve["ll"].append(epoch["ll"])
 
-            if self.t is not None:
-                training_curve["logt"].append(epoch["logt"])
+
 
             if i % self.config["print_epochs"] == 0:
                 logger.debug(f"ELBO: {epoch['elbo']:.3f}, "
@@ -301,10 +300,15 @@ class DPSGD_Client(Client):
                                    ll=epoch["ll"], logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
 
-            # Update learning rate.
-            lr_scheduler.step()
-
             ### end loop over local steps ###
+
+        # Update learning rate.
+        if self.config['use_lr_scheduler']:
+            lr_scheduler.step()
+            # optimiser zeroed after each global update, so change lr by hand
+            self.config['optimiser_params']['lr'] = lr_scheduler.get_last_lr()[0]
+            self.lr_scheduler_state = lr_scheduler.state_dict()
+
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
@@ -353,8 +357,6 @@ class Userlevel_DPSGD_Client(Client):
         
         self.log = defaultdict(list)
         self._can_update = True
-
-        self.optimiser = None
 
         assert config['batch_size'] is not None and config['sampling_frac_q'] is not None
 

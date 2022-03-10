@@ -50,7 +50,7 @@ class Param_DP_Client(Client):
             self.noise_norms = []
 
 
-    def gradient_based_update(self, p, init_q=None):
+    def gradient_based_update(self, p, init_q=None, global_prior=None):
         # Cannot update during optimisation.
         self._can_update = False
 
@@ -58,7 +58,8 @@ class Param_DP_Client(Client):
             batch_size = int(np.floor(self.config['sampling_frac_q']*len(self.data["y"])))
         else:
             batch_size = self.config['batch_size']
-        #print(f"batch size {batch_size}, noise std:{self.config['dp_sigma']}, noise var: {self.config['dp_sigma']**2}")
+        #print(self.config['sampling_frac_q'])
+        #print(f"data size={len(self.data['y'])}, batch size {batch_size}, noise std:{self.config['dp_sigma']}, noise var: {self.config['dp_sigma']**2}")
         #sys.exit()
         
         # Copy the approximate posterior, make old posterior non-trainable.
@@ -69,7 +70,6 @@ class Param_DP_Client(Client):
             q_cav = p.non_trainable_copy()
         else:
             # TODO: check if valid distribution.
-
             q_cav = p.non_trainable_copy()
             q_cav.nat_params = {k: v - self.t.nat_params[k]
                                 for k, v in q_cav.nat_params.items()}
@@ -99,24 +99,27 @@ class Param_DP_Client(Client):
                 q._unc_params['log_scale'].requires_grad = False
             parameters = q.parameters()
 
-        # Reset optimiser
-        # NOTE: why is optimiser reset here?
-        #logging.info("Resetting optimiser")
+        # reset optimiser after each global update: possible history from earlier global update seems quite bad
         #if self.optimiser is None:
         optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
-        lr_scheduler = getattr(torch.optim.lr_scheduler,
-                           self.config["lr_scheduler"])(
-            optimiser, **self.config["lr_scheduler_params"])
         self.optimiser = optimiser
-        self.lr_scheduler = lr_scheduler
-        #else:
-        #    optimiser = self.optimiser
-        #    lr_scheduler = self.lr_scheduler
+        if self.config['use_lr_scheduler']:
+            lr_scheduler = getattr(torch.optim.lr_scheduler,
+                               self.config["lr_scheduler"])(
+                optimiser, **self.config["lr_scheduler_params"])
+            try:
+                lr_scheduler.load_state_dict(self.lr_scheduler_state)
+            except Exception  as e:
+                #print(e)
+                pass
+
+        #print(optimiser.param_groups[0]['lr'])
         
         # Set up data
         x = self.data["x"]
         y = self.data["y"]
+        #print(f'param dp using {len(y)} samples')
 
         tensor_dataset = TensorDataset(x, y)
 
@@ -245,10 +248,15 @@ class Param_DP_Client(Client):
                                    ll=epoch["ll"], logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
 
-            # Update learning rate.
-            lr_scheduler.step()
-
             ### end loop over local steps ###
+
+        # Update learning rate
+        if self.config['use_lr_scheduler']:
+            lr_scheduler.step()
+            # optimiser zeroed after each global update, so change lr by hand
+            self.config['optimiser_params']['lr'] = lr_scheduler.get_last_lr()[0]
+            self.lr_scheduler_state = lr_scheduler.state_dict()
+
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)
@@ -262,11 +270,13 @@ class Param_DP_Client(Client):
             # clip and noisify natural params as opposed to (unconstrained) loc-scale
             if self.config['noisify_np']:
                 for k in q.nat_params:
-                    param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
+                    #param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
+                    param_norm += torch.sum((q.nat_params[k] - q_old.nat_params[k])**2)
 
             else:
                 # in unconstrained space
-                for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+                #for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
+                for i_params, (p_, p_old) in enumerate(zip(q.parameters(),q_old.parameters())):
                     if i_params == 0:
                         # difference in params
                         param_norm += torch.sum((p_ - p_old)**2)
@@ -290,12 +300,18 @@ class Param_DP_Client(Client):
             if self.config['noisify_np']:
                 #print('\nbefore noising: {}\n'.format(q.nat_params))
                 tmp = {}
+                # pre clip noise to mitigate bias from clipping
+                if self.config['pre_clip_sigma'] > 0:
+                    for k in q.nat_params:
+                        tmp[k] = self.config['pre_clip_sigma']*torch.randn_like(q.nat_params[k])
+
                 tmp0 = 0.
                 for k in q.nat_params:
                     noise = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k])
                     if self.config['track_client_norms']:
                         tmp0 += torch.linalg.norm(noise, ord=2)
-                    tmp[k] = (p.nat_params[k] + (q.nat_params[k]-p.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                    #tmp[k] = (p.nat_params[k] + (q.nat_params[k]-p.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
+                    tmp[k] = (q_old.nat_params[k] + (q.nat_params[k]-q_old.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                                 + noise).detach().clone()
 
                 if self.config['track_client_norms']:
@@ -316,6 +332,9 @@ class Param_DP_Client(Client):
                 sys.exit()
                 '''
             else:
+                raise NotImplementedError('Check implementation when not using np!!')
+                if self.config['pre_clip_sigma'] > 0:
+                    raise NotImplementedError('Pre clip noise not implemented!')
                 for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
                     if i_params == 0:
                         p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
@@ -338,7 +357,8 @@ class Param_DP_Client(Client):
             if self.config['track_client_norms']:
                 if self.config['noisify_np']:
                     for k in q.nat_params:
-                        param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
+                        #param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
+                        param_norm += torch.sum((q.nat_params[k] - q_old.nat_params[k])**2)
                 else:
                     raise NotImplementedError('norm tracking not implemented properly!')
                 param_norm = torch.sqrt(param_norm)
@@ -354,12 +374,14 @@ class Param_DP_Client(Client):
         if self.t is not None:
             # Compute new local contribution from old distributions
             t_new = self.t.compute_refined_factor(
-                q, q_old, damping=self.config["damping_factor"],
+                q_new, q_old, damping=self.config["damping_factor"],
                 valid_dist=self.config["valid_factors"],
                 update_log_coeff=self.config["update_log_coeff"])
 
             # note for DP: only t is currently used by server:
-            return q_new, t_new
+            # NOTE: q_new doesn't containt damping, don't return!
+            return None, t_new
+            #return q_new, t_new
 
         else:
             logger.debug('Note: client not returning t')

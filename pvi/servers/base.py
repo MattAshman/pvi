@@ -39,6 +39,8 @@ class Server(ABC):
         # Internal communication counter.
         self.communications = 0
 
+        self.param_update_norms = []
+
         self.log = defaultdict(list)
 
         self.log["q"].append(self.q.non_trainable_copy())

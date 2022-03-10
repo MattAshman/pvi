@@ -5,7 +5,7 @@ from .base import *
 
 logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
-#logger.setLevel(logging.INFO)
+logger.setLevel(logging.INFO)
 
 
 class SynchronousServer(Server):
@@ -32,9 +32,9 @@ class SynchronousServer(Server):
 
                 if self.iterations == 0:
                     # First iteration. Pass q_init(θ) to client.
-                    _, t_i_new = client.fit(self.q, self.init_q)
+                    _, t_i_new = client.fit(self.q, self.init_q, global_prior=self.p)
                 else:
-                    _, t_i_new = client.fit(self.q)
+                    _, t_i_new = client.fit(self.q, global_prior=self.p)
 
                 # Compute change in natural parameters.
                 delta_np = {}

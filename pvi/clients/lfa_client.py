@@ -62,6 +62,7 @@ class LFA_Client(Client):
             #print(f"data len={len(self.data['y'])}, b={config['batch_size']}, n_models={self.n_local_models}, would need data len {config['batch_size']*self.n_local_models}")
             #sys.exit()
         self.optimiser_states = None
+        self.lr_scheduler_states = None
         
         # Set likelihood approximating term
         #self.t = t
@@ -74,7 +75,7 @@ class LFA_Client(Client):
         #    self.pre_dp_norms = []
         #    self.post_dp_norms = []
 
-    def gradient_based_update(self, p, init_q=None):
+    def gradient_based_update(self, p, init_q=None, global_prior=None):
         # Cannot update during optimisation.
         self._can_update = False
         
@@ -143,13 +144,15 @@ class LFA_Client(Client):
 
             optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
-            #lr_scheduler = getattr(torch.optim.lr_scheduler,
-            #                       self.config["lr_scheduler"])(
-            #    optimiser, **self.config["lr_scheduler_params"])
 
             self.optimiser_states = []
+            self.lr_scheduler_states = []
             for i_state in range(self.n_local_models):
                 self.optimiser_states.append(optimiser.state_dict())
+                if self.config['use_lr_scheduler']:
+                    lr_scheduler = getattr(torch.optim.lr_scheduler, self.config["lr_scheduler"])(
+                                    optimiser, **self.config["lr_scheduler_params"])
+                    self.lr_scheduler_states.append(lr_scheduler.state_dict())
 
         # Set up data
         x = self.data["x"]
@@ -199,6 +202,11 @@ class LFA_Client(Client):
             optimiser = getattr(torch.optim, self.config["optimiser"])(
             q.parameters(), **self.config["optimiser_params"])
             optimiser.load_state_dict(self.optimiser_states[i_batch])
+            if self.config['use_lr_scheduler']:
+                lr_scheduler = getattr(torch.optim.lr_scheduler,
+                                       self.config["lr_scheduler"])(
+                    optimiser, **self.config["lr_scheduler_params"])
+                lr_scheduler.load_state_dict(self.lr_scheduler_states[i_batch])
 
             batch = {
                 "x" : x_batch,
@@ -279,6 +287,10 @@ class LFA_Client(Client):
                                #lr=optimiser.param_groups[0]["lr"])
 
             # save optimiser state
+            if self.config['use_lr_scheduler']:
+                lr_scheduler.step()
+                self.lr_scheduler_states[i_batch] = lr_scheduler.state_dict()
+            # note: need to save optimiser state after scheduler step to include possible lr changes
             self.optimiser_states[i_batch] = optimiser.state_dict()
            
             # get norm of the change in params
@@ -322,6 +334,11 @@ class LFA_Client(Client):
         # add noise to sum of clipped change in parameters, take avg, add DP change in params to starting point to get new params
         if self.config['noisify_np']:
             tmp = {}
+            # pre clip noise to mitigate bias from clipping
+            if self.config['pre_clip_sigma'] > 0:
+                for k in q.nat_params:
+                    tmp[k] = self.config['pre_clip_sigma']*torch.randn_like(q.nat_params[k])
+
             for k in q.nat_params:
                 tmp[k] = (model_checkpoint.nat_params[k] + (param_accumulator[k] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k]) )/self.n_local_models).detach().clone()
 
@@ -330,6 +347,8 @@ class LFA_Client(Client):
                 p_new.data =  tmp[k]
 
         else:
+            if self.config['pre_clip_sigma'] > 0:
+                raise NotImplementedError('Pre clip noise not implemented!')
             for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
                 p.data = (p0 +  (param_accumulator[str(i_param)] + self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(p))/self.n_local_models).detach().clone()
 

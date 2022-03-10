@@ -39,13 +39,15 @@ from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
 from utils import *
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-#logger.setLevel(logging.INFO)
+#logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
+#handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 
 logging.basicConfig(
-    level=logging.DEBUG, 
+    #level=logging.DEBUG, 
+    level=logging.INFO, 
     format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
     handlers=[handler]
 )
@@ -82,7 +84,7 @@ def main(args, rng_seed, dataset_folder):
         else:
             raise ValueError("Need to set at least one of 'batch_size', 'sampling_frac_q'!")
 
-    elif args.dp_mode in ['lfa', 'local_pvi']:
+    elif args.dp_mode in ['lfa', 'local_pvi','param']:
         if args.batch_size is not None and args.sampling_frac_q is not None:
             raise ValueError("Exactly one of 'batch_size', 'sampling_frac_q' needs to be None")
         elif args.batch_size is None:
@@ -129,17 +131,32 @@ def main(args, rng_seed, dataset_folder):
 
     model = LogisticRegressionModel(hyperparameters=model_hyperparameters, config=model_config)
 
+    # define multistep lr scheduler bounds
+    if args.use_lr_scheduler and args.n_global_updates > 5:
+        # reduce by 1/2 at the middle and again 2 global updates before end
+        lr_scheduler_params  = {'gamma' : .5, 
+                            'milestones': [args.n_global_updates//2, args.n_global_updates-2]}
+        #'verbose' : False} # note: pytorch 1.6 seems to have bug: doesn't accept verbose keyword
+        logger.debug(f"Using multistep lr scheduler with milestones: {lr_scheduler_params['milestones']}")
+    else:
+        args.use_lr_scheduler = False
+        if args.use_lr_scheduler:
+            logger.debug(f"Disabling multistep lr scheduler due to having < 6 global updates!")
+        lr_scheduler_params = {}
+
     client_config = {
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
         'batch_proc_size': args.batch_proc_size, # for DP-SGD and LFA
         'sampling_frac_q' : args.sampling_frac_q, # sampling fraction
+        'pseudo_client_q' : args.pseudo_client_q, # sampling frac for local_pvi pseudo-clients
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment? i guess not
         'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
         'optimiser' : 'Adam',
         'optimiser_params' : {'lr' : args.learning_rate},
-        'lr_scheduler' : 'MultiplicativeLR',
-        'lr_scheduler_params' : { 'lr_lambda' : lambda epoch: 1.},
+        'lr_scheduler' : 'MultiStepLR',
+        'lr_scheduler_params' : lr_scheduler_params,
+        'use_lr_scheduler' : args.use_lr_scheduler,
         'num_elbo_samples' : 10, # possible to break if this is low?
         'print_epochs' : 1, # ?
         'train_model' : False, # no need for having trainable model on client
@@ -147,12 +164,14 @@ def main(args, rng_seed, dataset_folder):
         'dp_mode' : args.dp_mode, 
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
+        'pre_clip_sigma' : args.pre_clip_sigma,
         'enforce_pos_var' : args.enforce_pos_var,
         'track_client_norms' : args.track_client_norms,
         'clients' : args.clients, # total number of clients
         "pbar" : pbar, 
         'noisify_np': True, # for param DP and related dp modes: if True clip and noisify natural parameters, otherwise use unconstrained loc-scale. No effect on DPSGD.
         "freeze_var_updates" : args.freeze_var_updates,
+        "n_global_updates" : args.n_global_updates,
     }
     # change batch_size for LFA
     #if args.dp_mode == 'lfa':
@@ -172,7 +191,7 @@ def main(args, rng_seed, dataset_folder):
     }
 
     # Initialise clients, q and server
-    clients = set_up_clients(model, client_data, init_nat_params, client_config, args)
+    clients = set_up_clients(model, client_data, init_nat_params, client_config, dp_mode=args.dp_mode, batch_size=args.batch_size, sampling_frac_q=args.sampling_frac_q)
 
     #print(clients[0])
     #sys.exit()
@@ -189,6 +208,7 @@ def main(args, rng_seed, dataset_folder):
             #'server_add_dp' : args.server_add_dp,
             'dp_C' : args.dp_C,
             'dp_sigma' : args.dp_sigma,
+            'pre_clip_sigma' : args.pre_clip_sigma,
             'enforce_pos_var' : args.enforce_pos_var,
             'dp_mode' : args.dp_mode,
             "pbar" : pbar, 
@@ -211,7 +231,7 @@ def main(args, rng_seed, dataset_folder):
         server_config["batch_size"] = None
         server_config["sampling_frac_q"] = args.sampling_frac_q
         server_config["optimiser"] = "Adam"
-        server_config["optimiser_params"] = {'lr' : args.learning_rate} #{"lr": 0.05}
+        server_config["optimiser_params"] = {'lr' : args.learning_rate}
         server_config["lr_scheduler"] = "MultiplicativeLR"
         server_config["lr_scheduler_params"] = {
             "lr_lambda": lambda epoch: 1.
@@ -285,30 +305,6 @@ def main(args, rng_seed, dataset_folder):
     #sys.exit()
 
     
-    ### try MLE logger
-    '''
-    # Instantiate logging to experiment_dir
-    log = MLELogger(time_to_track=['global_steps', 'local_steps'],
-                    what_to_track=['global_train_logl', 'global_test_logl', 'local_train_loss'],
-                    experiment_dir="mle_experiment_dir/",
-                    # config_dict = {},
-                    model_type='numpy', # tätä tuskin voi käyttää kun mallit on hajautettu ympäriinsä
-                    verbose=0,
-                    overwrite=1,
-                    use_tboard=False)
-
-    #time_tic = {'global_steps': 1, 'local_steps': args.n_steps}
-    # pitää lisätä tähän kaikki mitä halutaan träkätä yli ajon, myös jos haluaa käyttää MLELoggeria tallentamaan ja noutamaan yli eri ajojen
-    #stats_tic = {'global_train_loss': 0.1234, 'global_test_loss': .1, 'local_train_loss': 0.1235}
-
-    # Update the log with collected data & save it to .hdf5
-    #log.update(time_tic, stats_tic)
-    #log.save()
-    #sys.exit()
-    ###################
-    '''
-
-
     i_global = 0
     logger.info('Starting model training')
     while not server.should_stop():
@@ -423,62 +419,78 @@ def main(args, rng_seed, dataset_folder):
 
         figname = 'res_plots/client_norm_traces/client_norms_{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.dp_mode,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
         plt.tight_layout()
-        plt.savefig(figname)
-        #plt.show()
+        #plt.savefig(figname)
+        plt.show()
         
         #sys.exit()
 
 
 
     if args.track_params and args.plot_tracked:
-        # plot distance from init
-        x = np.linspace(1,args.n_global_updates,args.n_global_updates)
-        y = [ np.sqrt( \
-            np.linalg.norm(param_trace1[0,:]-param_trace1[i+1,:],ord=2)**2 \
-            + np.linalg.norm(param_trace2[0,:]-param_trace2[i+1,:],ord=2)**2 ) \
-            for i in range(args.n_global_updates)]
-        fig,axs = plt.subplots(2,figsize=(10,7))
-        axs[0].plot(x,y)
-        axs[1].plot(x, validation_res['logl'])
-        axs[1].set_xlabel('Global update')
-        axs[0].set_ylabel('l2 distance from init')
-        axs[1].set_ylabel('Model logl')
-        figname = 'res_plots/param_traces/param_dist_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
-        plt.tight_layout()
-        plt.savefig(figname)
-        plt.close()
-        #plt.show()
-        #sys.exit('break ok')
+        # save tracked params
+        if False:
+            filename = f"res_plots/param_traces/saved_params/saved_params_{args.dp_mode}_globals{args.n_global_updates}_steps{args.n_steps}_clients{args.clients}"
+            #print(param_trace1.shape, param_trace2.shape) # eli nämä on globals+1 x loc /scaleparam shape
+            np.savez(filename, loc_params=param_trace1, scale_params=param_trace2)
+            
+            #sys.exit()
 
-        x = np.linspace(1,args.n_global_updates,args.n_global_updates)
-        fig,axs = plt.subplots(2,figsize=(10,7))
-        axs[0].plot(x, validation_res['acc'])
-        axs[1].plot(x, validation_res['logl'])
-        for i in range(2):
-            axs[i].set_xlabel('Global updates')
-        axs[0].set_ylabel('Model acc')
-        axs[1].set_ylabel('Model logl')
-        plt.suptitle("".format())
-        figname = 'res_plots/param_traces/model_perf_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
-        plt.tight_layout()
-        plt.savefig(figname)
-        plt.close()
-        #plt.show()
+
+        # plot distance from init
+        if False:
+            x = np.linspace(1,args.n_global_updates,args.n_global_updates)
+            y = [ np.sqrt( \
+                np.linalg.norm(param_trace1[0,:]-param_trace1[i+1,:],ord=2)**2 \
+                + np.linalg.norm(param_trace2[0,:]-param_trace2[i+1,:],ord=2)**2 ) \
+                for i in range(args.n_global_updates)]
+            fig,axs = plt.subplots(2,figsize=(10,7))
+            axs[0].plot(x,y)
+            axs[1].plot(x, validation_res['logl'])
+            axs[1].set_xlabel('Global update')
+            axs[0].set_ylabel('l2 distance from init')
+            axs[1].set_ylabel('Model logl')
+            figname = 'res_plots/param_traces/param_dist_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+            plt.tight_layout()
+            #plt.savefig(figname)
+            #plt.close()
+            plt.show()
+            #sys.exit('break ok')
+
+        # model acc + logl plot
+        if False:
+            x = np.linspace(1,args.n_global_updates,args.n_global_updates)
+            fig,axs = plt.subplots(2,figsize=(10,7))
+            axs[0].plot(x, validation_res['acc'])
+            axs[1].plot(x, validation_res['logl'])
+            for i in range(2):
+                axs[i].set_xlabel('Global updates')
+            axs[0].set_ylabel('Model acc')
+            axs[1].set_ylabel('Model logl')
+            plt.suptitle("".format())
+            figname = 'res_plots/param_traces/model_perf_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+            plt.tight_layout()
+            #plt.savefig(figname)
+            #plt.close()
+            plt.show()
 
         #sys.exit()
-        x = np.linspace(0,args.n_global_updates,args.n_global_updates+1)
-        fig,axs = plt.subplots(2,figsize=(10,7))
-        axs[0].plot(x,param_trace1)
-        axs[1].plot(x,param_trace2)
-        for i in range(2):
-            axs[i].set_xlabel('Global updates')
-        axs[0].set_ylabel('Loc params')
-        axs[1].set_ylabel('Scale params')
-        figname = 'res_plots/param_traces/param_trace_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
-        plt.tight_layout()
-        plt.savefig(figname)
-        plt.close()
-        #plt.show()
+        # param trace plot over training
+        if True:
+            x = np.linspace(0,args.n_global_updates,args.n_global_updates+1)
+            fig,axs = plt.subplots(2,figsize=(10,7))
+            axs[0].plot(x,param_trace1)
+            axs[1].plot(x,param_trace2)
+            for i in range(2):
+                axs[i].set_xlabel('Global updates')
+            axs[0].set_ylabel('Loc params')
+            axs[1].set_ylabel('Scale params')
+            axs[0].grid()
+            axs[1].grid()
+            figname = 'res_plots/param_traces/param_trace_{}_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.dp_mode,args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
+            plt.tight_layout()
+            #plt.savefig(figname)
+            #plt.close()
+            plt.show()
 
     # compile possible tracked norms etc
     tracked = {}
@@ -537,9 +549,9 @@ def main(args, rng_seed, dataset_folder):
         axs[2].set_ylabel('Global update norm')
         figname = 'res_plots/client_norm_traces/relative_noise_effect_clients{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.clients,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
         plt.tight_layout()
-        plt.savefig(figname)
+        #plt.savefig(figname)
         #plt.close()
-        #plt.show()
+        plt.show()
         #plt.plot(client.noise_norms)
         #plt.show()
 
@@ -593,9 +605,13 @@ if __name__ == '__main__':
     parser.add_argument('--server', default='synchronous', type=str, help="Which server to use: \'synchronous\', or \'sequential\'")
     parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
+    parser.add_argument('--use_lr_scheduler', default=False, action='store_true', help="use multistep lr scheduler, Actual schedule defined in this script when setting up clients")
+
     parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or LFA, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=None, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
+    parser.add_argument('--pseudo_client_q', default=1., type=float, help="sampling fraction used by pseudo-clients in local pvi")
+    parser.add_argument('--pre_clip_sigma', default=0., type=float, help='noise magnitude for noise added before clipping (biass mitigation)')
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
     #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')

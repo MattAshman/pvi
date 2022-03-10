@@ -3,6 +3,7 @@ Script for testing private PVI with BNN based on DP-SGD/suff.stats pert
 """
 
 import argparse
+from copy import deepcopy
 import logging
 import os
 import random
@@ -35,13 +36,15 @@ from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
 from utils import *
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-#logger.setLevel(logging.INFO)
+#logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
+#handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 
 logging.basicConfig(
-    level=logging.DEBUG, 
+    #level=logging.DEBUG, 
+    level=logging.INFO, 
     format='[%(asctime)s] {%(filename)s:%(lineno)d} %(levelname)s - %(message)s',
     handlers=[handler]
 )
@@ -56,7 +59,7 @@ def main(args, rng_seed, dataset_folder):
     pbar = args.pbar
 
     # do some args checks
-    if args.dp_mode not in ['nondp_batches', 'nondp_epochs','dpsgd', 'param','param_fixed','server','lfa', 'local_pvi']:
+    if args.dp_mode not in ['nondp_batches', 'nondp_epochs','dpsgd', 'param','param_fixed','server','lfa', 'local_pvi','mixed_dpsgd']:
         raise ValueError(f"Unknown dp_mode: {args.dp_mode}")
 
     if args.model not in ['pvi', 'bcm_split', 'bcm_same', 'global_vi']:
@@ -75,13 +78,23 @@ def main(args, rng_seed, dataset_folder):
             logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
         else:
             raise ValueError("Need to set at least one of 'batch_size', 'sampling_frac_q'!")
-    elif args.dp_mode in ['lfa', 'local_pvi']:
+    elif args.dp_mode in ['lfa', 'local_pvi','param']:
         if args.batch_size is not None and args.sampling_frac_q is not None:
             raise ValueError("Exactly one of 'batch_size', 'sampling_frac_frac' needs to be None")
         elif args.batch_size is None:
             logger.info(f'Using sequential data passes with local sampling frac {args.sampling_frac_q} (separate models for each batch)')
         elif args.sampling_frac_q is None:
             logger.info(f'Using sequential data passes with batch size {args.batch_size} (separate models for each batch)')
+    elif args.dp_mode in ['mixed_dpsgd']:
+        if args.sampling_frac_q is not None and args.batch_size is not None:
+            raise NotImplementedError('User-level mixed DP not implemented!')
+        elif args.sampling_frac_q is not None:
+            logger.info(f'Using SWOR sampling with sampling frac {args.sampling_frac_q}')
+        elif args.batch_size is not None:
+            logger.info(f'Using SWOR sampling with batch size {args.batch_size}')
+        else:
+            raise ValueError("Need to set at least one of 'batch_size', 'sampling_frac_q'!")
+        assert args.mixed_dp_mode_params['sampling_frac_q'] is not None
     else:
         if args.dp_mode in ['nondp_batches']:
             logger.info(f'Sampling {args.n_steps} batches per global update with batch size {args.batch_size}')
@@ -125,6 +138,18 @@ def main(args, rng_seed, dataset_folder):
 
     model = ClassificationBNNLocalRepam(config=model_config)
 
+    if args.use_lr_scheduler and args.n_global_updates > 5:
+        # reduce by 1/2 at the middle and again 2 global updates before end
+        lr_scheduler_params  = {'gamma' : .2, 
+                            'milestones': [args.n_global_updates//2]}
+        #'verbose' : False} # note: pytorch 1.6 seems to have bug: doesn't accept verbose keyword
+        logger.debug(f"Using multistep lr scheduler with milestones: {lr_scheduler_params['milestones']}")
+    else:
+        if args.use_lr_scheduler:
+            logger.debug(f"Disabling multistep lr scheduler due to having < 6 global updates!")
+        args.use_lr_scheduler = False
+        lr_scheduler_params = {}
+
     client_config = {
         'init_var' : args.init_var,
         'batch_size' : args.batch_size, # will run through entire data on each epoch using this batch size
@@ -135,8 +160,9 @@ def main(args, rng_seed, dataset_folder):
         'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
         'optimiser' : 'Adam',
         'optimiser_params' : {'lr' : args.learning_rate},
-        'lr_scheduler' : 'MultiplicativeLR',
-        'lr_scheduler_params' : { 'lr_lambda' : lambda epoch: 1.},
+        'lr_scheduler' : 'MultiStepLR',
+        'lr_scheduler_params' : lr_scheduler_params,
+        'use_lr_scheduler' : args.use_lr_scheduler,
         'num_elbo_samples' : 10, # possible to break if this is low?
         'print_epochs' : 1, # ?
         'train_model' : False, # no need for having trainable model on client
@@ -144,27 +170,33 @@ def main(args, rng_seed, dataset_folder):
         'dp_mode' : args.dp_mode, 
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
+        'pre_clip_sigma' : args.pre_clip_sigma,
         'enforce_pos_var' : args.enforce_pos_var,
         'track_client_norms' : args.track_client_norms,
         'clients' : args.clients, # total number of clients
         "pbar" : pbar, 
         'noisify_np': True, # for param DP and related dp modes: if True clip and noisify natural parameters, otherwise use unconstrained loc-scale. No effect on DPSGD.
         "freeze_var_updates" : args.freeze_var_updates,
+        "n_global_updates" : args.n_global_updates,
     }
-    # change batch_size for LFA
-    #if args.dp_mode == 'lfa':
-    #    client_config['batch_size'] = 1
-    #if args.dp_mode == 'dpsgd':
-    #    client_config['batch_size'] = None
+
+    # init tmp clients for the first global updates
+    if args.dp_mode in ['mixed_dpsgd']:
+        tmp_config = deepcopy(client_config)
+        for k in args.mixed_dp_mode_params:
+            tmp_config[k] = args.mixed_dp_mode_params[k]
 
     init_nat_params = {
         "np1": torch.zeros(model.num_parameters),
         "np2": torch.zeros(model.num_parameters),
     }
 
-
     # Initialise clients, q and server
-    clients = set_up_clients(model, client_data, init_nat_params, client_config, args)
+    if args.dp_mode in ['mixed_dpsgd']:
+        clients = set_up_clients(model, client_data, init_nat_params, tmp_config, dp_mode=args.mixed_dp_mode_params['dp_mode'], batch_size=None, sampling_frac_q=None)
+    else:
+        clients = set_up_clients(model, client_data, init_nat_params, client_config, dp_mode=args.dp_mode, batch_size=args.batch_size, sampling_frac_q=args.sampling_frac_q)
+
 
     # Initial parameters.
     init_q_std_params = {
@@ -195,10 +227,11 @@ def main(args, rng_seed, dataset_folder):
             #'server_add_dp' : args.server_add_dp,
             'dp_C' : args.dp_C,
             'dp_sigma' : args.dp_sigma,
+            'pre_clip_sigma' : args.pre_clip_sigma,
             'enforce_pos_var' : args.enforce_pos_var,
             'dp_mode' : args.dp_mode,
             "pbar" : pbar,
-            "freeze_var_updates" : args.freeze_var_updates,
+            #"freeze_var_updates" : args.freeze_var_updates,
             }
 
     # try using initial q also as prior here
@@ -219,10 +252,10 @@ def main(args, rng_seed, dataset_folder):
         server_config["sampling_frac_q"] = args.sampling_frac_q
         server_config["optimiser"] = "Adam"
         server_config["optimiser_params"] = {'lr' : args.learning_rate} #{"lr": 0.05}
-        server_config["lr_scheduler"] = "MultiplicativeLR"
-        server_config["lr_scheduler_params"] = {
-            "lr_lambda": lambda epoch: 1.
-        }
+        #server_config["lr_scheduler"] = "MultiplicativeLR"
+        #server_config["lr_scheduler_params"] = {
+        #    "lr_lambda": lambda epoch: 1.
+        #}
         server_config["num_elbo_samples"] = 100
         server_config["print_epochs"] = 1
         server_config["homogenous_split"] = True
@@ -235,8 +268,22 @@ def main(args, rng_seed, dataset_folder):
             ChosenServer = SynchronousServer
         elif args.server == 'sequential':
             ChosenServer = SequentialServer
+        else:
+            raise ValueError(f'Unknown model: {args.model}')
 
-    server = ChosenServer(model=model,
+    
+    if args.dp_mode in ['mixed_dpsgd']:
+        tmp_config = deepcopy(server_config)
+        for k in args.mixed_dp_mode_params:
+            tmp_config[k] = args.mixed_dp_mode_params[k]
+
+        server = ChosenServer(model=model,
+                            p=p,
+                            init_q=init_q,
+                            clients=clients,
+                            config=tmp_config)
+    else:
+        server = ChosenServer(model=model,
                             p=p,
                             init_q=init_q,
                             clients=clients,
@@ -294,18 +341,36 @@ def main(args, rng_seed, dataset_folder):
     i_global = 0
     logger.info('Starting model training')
     while not server.should_stop():
+        # change clients with mixed_dpsgd mode:
+        if args.dp_mode == 'mixed_dpsgd' and args.mixed_dp_mode_params['globals_before_change'] == i_global:
+            init_clients_from_existing(clients, server, client_config, new_dp_mode='dpsgd')
+
+
+        #print('server log len pre update: {}'.format( len(server.get_compiled_log()[f'client_0']['training_curves']) ))
+        #print(server.iterations)
 
         # run training loop
         server.tick()
+
+        #print('server log len post update: {}'.format( len(server.get_compiled_log()[f'client_0']['training_curves']) ))
+        #print(server.iterations)
 
         if args.model != 'global_vi':
 
             # get client training curves
             for i_client in range(args.clients):
-                client_train_res['elbo'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']
-                client_train_res['logl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['ll']
-                client_train_res['kl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['kl']
-            
+                #print( len(server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']) )
+                #print( server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo'] )
+                #print(client_train_res['elbo'][i_client,i_global,:].shape)
+
+                if args.dp_mode not in ['mixed_dpsgd']:
+                    # client log shapes may change during run with mixed_dpsgd, so skip these for now
+                    client_train_res['elbo'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']
+                    client_train_res['logl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['ll']
+                    client_train_res['kl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['kl']
+        
+
+
         # get global train and validation acc & logl
         train_acc, train_logl, train_posneg = acc_and_ll_bnn(server, x_train, y_train)
         valid_acc, valid_logl, valid_posneg = acc_and_ll_bnn(server, valid_set['x'], valid_set['y'])
@@ -451,6 +516,8 @@ def main(args, rng_seed, dataset_folder):
         tracked['client_norms']['pre_dp_norms'] = pre_dp_norms
         tracked['client_norms']['post_dp_norms'] = post_dp_norms
 
+    #print(client_train_res[0])
+
     return validation_res, train_res, client_train_res, prop_positive, tracked
 
 
@@ -495,30 +562,32 @@ def plot_training_curves(client_train_res, clients):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
-    parser.add_argument('--server', default='synchronous', type=str, help="Which server to use: \'synchronous\', or \'sequential\'")
-    parser.add_argument('--n_global_updates', default=3, type=int, help='number of global updates')
+    parser.add_argument('--server', default='sequential', type=str, help="Which server to use: \'synchronous\', or \'sequential\'")
+    parser.add_argument('--n_global_updates', default=2, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=2e-3, type=float, help='learning rate')
+    parser.add_argument('--use_lr_scheduler', default=False, action='store_true', help="use multistep lr scheduler, Actual schedule defined in this script when setting up clients")
     parser.add_argument('--batch_size', default=None, type=int, help="batch size; can use if dp_mode not 'dpsgd'")
     parser.add_argument('--batch_proc_size', default=1, type=int, help="batch processing size; for DP-SGD or LFA, currently needs to be 1")
     parser.add_argument('--sampling_frac_q', default=.1, type=float, help="sampling fraction, local batch_sizes in dpsgd or lfa are set based on this")
-    parser.add_argument('--dp_sigma', default=None, type=float, help='DP noise magnitude')
-    parser.add_argument('--dp_C', default=None, type=float, help='gradient norm bound')
-    #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--pre_clip_sigma', default=0., type=float, help='noise magnitude for noise added before clipping (biass mitigation)')
+    parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
+    parser.add_argument('--dp_C', default=1000., type=float, help='gradient norm bound')
+    parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--n_classes', default=2, type=int, help="Number of classes to predict")
-    parser.add_argument('--latent_dim', default=20, type=int, help="BNN latent dim")
+    parser.add_argument('--n_classes', default=10, type=int, help="Number of classes to predict")
+    parser.add_argument('--latent_dim', default=50, type=int, help="BNN latent dim")
     parser.add_argument('--n_layers', default=1, type=int, help="number of BNN (latent) layers")
     parser.add_argument('--init_var', default=1e-3, type=float, help='Initial BNN variance')
-    parser.add_argument('--freeze_var_updates', default=1, type=int, help='Freeze BNN var params for first given number of global updates')
+    parser.add_argument('--freeze_var_updates', default=0, type=int, help='Freeze BNN var params for first given number of global updates')
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
-    parser.add_argument('--n_steps', default=2, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
+    parser.add_argument('--n_steps', default=4, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     # NOTE: rho & kappa only make sense for UCI data
@@ -527,11 +596,19 @@ if __name__ == '__main__':
     parser.add_argument('--damping_factor', default=.4, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")
     
-    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'nondp_epochs': no clipping or noise, do n_steps epochs per global update, 'nondp_batches': no clipping or noise, do n_steps batches per global update, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode. Additionally: 'lfa_dpsgd' and 'pvi_dpsgd' run lfa/local_pvi for the first global updates, then change to dpsgd.")
-    # add dp_mode options: lfa_dpsgd ja pvi_dpsgd
-    parser.add_argument('--mixed_dp_mode_change', default=1, type=int, help="Change dp mode after given number of global updates. Only when using \'lfa_dpsgd\' or \'pvi_dpsgd\' dp_mode")
-    parser.add_argument('--mixed_dp_mode_C', default=1., type=int, help="Clipping constant for \'lfa_dpsgd\' or \'pvi_dpsgd\' first dp_mode.")
-    parser.add_argument('--mixed_dp_mode_sigma', default=0., type=int, help="DP noise sigma for \'lfa_dpsgd\' or \'pvi_dpsgd\' first dp_mode.")
+    parser.add_argument('--dp_mode', default='dpsgd', type=str, help="DP mode: 'nondp_epochs': no clipping or noise, do n_steps epochs per global update, 'nondp_batches': no clipping or noise, do n_steps batches per global update, 'dpsgd': DP-SGD, 'param': clip and noisify change in params, 'param_fixed': clip and noisify change in params using fixed minibatch for local training, 'lfa': param DP with hierarchical fed avg., 'local_pvi': partition local data to additional t-factors, add noise as param DP. Sampling type is set based on the mode. Additionally: 'mixed_dpsgd' run lfa/local_pvi for the first global updates, then change to dpsgd, see 'mixed_dp_mode_params' below.")
+
+    parser.add_argument('--mixed_dp_mode_params', default={
+                        'dp_mode' : 'local_pvi', # 'lfa' or 'local_pvi'
+                        'globals_before_change' : 1, # how many global updates before changing DP mode
+                        'dp_C' : 100.,
+                        'dp_sigma' : 0.,
+                        'pre_clip_sigma' : 0.,
+                        'epochs' : 200, # = n_steps
+                        'sampling_frac_q' : .1,
+                        'damping_factor' : .8,
+                        'optimiser_params' : {'lr' : 2e-3},
+        }, type=dict, help="Extra params for 1st mode when changing dp mode after given number of global updates. Only when using \'mixed_dpsgd\' dp_mode")
 
     parser.add_argument('--track_params', default=False, action='store_true', help="track all params")
     parser.add_argument('--track_client_norms', default=False, action='store_true', help="track all (grad) norms pre & post DP")

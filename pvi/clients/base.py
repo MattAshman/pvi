@@ -40,7 +40,7 @@ class Client(ABC):
         self.log = defaultdict(list)
         self._can_update = True
 
-        self.optimiser = None
+        #self.optimiser = None
 
         self.freeze_var_updates = config['freeze_var_updates']
         self.update_counter = 0
@@ -64,15 +64,15 @@ class Client(ABC):
         """
         return self._can_update
     
-    def fit(self, q, init_q=None):
+    def fit(self, q, init_q=None, global_prior=None):
         """
         Computes the refined approximating posterior (q) and associated
         approximating likelihood term (t). This method differs from client to
         client, but in all cases it calls Client.q_update internally.
         """
-        return self.update_q(q, init_q)
+        return self.update_q(q, init_q, global_prior)
 
-    def update_q(self, q, init_q=None):
+    def update_q(self, q, init_q=None, global_prior=None):
         """
         Computes a refined approximate posterior and the associated
         approximating likelihood term.
@@ -85,11 +85,11 @@ class Client(ABC):
             q_new, self.t = self.model.conjugate_update(self.data, q, self.t)
         else:
             # Pass a trainable copy to optimise.
-            q_new, self.t = self.gradient_based_update(p=q, init_q=init_q)
+            q_new, self.t = self.gradient_based_update(p=q, init_q=init_q, global_prior=global_prior)
 
         return q_new, self.t
 
-    def gradient_based_update(self, p, init_q=None):
+    def gradient_based_update(self, p, init_q=None, global_prior=None):
         # Cannot update during optimisation.
         self._can_update = False
 
@@ -138,21 +138,22 @@ class Client(ABC):
                 q._unc_params['log_scale'].requires_grad = False
             parameters = q.parameters()
 
-        # Reset optimiser
-        # NOTE: why is optimiser reset here?
-        #logging.info("Resetting optimiser")
         #if self.optimiser is None:
+        # restart optimiser after each global update
         optimiser = getattr(torch.optim, self.config["optimiser"])(
-            parameters, **self.config["optimiser_params"])
-        lr_scheduler = getattr(torch.optim.lr_scheduler,
+        parameters, **self.config["optimiser_params"])
+        #self.optimiser = optimiser
+        if self.config['use_lr_scheduler']:
+            lr_scheduler = getattr(torch.optim.lr_scheduler,
                            self.config["lr_scheduler"])(
-            optimiser, **self.config["lr_scheduler_params"])
-        self.optimiser = optimiser
-        self.lr_scheduler = lr_scheduler
+                            optimiser, **self.config["lr_scheduler_params"])
+            try:
+                lr_scheduler.load_state_dict(self.lr_scheduler_states)
+            except:
+                pass
         #else:
         #    optimiser = self.optimiser
-        #    lr_scheduler = self.lr_scheduler
-        
+
         # Set up data
         x = self.data["x"]
         y = self.data["y"]
@@ -275,10 +276,14 @@ class Client(ABC):
                                    ll=epoch["ll"], logt=epoch["logt"],
                                    lr=optimiser.param_groups[0]["lr"])
 
-            # Update learning rate.
-            lr_scheduler.step()
-
             ### end loop over local steps ###
+
+        # Update learning rate.
+        if self.config['use_lr_scheduler']:
+            lr_scheduler.step()
+            # optimiser zeroed after each global update, so change lr by hand
+            self.config['optimiser_params']['lr'] = lr_scheduler.get_last_lr()[0]
+            self.lr_scheduler_state = lr_scheduler.state_dict()
 
         # Log the training curves for this update
         self.log["training_curves"].append(training_curve)

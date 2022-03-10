@@ -9,11 +9,11 @@ logger = logging.getLogger(__name__)
 class SequentialServer(Server):
 
     def get_default_config(self):
-        return {
-            **super().get_default_config(),
-            "max_iterations": 25,
-            "damping_factor": 1.,
-        }
+        return {}
+        #    **super().get_default_config(),
+        #    "max_iterations": 25,
+        #    "damping_factor": 1.,
+        #}
 
     def tick(self):
         if self.should_stop():
@@ -30,9 +30,9 @@ class SequentialServer(Server):
 
                 if self.iterations == 0:
                     # First iteration. Pass q_init(θ) to client.
-                    _, t_i_new = client.fit(self.q, self.init_q)
+                    _, t_i_new = client.fit(self.q, self.init_q, global_prior=self.p)
                 else:
-                    _, t_i_new = client.fit(self.q)
+                    _, t_i_new = client.fit(self.q, global_prior=self.p)
 
                 # Compute change in natural parameters.
                 delta_np = {k: (t_i_new.nat_params[k] - t_i_old.nat_params[k])
