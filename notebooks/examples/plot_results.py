@@ -3,32 +3,11 @@ from collections import OrderedDict as OD
 from pathlib import Path
 import sys
 
-
 import jsonpickle
 import jsonpickle.ext.numpy as jsonpickle_numpy
 from matplotlib import pyplot as plt
 import numpy as np
 
-
-
-# numbers of runs to plot
-#runs_to_plot = np.linspace(1,36,36,dtype=int)#[1]
-#runs_to_plot = np.linspace(1,54,54,dtype=int)#[1]
-#runs_to_plot = np.linspace(1,84,84,dtype=int)#[1]
-#runs_to_plot = np.linspace(77,149,73,dtype=int)#[1]
-#runs_to_plot = np.linspace(1,216,216,dtype=int)#[1]
-#runs_to_plot = np.linspace(1,72,72,dtype=int)#[1]
-#runs_to_plot = np.linspace(49,210,162,dtype=int)#[1]
-#print(runs_to_plot)
-
-# main folder where the res are
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/hfa_adult_dp_100clients_runs/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_100clients_runs/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_runs/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_eps05_runs/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/dpsgd_adult_dp_200clients_eps02_10global_runs/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_runs/'
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/lfa_adult_dp_200clients_eps02_10global_runs/'
 
 ### new 200 client 5 seed runs:
 # DPSGD
@@ -42,12 +21,50 @@ import numpy as np
 #runs_to_plot = np.linspace(4,7,4,dtype=int)#[1] # bal=(.7,-3) new runs
 
 # LOCAL PVI
-main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_5seeds_eps02_runs/'
-runs_to_plot = np.linspace(1,19,19,dtype=int)#[1] # all bals
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_5seeds_eps02_runs/'
+#runs_to_plot = np.linspace(1,19,19,dtype=int)#[1] # all bals
 
 
 
-### mimic3 runs:
+### ADULT 10 client 1 seed runs:
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_10clients_1seeds_eps02_runs/'
+#runs_to_plot = np.linspace(1,37,37,dtype=int)#[1] # 1) seq server param testing, 
+#runs_to_plot = np.linspace(38,43,6,dtype=int)#[1] # 2) kuten 1) mutta sync server, 100 globals
+#runs_to_plot = np.linspace(44,49,6,dtype=int)#[1] # 3) kuten 2) 200 globals
+#runs_to_plot = np.linspace(50,55,6,dtype=int)#[1] # 4) 200 globals, seq server
+
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_1seeds_eps02_runs/'
+#runs_to_plot = np.linspace(1,216,216,dtype=int)#[1] # 1) 20 globals, liian iso q
+#runs_to_plot = np.linspace(217,459,243,dtype=int)#[1] # 2) 10 globals, liian iso q
+#runs_to_plot = np.linspace(460,555,96,dtype=int)#[1] # 3) 10 globals, pieni q
+#runs_to_plot = np.linspace(556,681,126,dtype=int)#[1] # 4) 20 globals, pieni q
+#runs_to_plot = np.linspace(682,713,32,dtype=int)#[1] # 5) unbal data, 10 globals, pieni q
+#runs_to_plot = np.linspace(714,761,48,dtype=int)#[1] # 6) puuttuva konfa 3)sta: bal data, 10 globals, pieni q
+
+# nondp runs
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_1seeds_nondp_runs/'
+#runs_to_plot = np.linspace(1,84,84,dtype=int) # 1) 
+
+
+## LOCAL PVI
+# EPS=.2 runs
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_1seeds_eps02_runs/'
+##runs_to_plot = np.linspace(1,72,72,dtype=int)#[1] # 1) 20 globals, liian iso q
+##runs_to_plot = np.linspace(73,144,72,dtype=int)#[1] # 2) 10 globals, liian iso q
+##runs_to_plot = np.linspace(145,249,105,dtype=int)#[1] # 3) 10 globals, pieni q
+#runs_to_plot = np.linspace(1,96,96,dtype=int)#[1] # 4) unbal data, 10 globals, pieni q, bugi fiksattu
+#runs_to_plot = np.linspace(97,192,96,dtype=int)#[1] # 3) unbal data, 10 globals, pieni q, bugi fiksattu
+
+# nondp runs
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_1seeds_nondp_runs/'
+#runs_to_plot = np.linspace(1,402,402,dtype=int) # 1) 
+
+
+
+### MIMIC3 runs:
 # nondp
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic3_nondp_5clients_runs/'
 #runs_to_plot = np.linspace(1,288,288,dtype=int)#[1]
@@ -117,7 +134,7 @@ runs_to_plot = np.linspace(1,19,19,dtype=int)#[1] # all bals
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic3_2bnn_dpsgd_5clients_5seeds_eps2_runs/'
 #runs_to_plot = [1] #np.linspace(1,1,1,dtype=int)#[1] # 1)
 
-## old 200 clients adult testing
+## 200 clients adult 1seed runs
 # DPSGD:
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_eps02_testing_runs/'
 #runs_to_plot = np.linspace(1,36,36,dtype=int)#[1] # 100 global
@@ -134,20 +151,66 @@ runs_to_plot = np.linspace(1,19,19,dtype=int)#[1] # all bals
 #runs_to_plot = np.linspace(253,276,24,dtype=int)#[1] # 20 global, 10 steps
 
 # LOCAL PVI
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_eps02_testing_runs/'
-#runs_to_plot = np.linspace(1,162,162,dtype=int)#[1] # 10 global, bal data init tests
-#runs_to_plot = np.linspace(163,234,72,dtype=int)#[1] # 10 global, bal,  40,80 steps
-#runs_to_plot = np.linspace(235,252,18,dtype=int)#[1] # 10 global, bal,  40 steps
-#runs_to_plot = np.linspace(253,279,27,dtype=int)#[1] # 20 global, bal,  80 steps, 0bal
-#runs_to_plot = np.linspace(280,287,8,dtype=int)#[1] # 20 global, bal,  80 steps, unbalanced
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_1seeds_eps02_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int)#[1] # 1) 10 global, bal data, fiksattu bugi 8.3.
+#runs_to_plot = np.linspace(109,162,54,dtype=int)#[1] # 2) 15 global, bal data, fiksattu bugi 8.3.
+#runs_to_plot = np.linspace(163,270,108,dtype=int)#[1] # 2) 15 global, unbal data, fiksattu bugi 8.3.
 
 
-## MNIST testing
+### MNIST testing
+## balanced data, b=1, eps=2
+# DPSGD
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_dpsgd_bal_10clients_b1_eps2_runs/'
-#runs_to_plot = np.linspace(1,54,54,dtype=int)#[1] # 1)
+#runs_to_plot = np.linspace(1,54,54,dtype=int)#[1] # 1) # 200 globals
+#runs_to_plot = np.linspace(55,59,5,dtype=int)#[1] # 2) # 400 globals
+
+## balanced data, b=1, eps=5
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_dpsgd_bal_10clients_b1_eps5_runs/'
+#runs_to_plot = np.linspace(1,54,54,dtype=int)#[1] # 1) # 400 globals, 100 hidden units
+#runs_to_plot = np.linspace(56,63,8,dtype=int)#[1] # 1) # 200 globals, lr schedule, 200 hidden units
+
+
+## balanced data, b=1, eps=10
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_dpsgd_bal_10clients_b1_eps10_runs/'
+#runs_to_plot = np.linspace(1,54,54,dtype=int)#[1] # 1) # 400 globals, 100 hidden units
+#runs_to_plot = np.linspace(55,63,8,dtype=int)#[1] # 1) # 200 globals, 200 hidden units
+
+## balanced data, b=5, eps=2
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_dpsgd_bal_10clients_b5_eps2_runs/'
+#runs_to_plot = np.linspace(1,18,18,dtype=int)#[1] # 1) # 200-400 globals
+
+# unbalanced data, b=1, eps=2
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_dpsgd_unbal_100clients_b1_eps2_runs/'
+#runs_to_plot = np.linspace(1,25,25,dtype=int)#[1] # 1) # 200-400 globals
+
+
+
+
+# NONDP MNIST: balanced data, b=1
+# SGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_nondp_bal_10clients_b1_runs/'
+#runs_to_plot = np.append(np.linspace(25,71,47,dtype=int),73)  # 1) & 2): 400 globals, seq & sync server, full epochs
+#runs_to_plot =  np.linspace(76,99,24,dtype=int) # 3) 400 globals, seq server, batches
+#runs_to_plot = [72,74,75] # 4) # 400 globals, seq server, batches, freeze var test
+
+# LFA
+main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_lfa_bal_10clients_b1_epsinfty_runs/'
+runs_to_plot = np.linspace(1,24,24,dtype=int)  # 1)
+
+# LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_local_pvi_bal_10clients_b1_epsinfty_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int)  # 1)
+#runs_to_plot = np.linspace(37,72,36,dtype=int)  # 2)
+
+
+# mixed nondp-sgd
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_mixed_dpsgd_bal_10clients_b1_runs/'
+#runs_to_plot = np.linspace(2,2,1,dtype=int)#[1] # 1) # non-dp mixed dpsgd test
+
 
 
 #print(runs_to_plot)
+#print(len(runs_to_plot))
 #sys.exit()
 
 
@@ -156,16 +219,19 @@ fig_folder = 'res_plots/'
 
 restrictions = OD()
 restrictions['dp_sigma'] = None#[23.15]
-restrictions['dp_C'] = None#[5.]
-restrictions['n_global_updates'] = None#[300]
-restrictions['n_steps'] = None#[20]
+restrictions['dp_C'] = None#[1.]
+restrictions['n_global_updates'] = None#[400]
+restrictions['n_steps'] = None#[10]
 restrictions['batch_size'] = None#[5]
-restrictions['sampling_frac_q'] = None#[.04]
-restrictions['learning_rate'] = None#[1e-3]
-restrictions['damping_factor'] = None#[.4]
+restrictions['sampling_frac_q'] = None#[1e-2]
+restrictions['learning_rate'] = None#[2e-3]
+restrictions['damping_factor'] = None#[.05]
+restrictions['init_var'] = None#[5e-3]
+restrictions['freeze_var_updates'] = None#[0]
+restrictions['dp_mode'] = None#['nondp_batches']
 
 # possible balance settings: (0,0), (.7,-3), (.75,.95)
-restrictions['data_bal_rho'] = [.0]
+restrictions['data_bal_rho'] = [0.]
 restrictions['data_bal_kappa'] = [.0]
 
 
@@ -173,12 +239,12 @@ restrictions['data_bal_kappa'] = [.0]
 to_disk = 0
 
 plot_test_error = 1 # if 0 plot training err instead
-plot_legends = 1
+plot_legends = 0
 
 
-#dataset_name = 'mnist'
+dataset_name = 'mnist'
 #dataset_name = 'mimic3'
-dataset_name = 'adult'
+#dataset_name = 'adult'
 #dataset_name = 'mushroom'
 #dataset_name = 'credit'
 #dataset_name = 'bank'
@@ -199,15 +265,11 @@ fig_name = "{}_dpsgd_200clients_5seeds_eps02_bal({},{})_best.pdf".format(
         dataset_name, restrictions['data_bal_rho'][0], restrictions['data_bal_kappa'][0]
         ) #'''
 #fig_name = "{}_2BNN_dpsgd_5clients_5seeds_eps2.pdf".format(dataset_name)
-fig_name = "{}_1BNN_dpsgd_10clients_1seeds_bal_b1_eps2.pdf".format(dataset_name)
-'''
-#fig_name = "{}_lfa_200clients_eps02_frac_best_bal({},{}).pdf".format(dataset_name, 
-#fig_name = "{}_lfa_200clients_eps02_frac_best_bal({},{})_all.pdf".format(dataset_name, 
-        #restrictions['dp_C'], 
-        restrictions['data_bal_rho'],restrictions['data_bal_kappa'], 
-        #restrictions['batch_size'],restrictions['damping_factor'] 
-        )
+#fig_name = "{}_1BNN_dpsgd_10clients_1seeds_bal_b1_eps2.pdf".format(dataset_name)
 #'''
+fig_name = "{}_dpsgd_10clients_eps02_bal({},{}).pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'])
+#fig_name = "{}_lfa_10clients_eps02_bal({},{}).pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'])
+
 
 # set to None to skip:
 if dataset_name == 'mimic3':
@@ -228,7 +290,9 @@ elif dataset_name == 'adult':
         baseline_acc = None
         baseline_logl = None
 elif dataset_name == 'mnist':
-    ylims= ((.7,.95),(-.8,-.3), None, None)
+    #ylims= ((.94,1.),(-.2,-.0), None, None)
+    ylims= ((.7,.99),(-.8,-.02), None, None)
+    #ylims = (None,None,None,None)
     if plot_test_error:
         baseline_acc = None#0.8844
         baseline_logl = None
@@ -250,12 +314,15 @@ add_to_title['dp_mode'] = 'dp mode'
 add_labels = {}
 #add_labels['sampling_type'] = 'sampling'
 add_labels['dp_C'] = 'C'
-add_labels['dp_sigma'] = 'sigma'
+#add_labels['dp_sigma'] = 'sigma'
 add_labels['n_steps'] = 'steps'
 #add_labels['batch_size'] = 'b'
 add_labels['sampling_frac_q'] = 'q'
 add_labels['learning_rate'] = 'lr'
 add_labels['damping_factor'] = 'damping'
+add_labels['init_var'] = 'var'
+add_labels['server'] = 'server'
+#add_labels['freeze_var_updates'] = 'var freeze'
 #add_labels['privacy_calculated'] = 'DP epochs'
 #add_labels['data_bal_rho'] = 'rho'
 #add_labels['data_bal_kappa'] = 'kappa'
@@ -472,7 +539,7 @@ for i_run in runs_to_plot:
     filename_bck = main_folder + run_id + '/info_bck.json'
     apu = read_results(filename, filename_bck)
 
-    #print(apu)
+    #print(apu['validation_res_seed0']['logl'].shape)
     #sys.exit()
 
     #for k in apu:
@@ -595,6 +662,7 @@ if plot_comparisons:
             best_confs[1] = config
 
         x = np.linspace(1,config['n_global_updates'],config['n_global_updates'])
+
         # testing error plot
         if plot_test_error:
             axs[0,0].errorbar(x, all_res['validation_res'][str(i_run)]['acc'].mean(-1), 
@@ -778,8 +846,10 @@ if plot_comparisons:
         axs[0,0].set_ylabel('Acc')
         axs[0,0].set_xlabel('Global communications')
         if plot_legends:
-            axs[0,0].legend(loc='lower right')
-            axs[1,0].legend(loc='lower right')
+            #axs[0,0].legend(loc='lower right')
+            #axs[1,0].legend(loc='lower right')
+            #axs[0,1].legend(loc='lower right')
+            axs[1,1].legend(loc='lower right')
         if ylims[0] is not None:
             axs[0,0].set_ylim(ylims[0])
         if ylims[1] is not None:
@@ -813,7 +883,6 @@ if plot_comparisons:
 
     if to_disk:
         plt.savefig(fig_folder+fig_name)
-        fig_folder
     
     else:
         plt.show()
