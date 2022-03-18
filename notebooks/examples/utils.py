@@ -32,45 +32,44 @@ from pvi.distributions.exponential_family_distributions import MeanFieldGaussian
 from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-#logger.setLevel(logging.INFO)
+#logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 handler = logging.StreamHandler(sys.stdout)
-handler.setLevel(logging.DEBUG)
+#handler.setLevel(logging.DEBUG)
+handler.setLevel(logging.INFO)
 formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
 
 
-def set_up_clients(model, client_data, init_nat_params, config, args):
+def set_up_clients(model, client_data, init_nat_params, config, dp_mode, batch_size, sampling_frac_q):
 
     clients = []
-    expected_batch = []
+    #expected_batch = []
     # Create clients
     for i,_client_data in enumerate(client_data):
         # Data of ith client
         data = {k : torch.tensor(v).float() for k, v in _client_data.items()}
         #logger.debug(f"Client {i} data {data['x'].shape}, {data['y'].shape}")
-        #if args.sampling_type == 'poisson':
-        #    expected_batch.append(args.sampling_frac_q*data['x'].shape[0])
 
         # Approximating likelihood term of ith client
         t = MeanFieldGaussianFactor(nat_params=init_nat_params)
 
         # Create client and store
-        if args.dp_mode in ['lfa']:
+        if dp_mode in ['lfa']:
             client = LFA_Client(data=data, model=model, t=t, config=config)
             if i == 0:
                 logger.debug('Init LFA clients')
-        elif args.dp_mode in ['local_pvi']:
+        elif dp_mode in ['local_pvi']:
             client = Local_PVI_Client(data=data, model=model, t=t, config=config)
             if i == 0:
                 logger.debug('Init local DPPVI clients')
-        elif args.dp_mode in ['param']:
+        elif dp_mode in ['param']:
             client = Param_DP_Client(data=data, model=model, t=t, config=config)
             if i == 0:
                 logger.debug('Init param DP clients')
-        elif args.dp_mode in ['dpsgd']:
-            if args.batch_size is not None and args.sampling_frac_q is not None:
+        elif dp_mode in ['dpsgd']:
+            if batch_size is not None and sampling_frac_q is not None:
                 client = Userlevel_DPSGD_Client(data=data, model=model, t=t, config=config)
                 if i == 0:
                     logger.debug('Init user-level DPSGD clients')
@@ -78,18 +77,44 @@ def set_up_clients(model, client_data, init_nat_params, config, args):
                 client = DPSGD_Client(data=data, model=model, t=t, config=config)
                 if i == 0:
                     logger.debug('Init DPSGD clients')
-        elif args.dp_mode in ['nondp_epochs', 'nondp_batches']:
+        elif dp_mode in ['nondp_epochs', 'nondp_batches']:
             client = Client(data=data, model=model, t=t, config=config)
             if i == 0:
                 logger.debug('Init non-DP base clients')
         else:
-            raise ValueError(f'Unknown dp_mode: {args.dp_mode}!')
+            raise ValueError(f'Unknown dp_mode: {dp_mode}!')
         clients.append(client)
 
-    #if args.sampling_type == 'poisson':
-    #    logger.info(f'Expected batch sizes: {expected_batch}')
-        
     return clients
+
+
+
+def init_clients_from_existing(clients, server, client_config, new_dp_mode='dpsgd'):
+    """Fun for changing clients when dp_mode == 'mixed_dpsgd'
+    """
+    new_clients = []
+    for i_client, old_client in enumerate(clients):
+        client_config['dp_mode'] = new_dp_mode
+        if new_dp_mode == 'dpsgd':
+            new_clients.append( DPSGD_Client(data=old_client.data, model=old_client.model, t=old_client.t, config=client_config) )
+            new_clients[-1].log = old_client.log
+            new_clients[-1].update_counter = old_client.update_counter
+            #print( new_clients[-1].__dict__ )
+            #sys.exit()
+
+        else:
+            raise NotImplementedError('Can only use dpsgd for mixed_dp_mode')
+
+    server.clients = new_clients
+    server_config = server.config
+    server_config['dp_mode'] = new_dp_mode
+    server_config['dp_C'] = client_config['dp_C']
+    server_config['dp_sigma'] = client_config['dp_sigma']
+    #server.config = server_config
+    #print(server.config)
+    #print(server.__dict__, '\n')
+    #print(server.get_compiled_log()['client_0'])
+    #sys.exit()
 
 
 
@@ -110,18 +135,55 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
 
         logger.info('Generating data')
         client_data = []
-        # set data generation parameters
+
+        """
+        # try 1 param with two modes, half clients' data from each mode, means=(-1,1), scale just from prior
         data_args = {}
         data_args['mean'], data_args['cov'],data_args['sample_size'],data_args['coef'] = {},{},{},{}
         data_args['mean']['train'], data_args['cov']['train'],data_args['sample_size']['train'],data_args['coef']['train'] = [],[],[],[]
         data_args['mean']['test'] = torch.zeros(1)
         data_args['cov']['test'] = torch.eye(1)
-        data_args['sample_size']['test'] = 1000
+        data_args['sample_size']['test'] = 100000
+        data_args['coef']['test'] = torch.tensor([-1.,1.]) # y mean included as 0th coef
+        for i_client in range(num_clients):
+            data_args['mean']['train'].append(torch.zeros(1))
+            data_args['cov']['train'].append(torch.eye(1))
+            data_args['sample_size']['train'].append(1000)
+            data_args['coef']['train'].append(torch.tensor([-1.,1.])) # y mean included as 0th coef
+
+        # generate training and test data for logistic regression
+        for i_client in range(num_clients):
+            client_data.append({})
+            client_data[-1]['x'] = torch.distributions.multivariate_normal.MultivariateNormal(
+                    loc=data_args['mean']['train'][i_client], covariance_matrix=data_args['cov']['train'][i_client]).sample( [data_args['sample_size']['train'][i_client],])
+            
+            # sample half of data points from one mode, half from the other
+            n_samples = data_args['sample_size']['train'][i_client]
+            tmp = torch.zeros(n_samples)
+            #print(client_data[-1]['x'].shape, data_args['coef']['train'][i_client][0].shape  )
+            tmp[:n_samples//2] = torch.nn.Sigmoid()( client_data[-1]['x'][:n_samples//2]*data_args['coef']['train'][i_client][0] ).view(-1)
+            tmp[n_samples//2:] = torch.nn.Sigmoid()( client_data[-1]['x'][n_samples//2:]*data_args['coef']['train'][i_client][1] ).view(-1)
+            #print(client_data[-1]['x'].shape,tmp.shape)
+            #print(tmp.shape)
+            client_data[-1]['y'] = torch.bernoulli(tmp)
+            #sys.exit()
+        """
+
+
+        ####################
+        # two params, means=(1,2), scale jsut from prior
+        #"""
+        data_args = {}
+        data_args['mean'], data_args['cov'],data_args['sample_size'],data_args['coef'] = {},{},{},{}
+        data_args['mean']['train'], data_args['cov']['train'],data_args['sample_size']['train'],data_args['coef']['train'] = [],[],[],[]
+        data_args['mean']['test'] = torch.zeros(1)
+        data_args['cov']['test'] = torch.eye(1)
+        data_args['sample_size']['test'] = 100000
         data_args['coef']['test'] = torch.tensor([1.,2.]) # y mean included as 0th coef
         for i_client in range(num_clients):
             data_args['mean']['train'].append(torch.zeros(1))
             data_args['cov']['train'].append(torch.eye(1))
-            data_args['sample_size']['train'].append(500)
+            data_args['sample_size']['train'].append(1000)
             data_args['coef']['train'].append(torch.tensor([1.,2.])) # y mean included as 0th coef
 
         # generate training and test data for logistic regression
@@ -156,18 +218,26 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             #lr = LR().fit(client_data[-1]['x'].numpy(),client_data[-1]['y'].numpy())
             #print(lr.intercept_, lr.coef_)
         '''
-
-        N, prop_positive = data_args['sample_size']['train'], np.zeros(num_clients)
-        train_set = {'x' : torch.tensor(np.concatenate([data_dict['x'] for data_dict in client_data ])).float(),
-                     'y' : torch.tensor(np.concatenate([data_dict['y'] for data_dict in client_data ])).float() }
-
         tmp_x = torch.distributions.multivariate_normal.MultivariateNormal(
                     loc=data_args['mean']['test'], covariance_matrix=data_args['cov']['test']).sample([data_args['sample_size']['test'],])
         # logistic regression data:
 
         tmp_y = torch.bernoulli(torch.nn.Sigmoid()(torch.matmul(tmp_x,data_args['coef']['test'][1:]) + data_args['coef']['test'][0] ))
+        ####################
+        #"""
+
+        n_samples = data_args['sample_size']['test']
+        """
+        tmp_x = torch.distributions.multivariate_normal.MultivariateNormal(
+                    loc=data_args['mean']['test'], covariance_matrix=data_args['cov']['test']).sample([n_samples,])
+        tmp_y = torch.zeros(n_samples)
+        #print(client_data[-1]['x'].shape, data_args['coef']['train'][i_client][0].shape  )
+        tmp_y[:n_samples//2] = torch.bernoulli(torch.nn.Sigmoid()( tmp_x[:n_samples//2]*data_args['coef']['test'][0] ).view(-1))
+        tmp_y[n_samples//2:] = torch.bernoulli(torch.nn.Sigmoid()( tmp_x[n_samples//2:]*data_args['coef']['test'][1] ).view(-1))
+        #tmp_y = torch.bernoulli(torch.nn.Sigmoid()(torch.matmul(tmp_x,data_args['coef']['test'][1:]) + data_args['coef']['test'][0] ))
         #print(client_data[-1]['x'].shape,tmp.shape)
         #print(tmp)
+        """
 
         # linear regression data:
         #tmp_y = torch.matmul(tmp_x,data_args['coef']['test'][1:]) + data_args['coef']['test'][0]
@@ -176,7 +246,14 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
                         'y' : tmp_y,
                      
                     }
+
+        N, prop_positive = data_args['sample_size']['train'], np.zeros(num_clients)
+        train_set = {'x' : torch.tensor(np.concatenate([data_dict['x'] for data_dict in client_data ])).float(),
+                     'y' : torch.tensor(np.concatenate([data_dict['y'] for data_dict in client_data ])).float() }
+
         del tmp_x, tmp_y
+        #print(train_set['x'].shape, valid_set['x'].shape)
+        #sys.exit()
         #'''
 
     elif 'mimic3' in dataset_folder:
@@ -684,9 +761,9 @@ if __name__ == '__main__':
 
     #########################################
     #########################################
-    all_comps = [10*400]
+    all_comps = [200*10]
     all_q = [.1]
-    all_eps = [2.]
+    all_eps = [5.,10.]
 
     # run binary seach on all configurations
     all_res = {}
