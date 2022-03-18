@@ -136,7 +136,9 @@ class Local_PVI_Client(Client):
                 #print(f"pseudo-client var: {client_config['dp_sigma']**2} will sum to {self.n_local_models*client_config['dp_sigma']**2}, should equal {self.config['dp_sigma']**2}")
                 client_config['clients'] = self.n_local_models
                 #client_config['batch_size'] = int(b) # note: here batch_size=data size for a given local model
-                client_config['batch_size'] = int(np.ceil(self.config['pseudo_client_q']*b))
+                #client_config['batch_size'] = int(np.ceil(self.config['pseudo_client_q']*b))
+                client_config['batch_size'] = int(np.maximum(np.floor(self.config['pseudo_client_q']*b),1)) # this matches param client
+
 
                 t = MeanFieldGaussianFactor(nat_params = copy.deepcopy(self.t.nat_params))
 
@@ -261,6 +263,7 @@ class Local_PVI_Client(Client):
             # Create and return refined t of the same type
             # note: doesn't actually track log_coeff
             t_new = type(self.t)(nat_params=tmp, log_coeff=self.t.log_coeff, enforce_pos_var = self.t.enforce_pos_var)
+            self.t = copy.deepcopy(t_new)
 
             #print(cur_t['np2'])
             #print(t_new.nat_params['np2'])
