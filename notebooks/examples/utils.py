@@ -259,26 +259,60 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
     elif 'mimic3' in dataset_folder:
         logger.debug('Reading MIMIC-III data')
         # read preprocessed mimic data that already includes client splits
-        filename = dataset_folder+f'mimic_in-hospital_split_{num_clients}clients.npz'
-        tmp = np.load(filename)
-        client_data = []
-        N, prop_positive = np.zeros(num_clients), np.zeros(num_clients)
-        for i_client in range(num_clients):
-            client_data.append({})
-            client_data[-1]['x'] = tmp[f'x_{i_client}']
-            client_data[-1]['y'] = tmp[f'y_{i_client}']
-            N[i_client] = int(len(client_data[-1]['y']))
-            prop_positive[i_client] = np.sum(client_data[-1]['y']==1)/N[i_client]
+        if data_args['balance_data']:
+            logger.info('Using balanced MIMIC-III split')
+            filename = dataset_folder+f'mimic_in-hospital_bal_split.npz'
+            tmp = np.load(filename)
+            x_train, y_train = tmp['train_X'], tmp['train_y']
+            #print(len(tmp['train_y']),np.sum(tmp['train_y'] == 0), np.sum(tmp['train_y'] == 1)/len(tmp['train_y']))
+            del tmp
+            # shuffle data before starting to split
+            inds = np.linspace(0,len(y_train)-1,len(y_train),dtype=int)
+            np.random.shuffle(inds)
+            x_train, y_train = x_train[inds,:], y_train[inds]
 
-        train_set = {'x' : torch.tensor(np.concatenate([data_dict['x'] for data_dict in client_data ])).float(),
-                     'y' : torch.tensor(np.concatenate([data_dict['y'] for data_dict in client_data ])).float() }
-        # Validation set, to predict on using global model
-        valid_set = {'x' : torch.tensor(tmp['x_test'], dtype=torch.float),
-                     'y' : torch.tensor(tmp['y_test'], dtype=torch.float)}
+            # note: this uses 4/5 of total data for training, 1/5 as test
+            full_data_split = get_nth_split(n_splits=5, n=k_split, folder=None, x=x_train, y=y_train)
+            x_train, x_valid, y_train, y_valid = full_data_split
+            #print(len(y_train), np.sum(y_train==1))
 
-        #print( (torch.sum(train_set['y']==0))/len(train_set['y']) )
-        #print( (torch.sum(valid_set['y']==0))/len(valid_set['y']) )
-        #sys.exit()
+            # Prepare training data held by each client
+            client_data, N, prop_positive, _ = generate_clients_data(x=x_train,
+                                                                 y=y_train,
+                                                                 M=num_clients,
+                                                                 client_size_factor=client_size_factor,
+                                                                 class_balance_factor=class_balance_factor,
+                                                                 dataset_seed=dataset_seed)
+
+            train_set = {'x' : torch.tensor(x_train).float(),
+                         'y' : torch.tensor(y_train).float()}
+            # Validation set, to predict on using global model
+            valid_set = {'x' : torch.tensor(x_valid).float(),
+                         'y' : torch.tensor(y_valid).float()}
+
+
+        else:
+            logger.info('Using unbalanced MIMIC-III split')
+            filename = dataset_folder+f'mimic_in-hospital_unbal_split_{num_clients}clients.npz'
+            tmp = np.load(filename)
+            client_data = []
+            N, prop_positive = np.zeros(num_clients), np.zeros(num_clients)
+            for i_client in range(num_clients):
+                client_data.append({})
+                client_data[-1]['x'] = tmp[f'x_{i_client}']
+                client_data[-1]['y'] = tmp[f'y_{i_client}']
+                N[i_client] = int(len(client_data[-1]['y']))
+                prop_positive[i_client] = np.sum(client_data[-1]['y']==1)/N[i_client]
+
+            train_set = {'x' : torch.tensor(np.concatenate([data_dict['x'] for data_dict in client_data ])).float(),
+                         'y' : torch.tensor(np.concatenate([data_dict['y'] for data_dict in client_data ])).float() }
+            # Validation set, to predict on using global model
+            valid_set = {'x' : torch.tensor(tmp['x_test'], dtype=torch.float),
+                         'y' : torch.tensor(tmp['y_test'], dtype=torch.float)}
+
+            #print( (torch.sum(train_set['y']==0))/len(train_set['y']) )
+            #print( (torch.sum(valid_set['y']==0))/len(valid_set['y']) )
+            #sys.exit()
 
     elif 'MNIST' in dataset_folder:
         # note: use balanced split when class_balance_Factor == 0, unbalanced split otherwise
@@ -357,7 +391,7 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
 
 
     else:
-        full_data_split = get_nth_split(total_splits, k_split, dataset_folder)
+        full_data_split = get_nth_split(total_splits, k_split, folder=dataset_folder)
         x_train, x_valid, y_train, y_valid = full_data_split
 
         #logger.debug(f'shapes, x_train: {x_train.shape}, y_train: {y_train.shape}, x_valid: {x_valid.shape}, y_valid: {y_valid.shape}')
@@ -412,7 +446,10 @@ def acc_and_ll(server, x, y, n_points=101):
 
     # get true & false positives and negatives
     if len(torch.unique(y)) == 2:
-        posneg = get_posneg(y.numpy(), pred_probs, n_points)
+        try:
+            posneg = get_posneg(y.numpy(), pred_probs, n_points)
+        except:
+            posneg = None
     else:
         posneg = None
 
@@ -441,7 +478,10 @@ def acc_and_ll_bnn(server, x, y, n_points=101):
     
     # get true & false pos. and neg.
     if len(torch.unique(y)) == 2:
-        posneg = get_posneg(y.numpy(), preds[:,1].numpy(), n_points)
+        try:
+            posneg = get_posneg(y.numpy(), preds[:,1].numpy(), n_points)
+        except:
+            posneg = None
     else:
         posneg = None
 
@@ -491,15 +531,16 @@ def get_posneg(y, pred_probs, n_points):
 
 
 
-def get_nth_split(n_splits, n, folder):
+def get_nth_split(n_splits, n, folder=None, x=None, y=None):
     """data splitter
     Args:
         n_splits : k for k-fold split
         n : which of the n_splits splits to use, returns only single split
     """
     # Load inputs and outputs
-    x = np.load(folder + 'x.npy')
-    y = np.load(folder + 'y.npy')[:, 0]
+    if folder is not None:
+        x = np.load(folder + 'x.npy')
+        y = np.load(folder + 'y.npy')[:, 0]
     
     # Kfold splitter from sklearn
     kfold = KFold(n_splits=n_splits, shuffle=False)
@@ -761,9 +802,9 @@ if __name__ == '__main__':
 
     #########################################
     #########################################
-    all_comps = [200*10]
+    all_comps = [20*100]
     all_q = [.1]
-    all_eps = [5.,10.]
+    all_eps = [2.]
 
     # run binary seach on all configurations
     all_res = {}
