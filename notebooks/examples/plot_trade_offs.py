@@ -9,7 +9,7 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
-## TRADE OFF RUNS
+### TRADE OFF RUNS
 ## ADULT
 ## LFA
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_1seeds_trade_off_runs/'
@@ -27,12 +27,19 @@ main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_l
 #runs_to_plot = np.append(np.linspace(183,357,175,dtype=int),np.linspace(176,182,7,dtype=int)) #[1] # 2) eps comparison runs with varying q and C, seq server
 #runs_to_plot = np.append(np.linspace(183,357,175,dtype=int),np.linspace(358,364,7,dtype=int)) #[1] # 2) eps comparison runs with varying q and C, synch server
 #runs_to_plot = np.append(np.linspace(358,364,7,dtype=int),np.linspace(176,182,7,dtype=int)) # nondp seq vs synch server
-runs_to_plot = np.append(np.linspace(358,574,217,dtype=int),np.linspace(176,182,7,dtype=int)) # 3) add pseudo-client sampling frac
-#runs_to_plot = np.append(np.linspace(365,574,210,dtype=int),np.linspace(575,593,19,dtype=int)) # 3) add pseudo-client sampling frac, also to nondp
-
-#575-593
+#runs_to_plot = np.append(np.linspace(358,574,217,dtype=int),np.linspace(176,182,7,dtype=int)) # 3) add pseudo-client sampling frac
+runs_to_plot = np.append(np.linspace(365,574,210,dtype=int),np.linspace(575,593,19,dtype=int)) # 3) add pseudo-client sampling frac, also to nondp
 
 
+### TRADE OFF 2 RUNS
+## NONDP BATCHES
+# note: plotting this requires dedicated code, since not using q but numebr of clients
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_nondp_batches_1seeds_trade_off2_runs/'
+#runs_to_plot = np.linspace(1,120,120,dtype=int) # 1)
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_trade_off2_runs/'
+#runs_to_plot = np.linspace(1,126,126,dtype=int) # 1)
 
 #print(runs_to_plot)
 #print(len(runs_to_plot))
@@ -42,21 +49,32 @@ runs_to_plot = np.append(np.linspace(358,574,217,dtype=int),np.linspace(176,182,
 # where to save all plots
 fig_folder = 'res_plots/'
 
+# set plotting type: 
+# 'eps_trade_off': plot acc,logl etc vs list of eps values, C values as separate lines
+# 'q_trade_off': plot acc,logl etc vs list of q values, 
+
+plot_type = 'eps_trade_off'
+#plot_type = 'q_trade_off'
+
+
 all_eps_sigma = np.asarray([(np.inf,np.inf,10,5,1,.2),(0., 0., 3.16, 5.64, 23.61, 103.58) ])
 all_q = np.asarray([.5,.1,5e-2,1e-2,5e-3,1e-3,5e-4])
+all_steps = np.asarray([10,50,100]) # for trade off2 plotting
 nondp_C = 100. # C at least this big with dp_sigma=0 considered to be nonDP
+
+
 
 
 restrictions = OD()
 restrictions['dp_sigma'] = None#[23.15]
-restrictions['dp_C'] = [.5, 1000.]
+restrictions['dp_C'] = None#[.5, 1000.]
 restrictions['n_global_updates'] = None#[400]
-restrictions['n_steps'] = None#[40]
+restrictions['n_steps'] = None#[100]
 restrictions['batch_size'] = None#[5]
 restrictions['sampling_frac_q'] = None#[5e-3]
-restrictions['pseudo_client_q'] = [1.]
-restrictions['learning_rate'] = None#[1e-2]
-restrictions['damping_factor'] = None#[.2]
+restrictions['pseudo_client_q'] = [.1]
+restrictions['learning_rate'] = None#[5e-3]
+restrictions['damping_factor'] = None#[.4]
 restrictions['init_var'] = None#[1e-3]
 restrictions['dp_mode'] = None#['nondp_batches']
 restrictions['pre_clip_sigma'] = None#[50.]
@@ -392,21 +410,32 @@ if len(list_to_print) == 0:
 else:
     print(f'Found {len(list_to_print)} runs to plot')
 
-# get correct results and save to disk in easily plottable format
-
+if plot_type == 'q_trade_off':
+    tmp = []
+    for n in all_steps:
+        if restrictions['n_steps'] is None or n in restrictions['n_steps']:
+            tmp.append(n)
+    all_steps = np.asarray(tmp)
+    #print(f'set all_steps to {all_steps}')
 
 
 # want mean, logl, avg.prec. + mean ROC at best logl point separately
 # will be one value for each run on list
 #all_eps_sigma
 #all_q
-to_plot['best_mean_acc'] = np.zeros((2,len(all_eps_sigma[0]), len(all_q)))
-to_plot['best_mean_logl'] = np.zeros((2,len(all_eps_sigma[0]), len(all_q)))
-to_plot['best_mean_avg_prec_score'] = np.zeros((2,len(all_eps_sigma[0]), len(all_q)))
-to_plot['mean_ROC_at_best_mean_logl'] = OD()
-#np.zeros(( len(all_eps_sigma[0]), len(all_q), n_points, n_points))
-
-
+if plot_type == 'eps_trade_off':
+    to_plot['best_mean_acc'] = np.zeros((2,len(all_eps_sigma[0]), len(all_q)))
+    to_plot['best_mean_logl'] = np.zeros((2,len(all_eps_sigma[0]), len(all_q)))
+    to_plot['best_mean_avg_prec_score'] = np.zeros((2,len(all_eps_sigma[0]), len(all_q)))
+    to_plot['mean_ROC_at_best_mean_logl'] = OD()
+    #np.zeros(( len(all_eps_sigma[0]), len(all_q), n_points, n_points))
+elif plot_type == 'q_trade_off':
+    to_plot['best_mean_acc'] = np.zeros((2,len(all_steps),len(all_q)))
+    to_plot['best_mean_logl'] = np.zeros((2,len(all_steps), len(all_q)))
+    to_plot['best_mean_avg_prec_score'] = np.zeros((2,len(all_steps), len(all_q)))
+    to_plot['mean_ROC_at_best_mean_logl'] = OD()
+else:
+    sys.exit(f'Unknown plot type: {plot_type}')
 
 #print( all_res['validation_res']['1']['TPR'].shape ) # TPR, TNR, ROC_thresholds
 #sys.exit()
@@ -416,58 +445,95 @@ for i_line,i_run in enumerate(list_to_print):
     config = all_res['config'][str(i_run)]
     res = all_res['validation_res'][str(i_run)]
 
-    # save best mean over all global updates
+    # best mean over all global updates
     tmp = ['acc', 'logl', 'avg_prec_score']
     for i_tmp,tmp_name in enumerate(tmp):
-        if config['dp_sigma'] != 0 and config['dp_sigma'] is not None:
-            i_max = np.argmax(all_res['validation_res'][str(i_run)][tmp_name].mean(-1))
-            to_plot[f'best_mean_{tmp_name}'][0,all_eps_sigma[1] == config['dp_sigma'], all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].mean(-1)[i_max]
-            to_plot[f'best_mean_{tmp_name}'][1,all_eps_sigma[1] == config['dp_sigma'], all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].std(-1)[i_max]
+        if plot_type == 'eps_trade_off':
+            if config['dp_sigma'] != 0 and config['dp_sigma'] is not None:
+                i_max = np.argmax(all_res['validation_res'][str(i_run)][tmp_name].mean(-1))
+                to_plot[f'best_mean_{tmp_name}'][0,all_eps_sigma[1] == config['dp_sigma'], all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].mean(-1)[i_max]
+                to_plot[f'best_mean_{tmp_name}'][1,all_eps_sigma[1] == config['dp_sigma'], all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].std(-1)[i_max]
 
-        else:
-            if config['dp_C'] < nondp_C:
-                # only clipping
-                i_eps = 1
             else:
-                # nonDP
-                if i_tmp == 0:
-                    try:
-                        print(f"nondp run: {i_line}: dp_C={config['dp_C']}, dp_sigma={config['dp_sigma']}, sampling q={config['sampling_frac_q']}, pseudo q={config['pseudo_client_q']}")
-                    except:
-                        print("nondp doesn't have pseudo client conf?")
-                i_eps = 0
+                if config['dp_C'] < nondp_C:
+                    # only clipping
+                    i_eps = 1
+                else:
+                    # nonDP
+                    if i_tmp == 0:
+                        try:
+                            print(f"nondp run: {i_line}: dp_C={config['dp_C']}, dp_sigma={config['dp_sigma']}, sampling q={config['sampling_frac_q']}, pseudo q={config['pseudo_client_q']}")
+                        except:
+                            print("nondp doesn't have pseudo client conf?")
+                    i_eps = 0
 
+                i_max = np.argmax(all_res['validation_res'][str(i_run)][tmp_name].mean(-1))
+                to_plot[f'best_mean_{tmp_name}'][0,i_eps, all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].mean(-1)[i_max]
+                to_plot[f'best_mean_{tmp_name}'][1,i_eps, all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].std(-1)[i_max]
+
+        elif plot_type == 'q_trade_off':
+            #print(config['n_steps'], all_steps, all_steps == config['n_steps'])
             i_max = np.argmax(all_res['validation_res'][str(i_run)][tmp_name].mean(-1))
-            to_plot[f'best_mean_{tmp_name}'][0,i_eps, all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].mean(-1)[i_max]
-            to_plot[f'best_mean_{tmp_name}'][1,i_eps, all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].std(-1)[i_max]
+            to_plot[f'best_mean_{tmp_name}'][0, all_steps == config['n_steps'], all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].mean(-1)[i_max]
+            to_plot[f'best_mean_{tmp_name}'][1,all_steps == config['n_steps'], all_q == config['sampling_frac_q'] ]  = all_res['validation_res'][str(i_run)][tmp_name].std(-1)[i_max]
 
 
 
-fig, axs = plt.subplots(2,2)
-plt.suptitle(f"Included clipping C: {restrictions['dp_C']}")
-for i_line, eps in enumerate(all_eps_sigma[0]):
-    #axs[0,0].plot(all_q, to_plot['best_mean_acc'][0,i_line,:], label=f'eps={eps}' )
-    axs[0,0].errorbar(np.log(all_q), to_plot['best_mean_acc'][0,i_line,:], 
+if plot_type == 'eps_trade_off':
+    fig, axs = plt.subplots(2,2)
+    plt.suptitle(f"Included clipping C: {restrictions['dp_C']}")
+    for i_line, eps in enumerate(all_eps_sigma[0]):
+        #axs[0,0].plot(all_q, to_plot['best_mean_acc'][0,i_line,:], label=f'eps={eps}' )
+        axs[0,0].errorbar(np.log(all_q), to_plot['best_mean_acc'][0,i_line,:], 
+                    yerr= 2*to_plot['best_mean_acc'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    label=f'eps={eps}', 
+                    color=colors[i_line%len(colors)]
+                    )
+        #axs[1,0].plot(all_q, to_plot['best_mean_logl'][0,i_line,:], label=f'eps={eps}' )
+        axs[1,0].errorbar(np.log(all_q), to_plot['best_mean_logl'][0,i_line,:], 
+                    yerr= 2*to_plot['best_mean_logl'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    label=f'eps={eps}', 
+                    color=colors[i_line%len(colors)]
+                    )
+        #axs[0,1].plot(all_q, to_plot['best_mean_avg_prec_score'][0,i_line,:], label=f'eps={eps}' )
+        axs[0,1].errorbar(np.log(all_q), to_plot['best_mean_avg_prec_score'][0,i_line,:], 
+                    yerr= 2*to_plot['best_mean_avg_prec_score'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    label=f'eps={eps}', 
+                    color=colors[i_line%len(colors)]
+                    )
+        axs[1,1].plot(0,0, label=f"eps={eps}") # this is currently just used for labels
+    axs[1,1].tick_params(axis='both',which='both',bottom=False,left=False,labelbottom=False, labelleft=False)
+
+elif plot_type == 'q_trade_off':
+    fig, axs = plt.subplots(2,2)
+    #plt.suptitle(f"Included clipping C: {restrictions['dp_C']}")
+    for i_line, n in enumerate(all_steps):
+        axs[0,0].errorbar(np.log(all_q), to_plot['best_mean_acc'][0,i_line,:], 
                 yerr= 2*to_plot['best_mean_acc'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
-                label=f'eps={eps}', 
-                color=colors[i_line%len(colors)]
-                )
-    #axs[1,0].plot(all_q, to_plot['best_mean_logl'][0,i_line,:], label=f'eps={eps}' )
-    axs[1,0].errorbar(np.log(all_q), to_plot['best_mean_logl'][0,i_line,:], 
-                yerr= 2*to_plot['best_mean_logl'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
-                label=f'eps={eps}', 
-                color=colors[i_line%len(colors)]
-                )
-    #axs[0,1].plot(all_q, to_plot['best_mean_avg_prec_score'][0,i_line,:], label=f'eps={eps}' )
-    axs[0,1].errorbar(np.log(all_q), to_plot['best_mean_avg_prec_score'][0,i_line,:], 
-                yerr= 2*to_plot['best_mean_avg_prec_score'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
-                label=f'eps={eps}', 
-                color=colors[i_line%len(colors)]
-                )
-    axs[1,1].plot(0,0, label=f"eps={eps}") # this is currently just used for labels
-axs[1,1].tick_params(axis='both',which='both',bottom=False,left=False,labelbottom=False, labelleft=False)
+                label=f'lfa: steps={n}', 
+                        #color=colors[i_line%len(colors)]
+                        )
+        #axs[1,0].plot(all_q, to_plot['best_mean_logl'][0,i_line,:], label=f'eps={eps}' )
+        axs[1,0].errorbar(np.log(all_q), to_plot['best_mean_logl'][0,i_line,:], 
+                        yerr= 2*to_plot['best_mean_logl'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                        label=f'lfa: steps={n}', 
+                        #color=colors[i_line%len(colors)]
+                        )
+        #axs[0,1].plot(all_q, to_plot['best_mean_avg_prec_score'][0,i_line,:], label=f'eps={eps}' )
+        axs[0,1].errorbar(np.log(all_q), to_plot['best_mean_avg_prec_score'][0,i_line,:], 
+                        yerr= 2*to_plot['best_mean_avg_prec_score'][1,i_line,:]/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                        label=f'lfa: steps={n}', 
+                        #color=colors[i_line%len(colors)]
+                        )
+        axs[1,1].plot(0,0, label=f"lfa: steps={n}") # this is currently just used for labels
+        axs[1,1].tick_params(axis='both',which='both',bottom=False,left=False,labelbottom=False, labelleft=False)
+        #'''
+
 
 axs[1,1].legend()
+axs[0,0].grid()
+axs[1,0].grid()
+axs[0,1].grid()
 axs[0,0].set_ylabel('Acc')
 axs[1,0].set_ylabel('Logl')
 axs[0,1].set_ylabel('Avg prec score')

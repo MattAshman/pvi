@@ -9,24 +9,449 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
-### new 200 client 5 seed runs:
-# DPSGD
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_5seeds_eps02_runs/'
-#runs_to_plot = np.linspace(1,17,17,dtype=int)#[1] # kaikki yhdessä, myös korjaukset
 
+
+##########################################################
+### 200 clients adult 1seed runs
+## eps=.2
+# DPSGD:
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_eps02_testing_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int)#[1] # 100 global
+#runs_to_plot = np.linspace(37,72,36,dtype=int)#[1] # 400 global
+#runs_to_plot = np.linspace(73,108,36,dtype=int)#[1] # 40 global
+#runs_to_plot = np.linspace(109,144,36,dtype=int)#[1] # 200 global
+#runs_to_plot = [145] # 300 global
 
 # LFA
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_5seeds_eps02_runs/'
-#runs_to_plot = np.linspace(1,3,3,dtype=int)#[1] # all bals
-#runs_to_plot = np.linspace(4,7,4,dtype=int)#[1] # bal=(.7,-3) new runs
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_eps02_testing_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int)#[1] # 10 global init tests
+#runs_to_plot = np.linspace(109,180,72,dtype=int)#[1] # 10 global, 20 steps
+#runs_to_plot = np.linspace(181,252,72,dtype=int)#[1] # 10 global, 10 steps
+#runs_to_plot = np.linspace(253,276,24,dtype=int)#[1] # 20 global, 10 steps
 
 # LOCAL PVI
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_5seeds_eps02_runs/'
-#runs_to_plot = np.linspace(1,19,19,dtype=int)#[1] # all bals
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_1seeds_eps02_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int)#[1] # 1) 10 global, bal data, fiksattu bugi 8.3.
+#runs_to_plot = np.linspace(109,162,54,dtype=int)#[1] # 2) 15 global, bal data, fiksattu bugi 8.3.
+#runs_to_plot = np.linspace(163,270,108,dtype=int)#[1] # 2) 15 global, unbal data, fiksattu bugi 8.3.
+
+
+## eps=.3
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_1seeds_eps03_runs/'
+#runs_to_plot = np.linspace(1,32,32,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(33,80,48,dtype=int) # 2) unbal
+
+# LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_1seeds_eps03_sec_runs/'
+#runs_to_plot = np.linspace(1,64,64,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(65,192,128,dtype=int) # 2) unbal
+
+# LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_1seeds_eps03_sec_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,216,144,dtype=int) # 1) unbal
+
+## eps=.5
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,18,18,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(19,30,12,dtype=int) # 2) bal eri q
+#runs_to_plot = np.linspace(31,54,24,dtype=int) # 3) unbal
+
+# LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,141,141,dtype=int)#[1] # 1) bal
+
+# LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_1seeds_eps05_sec_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int)#[1] # 1) bal
+#runs_to_plot = np.linspace(109,324,216,dtype=int)#[1] # 2) unbal
+
+
+# LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,115,115,dtype=int)#[1] # 1) bal
+
+# LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_1seeds_eps05_sec_runs/'
+#runs_to_plot = np.linspace(1,121,121,dtype=int)#[1] # 1) bal
+#runs_to_plot = np.linspace(122,283,162,dtype=int)#[1] # 2) unbal
 
 
 
-### ADULT 10 client 1 seed runs:
+## eps=1
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int) # 1)
+
+
+##########################################################
+### 200 clients ADULT 5seed runs
+
+## eps=.3
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_5seeds_eps03_runs/'
+#runs_to_plot = np.linspace(1,8,8,dtype=int) # 1) unbal
+#runs_to_plot = [9] # 2) bal
+
+# LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_5seeds_eps03_sec_runs/'
+#runs_to_plot = [1,2] # 1) unbal
+#runs_to_plot = np.linspace(3,6,4,dtype=int) # 2) bal
+#runs_to_plot = np.linspace(7,10,4,dtype=int) # 3) unbal
+#runs_to_plot = np.linspace(11,14,4,dtype=int) # 3) unbal
+
+# LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_5seeds_eps03_sec_runs/'
+#runs_to_plot = np.linspace(1,10,10,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(11,14,4,dtype=int) # 2) unbal
+#runs_to_plot = np.linspace(15,16,2,dtype=int) # 3) bal
+
+
+## eps=.5
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,8,8,dtype=int) # 1)+2) bal
+#runs_to_plot = np.linspace(9,16,8,dtype=int) # 3) unbal
+
+# LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_5seeds_eps05_sec_runs/'
+#runs_to_plot = [1] # 1) bal
+#runs_to_plot = np.linspace(2,17,16,dtype=int)#[1] # 2) unbal
+
+# LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_5seeds_eps05_sec_runs/'
+#runs_to_plot = [3] # 1) bal
+#runs_to_plot = np.linspace(4,11,8,dtype=int) # 2) unbal
+#runs_to_plot = np.linspace(12,15,4,dtype=int) # 3) unbal
+
+
+##########################################################
+### ADULT BNN 10 client 1 seed trade off 2 runs:
+## NONDP BATCHES
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_nondp_batches_1seeds_trade_off2_runs/'
+#runs_to_plot = np.linspace(1,160,160,dtype=int) # 1)
+#runs_to_plot = np.linspace(185,232,48,dtype=int) # 2)
+#runs_to_plot = np.linspace(224,232,9,dtype=int) # 2) osia
+
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_trade_off2_runs/'
+#runs_to_plot = np.linspace(1,84,84,dtype=int) # 1)
+
+
+##########################################################
+#### ADULT 1BNN 10 client 5 seed runs:
+
+
+### EPS=2 runs
+
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_5seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,12,12,dtype=int) # 1)&2) bal&unbal
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_5seeds_eps2_runs/'
+#runs_to_plot = [1] # 1) bal
+#runs_to_plot = [2] # 2) bal nat grad
+
+## LFA fixes
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_5seeds_eps2_fix_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_5seeds_eps2_fix2_runs/'
+# KALE runs
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/kale_adult_1bnn_lfa_10clients_5seeds_eps2_fix_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/kale_adult_1bnn_lfa_10clients_5seeds_eps2_fix2_runs/'
+#runs_to_plot = [6]
+#runs_to_plot = np.linspace(1,6,6,dtype=int) # 
+#runs_to_plot = [4,6,7,8]
+
+
+
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,12,12,dtype=int) # 1)-2)  bal&unbal
+#runs_to_plot = np.linspace(13,36,16,dtype=int) # 3)-4)  bal&unbal
+
+## LOCAL PVI fixes
+main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps2_fix_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps2_fix2_runs/'
+runs_to_plot = [2,3]
+#runs_to_plot = np.linspace(1,3,3,dtype=int) # 
+
+
+### EPS=1 runs
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(3,6,4,dtype=int) # 2) unbal
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1) bal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps1_runs/'
+#runs_to_plot = [1] # 1) bal, hajonnut
+#runs_to_plot = np.linspace(2,3,2,dtype=int) # 2) bal, yhä hajonneita
+#runs_to_plot = [4] # 3) bal, hajonnut
+
+## LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,16,16,dtype=int) # 1) unbal
+
+
+### EPS=.5 runs
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_5seeds_eps05_runs/'
+#runs_to_plot = [1] # 1) bal
+#runs_to_plot = np.linspace(2,3,2,dtype=int) # 2) unbal
+
+
+##########################################################
+#### ADULT 1BNN 10 client 1 seed runs:
+
+
+### only clip runs
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_clip_runs/'
+#runs_to_plot = np.linspace(1,144,144,dtype=int) # 1) bal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_1seeds_clip_runs/'
+#runs_to_plot = np.linspace(1,162,162,dtype=int) # 1) bal
+
+
+### EPS=5 runs
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_eps5_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,88,16,dtype=int) # 2) bal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_1seeds_eps5_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int) # 1) bal
+
+### EPS=2 runs
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_1seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,216,144,dtype=int) # 2) unbal
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,48,48,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(49,120,72,dtype=int) # 2) bal
+#runs_to_plot = np.linspace(121,257,137,dtype=int) # 3) unbal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_1seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(109,252,144,dtype=int) # 2) unbal
+
+### EPS=1 runs
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,54,54,dtype=int) # 1)
+#runs_to_plot = np.linspace(55,77,24,dtype=int) # 2)
+#runs_to_plot = np.linspace(78,94,17,dtype=int) # 3)
+#runs_to_plot = np.linspace(95,130,36,dtype=int) # 4) unbal
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,144,144,dtype=int) # 1)
+#runs_to_plot = np.linspace(145,576,432,dtype=int) # 2)
+#runs_to_plot = np.linspace(577,648,72,dtype=int) # 3) NOTE: tämä on NON-DP!
+#runs_to_plot = np.linspace(649,720,72,dtype=int) # 4)
+#runs_to_plot = np.linspace(721,784,64,dtype=int) # 5)
+#runs_to_plot = np.linspace(785,800,16,dtype=int) # 6)
+#runs_to_plot = np.linspace(801,1088,288,dtype=int) # 7) unbal
+#runs_to_plot = np.linspace(1089,1104,16,dtype=int) # 7) unbal pidempi
+
+## LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,288,288,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(289,360,72,dtype=int) # 2) bal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,144,144,dtype=int) # 1)
+#runs_to_plot = np.linspace(145,288,144,dtype=int) # 2)
+#runs_to_plot = np.linspace(289,396,108,dtype=int) # 3)
+#runs_to_plot = np.linspace(397,491,95,dtype=int) # 4)
+#runs_to_plot = np.linspace(492,539,48,dtype=int) # 5) bal, onko vakaampi
+#runs_to_plot = np.linspace(540,547,8,dtype=int) # 6) bal, vakaampiko taas
+
+## LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_1seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,288,288,dtype=int) # 1)
+#runs_to_plot = np.linspace(504,935,432,dtype=int) # 2) unbal
+
+### EPS=.5 runs
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(37,108,72,dtype=int) # 2) unbal
+
+
+
+##########################################################
+#### ADULT 10 client 5 seed runs:
+### EPS=1 runs
+
+## COMMS BASELINE
+# same for all number of clients
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_comms_baseline_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1) bal & unbal: no difference with baseline
+
+## BCM SAME BASELINE
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_same_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,6,6,dtype=int) # 1) bal & unbal
+#runs_to_plot = [7] # 3) unbal
+
+## BCM SPLIT BASELINE
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_split_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1)-2) bal
+#runs_to_plot = np.linspace(3,7,5,dtype=int) # 3)-4) unbal
+
+
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,8,8,dtype=int) # 1) unbal
+#runs_to_plot = [9] # 2) bal
+
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_5seeds_eps1_runs/'
+#runs_to_plot = [1] # 1) bal
+#runs_to_plot =  np.linspace(2,9,8,dtype=int) # 2)-3) unbal
+
+## LFA with secure aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_5seeds_eps1_sec_runs/'
+#runs_to_plot =  np.linspace(1,2,2,dtype=int) # 1) bal
+#runs_to_plot =  np.linspace(3,10,8,dtype=int) # 2) unbal
+#runs_to_plot =  np.linspace(11,14,4,dtype=int) # 3) unbal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_5seeds_eps1_runs/'
+#runs_to_plot =  np.linspace(1,2,2,dtype=int) # 1) bal
+#runs_to_plot =  np.linspace(3,6,4,dtype=int) # 2) unbal
+
+## LOCAL PVI with secure aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_5seeds_eps1_sec_runs/'
+#runs_to_plot =  np.linspace(1,4,4,dtype=int) # 1) bal
+#runs_to_plot =  np.linspace(5,8,4,dtype=int) # 2) unbal
+
+
+### EPS=.5 runs
+
+## COMMS BASELINE
+# same for all number of clients
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_comms_baseline_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1) bal & unbal: no difference with baseline
+
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_10clients_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,8,8,dtype=int) # 1) unbal
+#runs_to_plot = [9] # 2) bal
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,9,9,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(10,13,4,dtype=int) # 2) unbal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_5seeds_eps05_runs/'
+#runs_to_plot = [2] # 1) bal
+#runs_to_plot = np.linspace(3,8,6,dtype=int) # 2) unbal
+
+
+## LFA with secure aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_5seeds_eps05_sec_runs/'
+#runs_to_plot = np.linspace(1,6,6,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(7,10,4,dtype=int) # 2) unbal
+
+## LOCAL PVI with secure aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_5seeds_eps05_sec_runs/'
+#runs_to_plot = [1] # 1) bal
+#runs_to_plot = np.linspace(3,8,6,dtype=int) # not done yet
+
+
+##########################################################
+#### ADULT 10 client 1 seed runs:
+### EPS=1 runs
+
+## baseline COMMS 
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_comms_baseline_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1)-2) bal
+#runs_to_plot = np.concatenate( (np.linspace(1,72,72,dtype=int),np.linspace(109,146,36,dtype=int)))  # 1)-2),4) bal
+
+## baseline BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_same_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,216,216,dtype=int) # 1)-3) bal
+#runs_to_plot = np.linspace(217,657,441,dtype=int) # 4)-6) unbal
+
+## baseline BCM SPLIT
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_split_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,216,216,dtype=int) # 1)-3) bal
+#runs_to_plot = np.linspace(217,648,432,dtype=int) # 4)-6) unbal
+
+
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,216,144,dtype=int) # 2) unbal
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(109,216,108,dtype=int) # 2) unbal
+
+## LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_1seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,54,54,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(55,162,108,dtype=int) # 2) unbal
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int) # 1)
+#runs_to_plot = np.linspace(109,216,108,dtype=int) # 2)
+#runs_to_plot = np.linspace(217,288,72,dtype=int) # 3) unbal
+
+
+
+## EPS=0.5 runs
+## baseline COMMS 
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_comms_baseline_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int) # 1)-3) bal
+
+
+## DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_10clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,216,144,dtype=int) # 2) unbal
+
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_10clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,144,72,dtype=int) # 2) unbal
+#runs_to_plot = np.linspace(145,216,72,dtype=int) # 3) unbal lisää
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int) # 1)
+#runs_to_plot = np.linspace(109,162,54,dtype=int) # 2)
+#runs_to_plot = np.linspace(163,197,36,dtype=int) # 3)
+
+## LOCAL PVI with secure aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_1seeds_eps05_sec_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(37,144,108,dtype=int) # 2) unbal
+
+
+
+# EPS=.2 runs
 ## DPSGD
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_10clients_1seeds_eps02_runs/'
 #runs_to_plot = np.linspace(1,37,37,dtype=int)#[1] # 1) seq server param testing, 
@@ -50,7 +475,6 @@ import numpy as np
 
 
 ## LOCAL PVI
-# EPS=.2 runs
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_10clients_1seeds_eps02_runs/'
 ##runs_to_plot = np.linspace(1,72,72,dtype=int)#[1] # 1) 20 globals, liian iso q
 ##runs_to_plot = np.linspace(73,144,72,dtype=int)#[1] # 2) 10 globals, liian iso q
@@ -63,6 +487,7 @@ import numpy as np
 #runs_to_plot = np.linspace(1,402,402,dtype=int) # 1) 
 
 
+##########################################################
 
 ### MIMIC3 runs:
 # nondp
@@ -134,29 +559,161 @@ import numpy as np
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic3_2bnn_dpsgd_5clients_5seeds_eps2_runs/'
 #runs_to_plot = [1] #np.linspace(1,1,1,dtype=int)#[1] # 1)
 
-## 200 clients adult 1seed runs
-# DPSGD:
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_eps02_testing_runs/'
-#runs_to_plot = np.linspace(1,36,36,dtype=int)#[1] # 100 global
-#runs_to_plot = np.linspace(37,72,36,dtype=int)#[1] # 400 global
-#runs_to_plot = np.linspace(73,108,36,dtype=int)#[1] # 40 global
-#runs_to_plot = np.linspace(109,144,36,dtype=int)#[1] # 200 global
-#runs_to_plot = [145] # 300 global
+
+
+##########################################################
+#### MIMIC3 balanced data testing
+
+### nondp bcm baselines
+# BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_same_10clients_1seeds_nondp_runs/'
+#runs_to_plot = np.linspace(1,135,135,dtype=int) # 1)& 2) bal
+
+
+### 10 clients, baselines, 1 seed
+## EPS=1 runs
+
+# BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_same_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,144,144,dtype=int) # 1)-4) bal
+#runs_to_plot = np.linspace(145,432,288,dtype=int) # 5)-8) unbal
+
+# BCM SPLIT
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_split_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1)-2) bal
+#runs_to_plot = np.linspace(73,216,144,dtype=int) # 3)-4) unbal
+
+
+# COMMS BASELINE
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_comms_baseline_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,48,48,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(49,96,48,dtype=int) # 2) bal
+#runs_to_plot = np.linspace(97,132,36,dtype=int) # 3) bal
+#runs_to_plot = np.linspace(133,168,36,dtype=int) # 4) bal
+#runs_to_plot = np.linspace(169,204,36,dtype=int) # 5) bal
+
+### 10 clients, baselines, 5 seed
+## EPS=1 runs
+
+# COMMS BASELINE
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_comms_baseline_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,8,8,dtype=int) # 1) bal
+
+# BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_same_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1)-2) bal
+#runs_to_plot = np.linspace(3,6,4,dtype=int) # 3)-6) unbal
+
+# BCM SPLIT
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_split_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1)-2) bal
+#runs_to_plot = np.linspace(3,6,4,dtype=int) # 3)-4) unbal
+
+### 10 clients, 1 seed
+## EPS=1 runs
+
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_dpsgd_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,144,72,dtype=int) # 2) bal, eri q
+#runs_to_plot = np.linspace(145,288,144,dtype=int) # 3) unbal
 
 # LFA
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_lfa_200clients_eps02_testing_runs/'
-#runs_to_plot = np.linspace(1,108,108,dtype=int)#[1] # 10 global init tests
-#runs_to_plot = np.linspace(109,180,72,dtype=int)#[1] # 10 global, 20 steps
-#runs_to_plot = np.linspace(181,252,72,dtype=int)#[1] # 10 global, 10 steps
-#runs_to_plot = np.linspace(253,276,24,dtype=int)#[1] # 20 global, 10 steps
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_lfa_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,216,216,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(217,264,48,dtype=int) # 2) bal
+#runs_to_plot = np.linspace(265,552,288,dtype=int) # 3) unbal
+#runs_to_plot = np.linspace(553,576,24,dtype=int) # 4) bal
+#runs_to_plot = np.linspace(577,756,180,dtype=int) # 5) unbal
+
+# LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_lfa_10clients_1seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,81,81,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(82,339,258,dtype=int) # 2)-3) unbal
+#runs_to_plot = np.linspace(340,393,54,dtype=int) # 4) bal nat grad
+#runs_to_plot = np.linspace(394,465,72,dtype=int) # 5) unbal nat grad
+
+
 
 # LOCAL PVI
-#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_local_pvi_200clients_1seeds_eps02_runs/'
-#runs_to_plot = np.linspace(1,108,108,dtype=int)#[1] # 1) 10 global, bal data, fiksattu bugi 8.3.
-#runs_to_plot = np.linspace(109,162,54,dtype=int)#[1] # 2) 15 global, bal data, fiksattu bugi 8.3.
-#runs_to_plot = np.linspace(163,270,108,dtype=int)#[1] # 2) 15 global, unbal data, fiksattu bugi 8.3.
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_local_pvi_10clients_1seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,288,288,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(289,432,144,dtype=int) # 2) bal
+#runs_to_plot = np.linspace(433,864,432,dtype=int) # 2) unbal
+
+# LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_local_pvi_10clients_1seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,108,108,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(210,425,216,dtype=int) # 2) unbal
+
+## EPS=.5 runs
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_dpsgd_10clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(73,216,144,dtype=int) # 2) unbal
+
+# LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_lfa_10clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,216,216,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(217,504,288,dtype=int) # 2) unbal
+
+# LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_local_pvi_10clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,144,144,dtype=int) # 1) bal
+#runs_to_plot = np.linspace(145,360,216,dtype=int) # 2) unbal
 
 
+### balanced mimic, 10 clients, 5 seeds
+## EPS=1 runs
+
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_dpsgd_10clients_5seeds_eps1_runs/'
+#runs_to_plot = [1,6] # 1) & 3) bal
+#runs_to_plot = np.linspace(2,5,4,dtype=int) # 2) unbal
+
+# LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_lfa_10clients_5seeds_eps1_runs/'
+#runs_to_plot = [1] # 1) bal
+#runs_to_plot = np.linspace(2,7,6,dtype=int) # 2) & 3) unbal
+
+# LFA sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_lfa_10clients_5seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,4,4,dtype=int) # 1) unbal
+#runs_to_plot = np.linspace(5,8,4,dtype=int) # 2) unbal
+#runs_to_plot = np.linspace(9,16,8,dtype=int) # 3) unbal
+#runs_to_plot = np.linspace(17,24,8,dtype=int) # 4) unbal
+#runs_to_plot = np.linspace(25,28,4,dtype=int) # 5) bal
+
+# LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_local_pvi_10clients_5seeds_eps1_runs/'
+#runs_to_plot = np.linspace(1,16,16,dtype=int) # 1) unbal
+#runs_to_plot = [17,18,19] # 1) bal
+
+# LOCAL PVI sec aggr
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_local_pvi_10clients_5seeds_eps1_sec_runs/'
+#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1) unbal
+#runs_to_plot = np.linspace(3,14,12,dtype=int) # 2) bal
+
+## EPS=.5 runs
+# DPSGD
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_dpsgd_10clients_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,16,16,dtype=int) # 1) unbal
+#runs_to_plot = [17] # 1) bal
+
+# LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_lfa_10clients_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,36,36,dtype=int) # 1) & 2) unbal
+#runs_to_plot = [37] # 3) bal
+
+
+# LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_local_pvi_10clients_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,8,8,dtype=int) # 1) unbal
+#runs_to_plot = np.linspace(9,10,2,dtype=int) # 2) bal
+
+
+
+##########################################################
 ### MNIST testing
 ## balanced data, b=1, eps=2
 # DPSGD
@@ -192,10 +749,13 @@ import numpy as np
 #runs_to_plot = np.append(np.linspace(25,71,47,dtype=int),73)  # 1) & 2): 400 globals, seq & sync server, full epochs
 #runs_to_plot =  np.linspace(76,99,24,dtype=int) # 3) 400 globals, seq server, batches
 #runs_to_plot = [72,74,75] # 4) # 400 globals, seq server, batches, freeze var test
+#runs_to_plot =  np.linspace(100,111,12,dtype=int) # 5) # 200 globals, seq server, batches, lr scheduler
 
 # LFA
-main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_lfa_bal_10clients_b1_epsinfty_runs/'
-runs_to_plot = np.linspace(1,24,24,dtype=int)  # 1)
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_lfa_bal_10clients_b1_epsinfty_runs/'
+#runs_to_plot = np.linspace(1,28,28,dtype=int)  # 1)
+#runs_to_plot = np.linspace(29,64,36,dtype=int)  # 2)
+#runs_to_plot = np.linspace(65,80,16,dtype=int)  # 3)
 
 # LOCAL PVI
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mnist_bnn_local_pvi_bal_10clients_b1_epsinfty_runs/'
@@ -218,33 +778,40 @@ runs_to_plot = np.linspace(1,24,24,dtype=int)  # 1)
 fig_folder = 'res_plots/'
 
 restrictions = OD()
-restrictions['dp_sigma'] = None#[23.15]
-restrictions['dp_C'] = None#[1.]
-restrictions['n_global_updates'] = None#[400]
-restrictions['n_steps'] = None#[10]
-restrictions['batch_size'] = None#[5]
-restrictions['sampling_frac_q'] = None#[1e-2]
-restrictions['learning_rate'] = None#[2e-3]
-restrictions['damping_factor'] = None#[.05]
-restrictions['init_var'] = None#[5e-3]
-restrictions['freeze_var_updates'] = None#[0]
 restrictions['dp_mode'] = None#['nondp_batches']
+restrictions['n_global_updates'] = None#[400]
+restrictions['n_steps'] = None#[100]
+restrictions['batch_size'] = None#[5]
+restrictions['dp_sigma'] = None#[23.15]
+
+restrictions['dp_C'] = None#[20]
+restrictions['sampling_frac_q'] = None#[1e-2]
+restrictions['learning_rate'] = None#[5e-3]
+restrictions['damping_factor'] = None#[.4]
+restrictions['init_var'] = None#[1e-3]
+restrictions['freeze_var_updates'] = None#[5]
+
+plot_legends = 1
 
 # possible balance settings: (0,0), (.7,-3), (.75,.95)
-restrictions['data_bal_rho'] = [0.]
-restrictions['data_bal_kappa'] = [.0]
+restrictions['data_bal_rho'] = [.0]
+restrictions['data_bal_kappa'] = [0.]
 
+# (.0,.0): 2, 2seediä ajonnut
+# (.75,.95): 10, 1seed ajonnut
+# (.7,-3): 9, 2 seediä hajonnut
+#runs_to_plot = [9]
+#runs_to_plot = np.delete(runs_to_plot, np.where(runs_to_plot == 281))
 
 # save to disk (or just show)
 to_disk = 0
 
 plot_test_error = 1 # if 0 plot training err instead
-plot_legends = 0
 
-
-dataset_name = 'mnist'
+#dataset_name = 'mimic3_bal'
+dataset_name = 'adult'
+#dataset_name = 'mnist'
 #dataset_name = 'mimic3'
-#dataset_name = 'adult'
 #dataset_name = 'mushroom'
 #dataset_name = 'credit'
 #dataset_name = 'bank'
@@ -267,12 +834,22 @@ fig_name = "{}_dpsgd_200clients_5seeds_eps02_bal({},{})_best.pdf".format(
 #fig_name = "{}_2BNN_dpsgd_5clients_5seeds_eps2.pdf".format(dataset_name)
 #fig_name = "{}_1BNN_dpsgd_10clients_1seeds_bal_b1_eps2.pdf".format(dataset_name)
 #'''
-fig_name = "{}_dpsgd_10clients_eps02_bal({},{}).pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'])
-#fig_name = "{}_lfa_10clients_eps02_bal({},{}).pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'])
+#fig_name = "{}_dpsgd_10clients_eps02_bal({},{}).pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'])
+fig_name = "{}_lfa_10clients_nondp_bal({},{})_q{}.pdf".format(dataset_name, restrictions['data_bal_rho'],restrictions['data_bal_kappa'],restrictions['sampling_frac_q'])
 
 
 # set to None to skip:
-if dataset_name == 'mimic3':
+
+
+if dataset_name == 'mimic3_bal':
+    ylims= ((.5,.8),(-.85,-.5), None, None)
+    if plot_test_error:
+        baseline_acc = 0.761
+        baseline_logl = -.517
+    else:
+        baseline_acc = None
+        baseline_logl = None
+elif dataset_name == 'mimic3':
     ylims= ((.87,.9),(-.55,-.26), None, None)
     if plot_test_error:
         baseline_acc = 0.8844
@@ -315,17 +892,18 @@ add_labels = {}
 #add_labels['sampling_type'] = 'sampling'
 add_labels['dp_C'] = 'C'
 #add_labels['dp_sigma'] = 'sigma'
-add_labels['n_steps'] = 'steps'
+#add_labels['n_steps'] = 'steps'
 #add_labels['batch_size'] = 'b'
 add_labels['sampling_frac_q'] = 'q'
 add_labels['learning_rate'] = 'lr'
 add_labels['damping_factor'] = 'damping'
 add_labels['init_var'] = 'var'
-add_labels['server'] = 'server'
-#add_labels['freeze_var_updates'] = 'var freeze'
+#add_labels['server'] = 'server'
+add_labels['freeze_var_updates'] = 'var freeze'
 #add_labels['privacy_calculated'] = 'DP epochs'
 #add_labels['data_bal_rho'] = 'rho'
 #add_labels['data_bal_kappa'] = 'kappa'
+add_labels['init_var'] = 'init_var'
 
 
 
@@ -454,15 +1032,18 @@ def format_results(apu, run_id, client_measures, all_res):
     # does this work with sampling=seq?
     if dataset_name != 'mnist':
         # for plotting ROC curve for max logl global update, one for each seed
-        all_res['validation_res'][run_id]['TPR'] = np.zeros((
-            all_res['config'][run_id]['n_rng_seeds'],
-            apu['validation_res_seed0']['posneg'][0]['n_points']
-            ))
-        all_res['validation_res'][run_id]['TNR'] = np.zeros((
-            all_res['config'][run_id]['n_rng_seeds'],
-            apu['validation_res_seed0']['posneg'][0]['n_points']
-            ))
-        all_res['validation_res'][run_id]['ROC_thresholds'] = np.linspace(0,1,apu['validation_res_seed0']['posneg'][0]['n_points'])
+        try:
+            all_res['validation_res'][run_id]['TPR'] = np.zeros((
+                all_res['config'][run_id]['n_rng_seeds'],
+                apu['validation_res_seed0']['posneg'][0]['n_points']
+                ))
+            all_res['validation_res'][run_id]['TNR'] = np.zeros((
+                all_res['config'][run_id]['n_rng_seeds'],
+                apu['validation_res_seed0']['posneg'][0]['n_points']
+                ))
+            all_res['validation_res'][run_id]['ROC_thresholds'] = np.linspace(0,1,apu['validation_res_seed0']['posneg'][0]['n_points'])
+        except:
+            print('error in posneg results')
 
 
     for i_seed in range(all_res['config'][run_id]['n_rng_seeds']):
@@ -500,25 +1081,25 @@ def format_results(apu, run_id, client_measures, all_res):
         #sys.exit()
 
         if dataset_name != 'mnist':
-            all_res['validation_res'][run_id]['TPR'][i_seed,:] = apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TP']/( apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TP'] + apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['FN'])
+            try:
+                all_res['validation_res'][run_id]['TPR'][i_seed,:] = apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TP']/( apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TP'] + apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['FN'])
 
-            all_res['validation_res'][run_id]['TNR'][i_seed,:] = apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TN']/( apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TN'] + apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['FP'])
+                all_res['validation_res'][run_id]['TNR'][i_seed,:] = apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TN']/( apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['TN'] + apu[f"validation_res_seed{i_seed}"]['posneg'][best_global_logl]['FP'])
+                # posneg = list of posneg dicts with len=n_global_updates
+                # NOTE: need to check format when n_seeds > 1
+                for i_global in range(all_res['config'][run_id]['n_global_updates']):
+                    for k in posneg_measures:
+                        #print(apu[f"validation_res_seed0"]['posneg'][i_global][k])
+                        all_res['train_res'][run_id][k][i_global,i_seed] = apu[f"train_res_seed{i_seed}"]['posneg'][i_global][k]
+                        all_res['validation_res'][run_id][k][i_global,i_seed] = apu[f"validation_res_seed{i_seed}"]['posneg'][i_global][k]
+                        #print(len(apu[f"validation_res_seed0"]['posneg']),len(apu[f"train_res_seed0"]['posneg'] ))
+                        #sys.exit()
 
-            # posneg = list of posneg dicts with len=n_global_updates
-            # NOTE: need to check format when n_seeds > 1
-            for i_global in range(all_res['config'][run_id]['n_global_updates']):
                 for k in posneg_measures:
-                    #print(apu[f"validation_res_seed0"]['posneg'][i_global][k])
-                    all_res['train_res'][run_id][k][i_global,i_seed] = apu[f"train_res_seed{i_seed}"]['posneg'][i_global][k]
-                    all_res['validation_res'][run_id][k][i_global,i_seed] = apu[f"validation_res_seed{i_seed}"]['posneg'][i_global][k]
-                    #print(len(apu[f"validation_res_seed0"]['posneg']),len(apu[f"train_res_seed0"]['posneg'] ))
-                    #sys.exit()
-
-            for k in posneg_measures:
-                all_res['train_res'][run_id]['best_'+k][i_seed] = np.amax(all_res['train_res'][run_id][k][:,i_seed])
-                all_res['validation_res'][run_id]['best_'+k][i_seed] = np.amax(all_res['validation_res'][run_id][k][:,i_seed])
-
-
+                    all_res['train_res'][run_id]['best_'+k][i_seed] = np.amax(all_res['train_res'][run_id][k][:,i_seed])
+                    all_res['validation_res'][run_id]['best_'+k][i_seed] = np.amax(all_res['validation_res'][run_id][k][:,i_seed])
+            except:
+                pass
 
 
 
@@ -598,6 +1179,7 @@ if plot_comparisons:
     best_acc = 0
     best_logl = -1e6
     best_confs = [None,None]
+    best_ids = [-1,-1]
 
     # check restrictions
     list_to_print = []
@@ -657,22 +1239,31 @@ if plot_comparisons:
         if np.amax(all_res['validation_res'][str(i_run)]['acc'].mean(-1) ) > best_acc:
             best_acc = np.amax(all_res['validation_res'][str(i_run)]['acc'].mean(-1))
             best_confs[0] = config
+            best_ids[0] = i_run
         if np.amax(all_res['validation_res'][str(i_run)]['logl'].mean(-1)) > best_logl:
             best_logl = np.amax(all_res['validation_res'][str(i_run)]['logl'].mean(-1))
             best_confs[1] = config
+            best_ids[1] = i_run
 
         x = np.linspace(1,config['n_global_updates'],config['n_global_updates'])
 
+        # check whats happening
+        #print( all_res['validation_res'][str(i_run)]['acc'])
+        #print( all_res['validation_res'][str(i_run)]['logl'])
+
         # testing error plot
         if plot_test_error:
-            axs[0,0].errorbar(x, all_res['validation_res'][str(i_run)]['acc'].mean(-1), 
+            axs[0,0].errorbar(x, np.nanmean(all_res['validation_res'][str(i_run)]['acc'],-1 ), 
                     yerr= 2*all_res['validation_res'][str(i_run)]['acc'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    #yerr= 2*np.nanstd(all_res['validation_res'][str(i_run)]['acc'],-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
                     label=cur_label, 
-                    color=colors[i_line%len(colors)])
-            axs[1,0].errorbar(x, all_res['validation_res'][str(i_run)]['logl'].mean(-1), 
-                    yerr= 2*all_res['validation_res'][str(i_run)]['logl'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                    color=colors[i_line%len(colors)],
+                    marker='*')
+            axs[1,0].errorbar(x, np.nanmean(all_res['validation_res'][str(i_run)]['logl'],-1), 
+                    yerr= 2*np.nanstd(all_res['validation_res'][str(i_run)]['logl'],-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
                     label=cur_label,
-                    color=colors[i_line%len(colors)]
+                    color=colors[i_line%len(colors)],
+                    marker='*'
                     )
 
             #posneg_measures = ['avg_prec_score','balanced_acc','f1_score']
@@ -686,12 +1277,15 @@ if plot_comparisons:
                         )
             # avg ROC curve at best logl global update
             else:
-                axs[0,1].plot( 1-all_res['validation_res'][str(i_run)]['TNR'].mean(0), all_res['validation_res'][str(i_run)]['TPR'].mean(0), 
-                        #yerr= 2*all_res['validation_res'][str(i_run)]['balanced_acc'].std(0)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
-                        label=cur_label,
-                        color=colors[i_line%len(colors)]
-                        )
-            #plt.plot(1-all_res['validation_res'][str(i_run)]['TNR'][i_seed,:], all_res['validation_res'][str(i_run)]['TPR'][i_seed,:] )
+                try:
+                    axs[0,1].plot( 1-all_res['validation_res'][str(i_run)]['TNR'].mean(0), all_res['validation_res'][str(i_run)]['TPR'].mean(0), 
+                            #yerr= 2*all_res['validation_res'][str(i_run)]['balanced_acc'].std(0)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
+                            label=cur_label,
+                            color=colors[i_line%len(colors)]
+                            )
+                #plt.plot(1-all_res['validation_res'][str(i_run)]['TNR'][i_seed,:], all_res['validation_res'][str(i_run)]['TPR'][i_seed,:] )
+                except:
+                    pass
 
             axs[1,1].errorbar(x, all_res['validation_res'][str(i_run)]['avg_prec_score'].mean(-1), 
                     yerr= 2*all_res['validation_res'][str(i_run)]['avg_prec_score'].std(-1)/np.sqrt(config['n_rng_seeds']), # 2*SEM errorbar over seeds
@@ -880,6 +1474,7 @@ if plot_comparisons:
     if best_confs[1] == best_confs[0]:
         best_confs[1] = None
     print(f'\nBest logl: {best_logl:.5f} found with config:\n{best_confs[1]}')
+    print(f'Best run ids: {best_ids}')
 
     if to_disk:
         plt.savefig(fig_folder+fig_name)
