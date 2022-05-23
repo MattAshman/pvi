@@ -107,9 +107,15 @@ def main(args, rng_seed, dataset_folder):
     if torch.cuda.is_available() and torch.cuda.device_count() > 0:
       torch.cuda.manual_seed(rng_seed)
 
+    data_args=None
+    # additional flag for using balanced MIMIC-III 
+    if 'mimic3' in dataset_folder:
+        data_args = {'balance_data' : True}
+        logger.debug('Using balanced MIMIC-III data')
+
     #client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
     client_data, train_set, valid_set, N, prop_positive  = standard_client_split(
-            None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder
+            None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder, data_args=data_args
             )
     #x_train, x_valid, y_train, y_valid = full_data_split
     x_train, x_valid, y_train, y_valid = train_set['x'], valid_set['x'], train_set['y'], valid_set['y']
@@ -164,6 +170,7 @@ def main(args, rng_seed, dataset_folder):
         'dp_mode' : args.dp_mode, 
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
+        'use_nat_grad' : args.use_nat_grad, # natural gradient for mean-field Gaussian
         'pre_clip_sigma' : args.pre_clip_sigma,
         'enforce_pos_var' : args.enforce_pos_var,
         'track_client_norms' : args.track_client_norms,
@@ -602,7 +609,7 @@ def plot_training_curves(client_train_res, clients):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="parse args")
     parser.add_argument('--model', default='pvi', type=str, help="Which model to use: \'pvi\', \'bcm_same\', \'bcm_split\', or \'global_vi\'")
-    parser.add_argument('--server', default='synchronous', type=str, help="Which server to use: \'synchronous\', or \'sequential\'")
+    parser.add_argument('--server', default='sequential', type=str, help="Which server to use: \'synchronous\', or \'sequential\'")
     parser.add_argument('--n_global_updates', default=1, type=int, help='number of global updates')
     parser.add_argument('-lr', '--learning_rate', default=1e-2, type=float, help='learning rate')
     parser.add_argument('--use_lr_scheduler', default=False, action='store_true', help="use multistep lr scheduler, Actual schedule defined in this script when setting up clients")
@@ -613,16 +620,17 @@ if __name__ == '__main__':
     parser.add_argument('--pseudo_client_q', default=1., type=float, help="sampling fraction used by pseudo-clients in local pvi")
     parser.add_argument('--pre_clip_sigma', default=0., type=float, help='noise magnitude for noise added before clipping (biass mitigation)')
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
-    parser.add_argument('--dp_C', default=100., type=float, help='gradient norm bound')
+    parser.add_argument('--dp_C', default=1000., type=float, help='gradient norm bound')
+    parser.add_argument('--use_nat_grad', default=False, action='store_true', help="Use natural gradients (assuming mean-field Gaussian)")
     #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
 
-    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default=None, type=str, help='path to combined train-test folder')
     parser.add_argument('--freeze_var_updates', default=0, type=int, help='Freeze var params for first given number of global updates')
 

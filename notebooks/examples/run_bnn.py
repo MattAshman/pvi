@@ -111,8 +111,15 @@ def main(args, rng_seed, dataset_folder):
     if torch.cuda.is_available() and torch.cuda.device_count() > 0:
       torch.cuda.manual_seed(rng_seed)
 
+
+    data_args=None
+    # additional flag for using balanced MIMIC-III 
+    if 'mimic3' in dataset_folder:
+        data_args = {'balance_data' : True}
+        logger.debug('Using balanced MIMIC-III data')
+
     client_data, train_set, valid_set, N, prop_positive = standard_client_split(
-            None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder
+            None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder, data_args=data_args
             )
 
     x_train, x_valid, y_train, y_valid = train_set['x'], valid_set['x'], train_set['y'], valid_set['y']
@@ -131,7 +138,7 @@ def main(args, rng_seed, dataset_folder):
             "output_dim": args.n_classes,
             "num_layers": args.n_layers,
             "prior_var": 1.0,
-            "use_probit_approximation" : False, 
+            "use_probit_approximation" : True, 
             "num_predictive_samples"   : 100, # only used when use_probit_approximation = False
             "pbar" : pbar, 
             }
@@ -171,6 +178,7 @@ def main(args, rng_seed, dataset_folder):
         'dp_mode' : args.dp_mode, 
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
+        'use_nat_grad' : args.use_nat_grad, # natural gradient for mean-field Gaussian
         'pre_clip_sigma' : args.pre_clip_sigma,
         'enforce_pos_var' : args.enforce_pos_var,
         'track_client_norms' : args.track_client_norms,
@@ -574,15 +582,16 @@ if __name__ == '__main__':
     parser.add_argument('--pre_clip_sigma', default=0., type=float, help='noise magnitude for noise added before clipping (biass mitigation)')
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=1000., type=float, help='gradient norm bound')
-    parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--use_nat_grad', default=False, action='store_true', help="Use natural gradients (assuming mean-field Gaussian)")
+    #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
+    parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
-    parser.add_argument('--n_classes', default=10, type=int, help="Number of classes to predict")
+    parser.add_argument('--n_classes', default=2, type=int, help="Number of classes to predict")
     parser.add_argument('--latent_dim', default=50, type=int, help="BNN latent dim")
     parser.add_argument('--n_layers', default=1, type=int, help="number of BNN (latent) layers")
     parser.add_argument('--init_var', default=1e-3, type=float, help='Initial BNN variance')
