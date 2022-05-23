@@ -244,6 +244,17 @@ class Client(ABC):
                 loss = kl - ll
                 loss.backward()
 
+                # try natural params
+                if 0:
+                    for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
+                        #print(p_.grad)
+                        if i_weight == 0:
+                            p_.grad = (torch.exp(list(q.parameters())[1]*2) * p_.grad).detach().clone()
+                        elif i_weight == 1:
+                            p_.grad = (torch.exp(list(q.parameters())[1]*2)/2 * p_.grad).detach().clone()
+                        else:
+                            raise ValueError('Got more than 2 set of weights!')
+
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
                 epoch["elbo"] += -loss.item() / n_samples
