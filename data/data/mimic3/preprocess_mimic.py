@@ -31,7 +31,7 @@ def read_and_extract_features(reader, period, features):
     X = common_utils.extract_features_from_rawdata(ret['X'], ret['header'], period, features)
     return (X, ret['y'], ret['name'])
 
-def get_readers(input_dir):
+def get_readers_mortality(input_dir):
     '''
     Args:
         input_dir : path to the in-hospital mortality task subfolder
@@ -49,12 +49,98 @@ def get_readers(input_dir):
                                                  period_length=48.0)
 
     return train_reader, val_reader, test_reader
+
+
+def get_readers_LOS(input_dir):
+    '''
+    Args:
+        input_dir : path to the length of stay task subfolder
+        note: not clear if these work properly
+    '''
+    print('init LOS train reader')
+    train_reader = LengthOfStayReader(dataset_dir=os.path.join(input_dir, 'train'),
+                                                 listfile=os.path.join(input_dir+'train/', 'listfile.csv'))
+    # note: validation data separated from train, no separate folder
+    #val_reader = LengthOfStayReader(dataset_dir=os.path.join(input_dir+'train/', 'train'),
+    #                                             listfile=os.path.join(input_dir, 'val_listfile.csv'))
+    print('init LOS test reader')
+    test_reader = LengthOfStayReader(dataset_dir=os.path.join(input_dir, 'test'),
+                                                 listfile=os.path.join(input_dir+'test/', 'listfile.csv'))
+    print('Done')
+    return train_reader, test_reader
+
 ##########################################################
 
 
-def do_data_split(args):
+def do_data_split_LOS(args):
     """
-    main script for data preprocessing
+    main script for data preprocessing for length of stay data
+    """
+    #/scratch/project_2003275/dp-pvi/pvi/data/data/mimic_raw
+
+    # fix random seeds
+    np.random.seed(args.random_seed)
+
+    #folder = 'length_of_stay/'
+    #tmp = np.load(folder+'test_ts.npy')
+    #tmp2 = np.load(folder+'test_y.npy')
+    #print(tmp.shape, tmp2.shape)
+    #print(np.allclose(tmp,tmp2))
+    #sys.exit()
+    try:
+        # read numpy mimic
+        filename = args.output_dir+'numpy_mimic_LOS.npz'
+        tmp = np.load(filename)
+        train_X = tmp['train_X']
+        val_X = tmp['val_X']
+        test_X = tmp['test_X']
+        train_y = tmp['train_y']
+        val_y = tmp['val_y']
+        test_y = tmp['test_y']
+
+    except:
+        """
+        # read mimic data
+        train_reader, test_reader = get_readers_LOS(args.input_dir_LOS)
+        period, features = 'all', 'all'
+        print('Reading data and extracting features ...')
+        tmp = read_and_extract_features(train_reader, period, features)
+        (train_X, train_y, _) = read_and_extract_features(train_reader, period, features)
+        #(val_X, val_y, _) = read_and_extract_features(val_reader, period, features)
+        (test_X, test_y, _) = read_and_extract_features(test_reader, period, features)
+        """
+        # read LOS data from numpy arrays and save as one single
+        folder = 'length_of_stay/'
+        print(f'reading from {folder}')
+        train_X = np.load(folder+'train_X.npy')
+        train_y = np.load(folder+'train_y.npy')
+        val_X = np.load(folder+'val_X.npy')
+        val_y = np.load(folder+'val_y.npy')
+        test_X = np.load(folder+'test_X.npy')
+        test_y = np.load(folder+'test_y.npy')
+        #print(train_X.shape)
+        #sys.exit()
+
+        # save intermediate results
+        if args.save_intermediate:
+            np.savez_compressed(args.output_dir+f'numpy_mimic_LOS', 
+                        #**{'train_X':train_X, 'test_X':test_X,'train_y':train_y, 'test_y':test_y})
+                        **{'train_X':train_X, 'val_X':val_X, 'test_X':test_X,'train_y':train_y, 'val_y':val_y, 'test_y':test_y})
+
+    print('Done reading data')
+    print('  train data shape = {}'.format(train_X.shape))
+    print('  valid data shape = {}'.format(val_X.shape))
+    print('  test data shape = {}'.format(test_X.shape))
+
+    # balance data: keep same numebr of positive and negative samples?
+    #print(f'train number of pos samples: {np.sum(train_y == 1)}, train fraction of pos samples: { np.sum(train_y == 1)/(len(train_y))}')
+    #print(f'val number of pos samples: {np.sum(val_y == 1)}, val fraction of pos samples: { np.sum(val_y == 1)/(len(val_y))}')
+    #print(f'test number of pos samples: {np.sum(test_y == 1)}, test fraction of pos samples: { np.sum(test_y == 1)/(len(test_y))}')
+
+
+def do_data_split_mortality(args):
+    """
+    main script for data preprocessing for mortality prediction
     """
 
     # fix random seeds
@@ -72,7 +158,7 @@ def do_data_split(args):
         test_y = tmp['test_y']
     except:
         # read mimic data
-        train_reader, val_reader, test_reader = get_readers(args.input_dir)
+        train_reader, val_reader, test_reader = get_readers_mortality(args.input_dir_mortality)
         period, features = 'all', 'all'
         print('Reading data and extracting features ...')
         (train_X, train_y, _) = read_and_extract_features(train_reader, period, features)
@@ -171,6 +257,8 @@ def do_data_split(args):
         test_X = scaler.transform(test_X)
     print('Done.')
 
+    sys.exit('aborting before writing')
+
     # note: with balanced data train-test split is done by utils-script when initing clients
     if not args.balance_data:
         print('Dividing training data into client partitions via K-means')
@@ -214,7 +302,9 @@ def do_data_split(args):
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description="parse args")
-    parser.add_argument('--input_dir', default='/Users/mixheikk/Documents/mimic3-benchmarks/data/in-hospital-mortality/', type=str, help="Path to in-hospital mortality subfolder created by MIMIC preprocessing scripts")
+    parser.add_argument('--input_dir_mortality', default='/Users/mixheikk/Documents/mimic3-benchmarks/data/in-hospital-mortality/', type=str, help="Path to in-hospital mortality subfolder created by MIMIC preprocessing scripts")
+    #parser.add_argument('--input_dir_LOS', default='/Users/mixheikk/Documents/mimic3-benchmarks/data/length-of-stay/', type=str, help="Path to lenght of stay subfolder created by MIMIC preprocessing scripts")
+    parser.add_argument('--input_dir_LOS_numpy', default='/Users/mixheikk/Documents/mimic3-benchmarks/data/length-of-stay/', type=str, help="Path to lenght of stay subfolder created by MIMIC preprocessing scripts in numpy format")
 
     parser.add_argument('--output_dir', default='/Users/mixheikk/Documents/git/DP-PVI/pytorch_pvi/pvi/data/data/mimic3/', type=str, help="Path to output dir")
     parser.add_argument('--target_dim', default=50, type=int, help="Target data dimensionality <= 714, use logistic regression abs weight valeus to determine most important dims")
@@ -230,9 +320,11 @@ if __name__ == '__main__':
     # a bit of workaround
     sys.path.append('/Users/mixheikk/Documents/mimic3-benchmarks')
     from mimic3benchmark.readers import InHospitalMortalityReader
+    #from mimic3benchmark.readers import LengthOfStayReader
     from mimic3models import common_utils
 
-    do_data_split(args)
+    #do_data_split_mortality(args)
+    do_data_split_LOS(args)
 
 
 
