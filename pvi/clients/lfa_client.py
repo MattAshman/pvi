@@ -32,7 +32,7 @@ class VaryingBatchSampler():
     def __iter__(self):
         return iter([list(range(cur-b,cur)) for cur,b in zip(itertools.accumulate(self.batch_sizes),iter(self.batch_sizes))])
 
-    def __len__(self) -> int:
+    def __len__(self):
         return len(self.batch_sizes)
 
 
@@ -46,14 +46,6 @@ class LFA_Client(Client):
 
         super().__init__(data=data, model=model, t=t, config=config)
 
-        #self._config = config
-        
-        #print(self.config)
-        
-        # Set data partition and likelihood
-        #self.data = data
-        #self.model = model
-
         # Initialise optimiser states
         if config['batch_size'] is None:
             self.n_local_models = int(np.ceil(1/(config['sampling_frac_q']))  )
@@ -64,12 +56,6 @@ class LFA_Client(Client):
         self.optimiser_states = None
         self.lr_scheduler_states = None
         
-        # Set likelihood approximating term
-        #self.t = t
-        
-        #self.log = defaultdict(list)
-        #self._can_update = True
-
         # actually tracks norm of change in params for LFA
         #if self._config['track_client_norms']:
         #    self.pre_dp_norms = []
@@ -90,6 +76,7 @@ class LFA_Client(Client):
         tmp2 = len(self.data['y']) - tmp1*self.n_local_models
         batch_sizes = np.zeros(self.n_local_models, dtype=int) + tmp1
         batch_sizes[:tmp2] += 1
+
         #print(tmp1,tmp2)
         #print(np.unique(batch_sizes))
         #print(batch_sizes)
@@ -245,6 +232,18 @@ class LFA_Client(Client):
                 loss = kl - ll # NOTE: doesn't have LFA regularizer at the moment, should add?
 
                 loss.backward()
+
+                # try natural gradient
+                if self.config['use_nat_grad']:
+                    for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
+                        #print(p_.grad)
+                        if i_weight == 0:
+                            p_.grad = (torch.exp(list(q.parameters())[1]*2) * p_.grad).detach().clone()
+                        elif i_weight == 1:
+                            p_.grad = (torch.exp(list(q.parameters())[1]*2)/2 * p_.grad).detach().clone()
+                        else:
+                            raise ValueError('Got more than 2 set of weights!')
+
 
                 if self.config['track_client_norms']:
                     delta_param_norm = 0

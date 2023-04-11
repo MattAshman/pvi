@@ -15,11 +15,39 @@ logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 logger.setLevel(logging.INFO)
 
+#from opacus import GradSampleModule
+#from opacus import PrivacyEngine
+#from opacus.optimizers.optimizer import DPOptimizer
+
+
 # =============================================================================
 # Client class
 # =============================================================================
 
 
+
+# custom Module class, need for opacus dpsgd
+class CustomModel(torch.nn.Module):
+    def __init__(self, model, parameters, num_elbo_samples):
+        """
+        In the constructor we instantiate four parameters and assign them as
+        member parameters.
+        """
+        super().__init__()
+
+        #print(parameters)
+        #sys.exit()
+        self.model_ = model
+        self.params = parameters
+        self.num_elbo_samples = num_elbo_samples
+
+
+    def forward(self, x):
+        ll = self.model_.expected_log_likelihood(
+                batch, q).sum()
+        return ll
+
+import copy
 class DPSGD_Client(Client):
     
     def __init__(self, data, model, t=None, config=None):
@@ -29,24 +57,7 @@ class DPSGD_Client(Client):
 
         super().__init__(data, model,t=t, config=config)
 
-        #self._config = self.get_default_config()
-        #self._config = config
-        
-        # Set data partition and likelihood
-        #self.data = data
-        #self.model = model
-        
-        # Set likelihood approximating term
-        #self.t = t
-        
-        #self.log = defaultdict(list)
-        #self._can_update = True
-
-
-        #if self._config['track_client_norms']:
-        #    self.pre_dp_norms = []
-        #    self.post_dp_norms = []
-
+        #self.opacus_model = GradSampleModule(copy.deepcopy(model))
 
     def gradient_based_update(self, p, init_q=None, global_prior=None):
         # Cannot update during optimisation.
@@ -154,10 +165,12 @@ class DPSGD_Client(Client):
 
             for i_step in range(n_samples):
                 try:
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next() # fix to work with updated pytorch
+                    (x_batch, y_batch) = next(tmp)
                 except StopIteration as err:
                     tmp = iter(loader)
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next() # fix to work with updated pytorch
+                    (x_batch, y_batch) = next(tmp)
 
                 #logger.debug(f'optimiser starting step {i_step} with total batch_size {len(y_batch)}')
 
@@ -185,7 +198,7 @@ class DPSGD_Client(Client):
                         "y" : torch.unsqueeze(y_single,0),
                     }
                     #print(batch['x'].shape, batch['y'].shape)
-                    #sys.exit()
+                    #sys.exit('dpsgd')
 
                     # Compute KL divergence between q and q_cav.
                     try:
@@ -212,8 +225,18 @@ class DPSGD_Client(Client):
                     # Negative local free energy is KL minus log-probability.
                     loss = kl - ll
 
-
                     loss.backward(retain_graph=False) # keep graph when kl is computed outside loop
+
+                    # try natural gradient
+                    if self.config['use_nat_grad']:
+                        for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
+                            #print(p_.grad)
+                            if i_weight == 0:
+                                p_.grad = (torch.exp(list(q.parameters())[1]*2) * p_.grad).detach().clone()
+                            elif i_weight == 1:
+                                p_.grad = (torch.exp(list(q.parameters())[1]*2)/2 * p_.grad).detach().clone()
+                            else:
+                                raise ValueError('Got more than 2 set of weights!')
 
                     trace_tmp[0] += ll.item()
                     trace_tmp[1] += -loss.item()
@@ -336,6 +359,10 @@ class DPSGD_Client(Client):
             return q_new, None
 
 
+
+
+
+# NOTE: THIS IS STALE
 class Userlevel_DPSGD_Client(Client):
     """DPSGD client where sampling is on user level:
     config['batch_size'] defines numebr of data points per user (+1 for first users if uneven number of samples), while config['sampling_frac_q'] is used for setting user-level batch size for random sampling
@@ -488,10 +515,12 @@ class Userlevel_DPSGD_Client(Client):
 
                 # note: implement only user-level sampling here, no need to worry about having both
                 try:
-                    user_inds = tmp.next()
+                    #user_inds = tmp.next()
+                    user_inds = next(tmp)
                 except StopIteration as err:
                     tmp = iter(loader)
-                    user_inds = tmp.next()
+                    #user_inds = tmp.next()
+                    user_inds = next(tmp)
 
                 # simple DP-SGD implementation
                 trace_tmp = np.zeros(2) # for keeping track of ELBO and logl

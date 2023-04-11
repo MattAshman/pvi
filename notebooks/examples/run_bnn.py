@@ -138,8 +138,8 @@ def main(args, rng_seed, dataset_folder):
             "output_dim": args.n_classes,
             "num_layers": args.n_layers,
             "prior_var": 1.0,
-            "use_probit_approximation" : True, 
-            "num_predictive_samples"   : 100, # only used when use_probit_approximation = False
+            "use_probit_approximation" : True, # used only for logistic regr
+            "num_predictive_samples"   : 100, # for log.rerg. only used when use_probit_approximation = False
             "pbar" : pbar, 
             }
 
@@ -166,6 +166,7 @@ def main(args, rng_seed, dataset_folder):
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment? i guess not
         'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
+        'n_step_dict' : args.n_step_dict,
         'optimiser' : 'Adam',
         'optimiser_params' : {'lr' : args.learning_rate},
         'lr_scheduler' : 'MultiStepLR',
@@ -327,6 +328,8 @@ def main(args, rng_seed, dataset_folder):
     validation_res['logl'] = np.zeros((args.n_global_updates))
     validation_res['posneg'] = []
     client_train_res = {}
+
+    # only records training performance when using single n_steps_dict is None, otherwise just output zeros
     client_train_res['elbo'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
     client_train_res['logl'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
     client_train_res['kl'] = np.zeros((args.clients, args.n_global_updates, args.n_steps))
@@ -372,7 +375,7 @@ def main(args, rng_seed, dataset_folder):
                 #print( server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo'] )
                 #print(client_train_res['elbo'][i_client,i_global,:].shape)
 
-                if args.dp_mode not in ['mixed_dpsgd']:
+                if args.dp_mode not in ['mixed_dpsgd'] and args.n_step_dict is None:
                     # client log shapes may change during run with mixed_dpsgd, so skip these for now
                     client_train_res['elbo'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']
                     client_train_res['logl'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['ll']
@@ -598,7 +601,8 @@ if __name__ == '__main__':
     parser.add_argument('--freeze_var_updates', default=0, type=int, help='Freeze BNN var params for first given number of global updates')
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
-    parser.add_argument('--n_steps', default=4, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
+    parser.add_argument('--n_steps', default=4, type=int, help="numebr of local steps/passes trhough the data to make per global update. note: should generally have n_steps_dict=None")
+    parser.add_argument('--n_step_dict', default={'0':10, '2': 20, '3':1}, type=dict, help="dict of local step numbers. Key=str(global update) when to apply value for n_steps. Set to None for normal behaviour.")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     # NOTE: rho & kappa only make sense for UCI data

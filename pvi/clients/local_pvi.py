@@ -16,6 +16,7 @@ from .param_dp_client import Param_DP_Client
 from pvi.distributions.exponential_family_distributions import MeanFieldGaussianDistribution
 from pvi.distributions.exponential_family_factors import MeanFieldGaussianFactor
 from pvi.servers.synchronous_server import SynchronousServer
+from pvi.servers.sequential_server import SequentialServer
 
 logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
@@ -160,6 +161,7 @@ class Local_PVI_Client(Client):
                         }
 
             ChosenServer = SynchronousServer
+            #ChosenServer = SequentialServer # use sequential only for debugging; can't use with DP
             self.pseudo_server = ChosenServer(model=self.model,
                                     p=p.non_trainable_copy(), # global prior=eff prior for given client?
                                     init_q=init_q.non_trainable_copy(), #q_old initial q distr=current model, note:if restarting will only ever use init_q!
@@ -200,15 +202,17 @@ class Local_PVI_Client(Client):
                      #f"Epochs: {i}.")
         '''
 
-        for k in training_curve:
-            training_curve[k] = np.zeros(self.config['epochs'])
-            for i_client, client in enumerate(self.pseudo_clients):
-                training_curve[k] += np.array(client.log['training_curves'][-1][k])/len(self.pseudo_clients)
-        self.log["training_curves"].append(training_curve)
+        if self.config['n_step_dict'] is None:
+            for k in training_curve:
+                training_curve[k] = np.zeros(self.config['epochs'])
+                for i_client, client in enumerate(self.pseudo_clients):
+                    training_curve[k] += np.array(client.log['training_curves'][-1][k])/len(self.pseudo_clients)
+            self.log["training_curves"].append(training_curve)
 
         
         # Finished optimisation, can now update.
         self._can_update = True
+        self.update_counter += 1
 
         # check if summing all pseudo_client t:s give same local factor, approximately yes
         '''

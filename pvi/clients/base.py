@@ -202,10 +202,12 @@ class Client(ABC):
 
             for i_step in range(n_samples):
                 try:
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next()
+                    (x_batch, y_batch) = next(tmp)
                 except StopIteration as err:
                     tmp = iter(loader)
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next()
+                    (x_batch, y_batch) = next(tmp)
 
                 #logger.debug(f'optimiser starting step {i_step} with total batch_size {len(y_batch)}')
 
@@ -220,13 +222,7 @@ class Client(ABC):
                     kl = q.kl_divergence(q_cav).sum()/len(self.data["x"])
                 except ValueError as err:
                     # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
-                    print('\nException in KL: probably caused by invalid cavity distribution')
-                    #print(q._unc_params['log_scale'])
-                    print(q_cav)
-                    print('nat params')
-                    print(q_cav.nat_params)
-                    print('std params')
-                    print(q_cav.std_params)
+                    logger.warning('\nException in KL: probably caused by invalid cavity distribution')
                     raise err
 
                 # Sample θ from q and compute p(y | θ, x) for each θ

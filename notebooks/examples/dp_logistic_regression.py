@@ -158,6 +158,7 @@ def main(args, rng_seed, dataset_folder):
         'damping_factor' : args.damping_factor,
         'valid_factors' : False, # does this work at the moment? i guess not
         'epochs' : args.n_steps, # if sampling_type is 'seq': number of full passes through local data; if sampling_type is 'poisson' or 'swor': number of local SAMPLING steps, so not full passes
+        'n_step_dict' : args.n_step_dict,
         'optimiser' : 'Adam',
         'optimiser_params' : {'lr' : args.learning_rate},
         'lr_scheduler' : 'MultiStepLR',
@@ -319,8 +320,7 @@ def main(args, rng_seed, dataset_folder):
         # run training loop
         server.tick()
 
-        if args.model != 'global_vi':
-
+        if args.model != 'global_vi' and args.dp_mode not in ['mixed_dpsgd'] and args.n_step_dict is None:
             # get client training curves
             for i_client in range(args.clients):
                 client_train_res['elbo'][i_client,i_global,:] = server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']
@@ -636,6 +636,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--clients', default=10, type=int, help='number of clients')
     parser.add_argument('--n_steps', default=10, type=int, help="when sampling type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration")
+    parser.add_argument('--n_step_dict', default=None, type=dict, help="dict of local step numbers. Key=str(global update) when to apply value for n_steps. Set to None for normal behaviour.")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
     parser.add_argument('--damping_factor', default=.1, type=float, help='damping factor in (0,1], 1=no damping')
@@ -649,26 +650,5 @@ if __name__ == '__main__':
     parser.add_argument('--pbar', default=True, action='store_false', help="disable tqdm progress bars")
     args = parser.parse_args()
 
+
     main(args, rng_seed=2303, dataset_folder=args.folder)
-
-    '''
-    abalone dataset NOT WORKING FOR SOME REASON
-    Input  shape: (4177, 10)
-    Output shape: (4177, 1)
-    adult dataset non-dp ~= .85
-    Input  shape: (48842, 108)
-    Output shape: (48842, 1)
-    mushroom dataset non-dp ~= .99
-    Input  shape: (8124, 111)
-    Output shape: (8124, 1)
-    credit dataset non-dp ~=.89
-    Input  shape: (653, 46)
-    Output shape: (653, 1)
-    bank dataset, non-dp ~= .9
-    Input  shape: (45211, 51)
-    Output shape: (45211, 1)
-    superconductor dataset NOT WORKING FOR SOME REASON
-    Input  shape: (21263, 81)
-    Output shape: (21263, 1)
-    '''
-

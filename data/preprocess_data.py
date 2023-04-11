@@ -369,7 +369,7 @@ process_dataset(f"{args.dir}/data/adult", adult_config)
 print("Processing mushroom dataset")
 process_dataset(f"{args.dir}/data/mushroom", mushroom_config)
 
-'''
+#'''
 print("Processing credit dataset")
 process_dataset(f"{args.dir}/data/credit", credit_config)
 
@@ -384,4 +384,4 @@ process_dataset(f"{args.dir}/data/protein", protein_config)
 
 print("Processing power dataset")
 process_dataset(f"{args.dir}/data/power", power_config)
-'''
+#'''

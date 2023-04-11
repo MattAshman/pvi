@@ -9,6 +9,25 @@ from matplotlib import pyplot as plt
 import numpy as np
 
 
+############ trade off run checks
+### BALANCED MIMIC3 1BNN
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_1bnn_lfa_10clients_1seeds_trade_off_runs/'
+#runs_to_plot = np.linspace(1,74,74,dtype=int) # 1) nondp runs, compare q with fixed C
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_1bnn_local_pvi_10clients_1seeds_trade_off_runs/'
+#runs_to_plot = np.linspace(1,80,80,dtype=int) # 1) nondp runs, compare q with fixed C
+
+### ADULT 1BNN
+## LFA
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_1seeds_trade_off_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) nondp runs, compare q with fixed C
+
+## LOCAL PVI
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_1seeds_trade_off_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) nondp runs, compare q with fixed C
+#runs_to_plot = np.linspace(73,264,192,dtype=int) # 1) dp runs, compare q with fixed C
 
 
 ##########################################################
@@ -53,6 +72,16 @@ import numpy as np
 #runs_to_plot = np.linspace(73,216,144,dtype=int) # 1) unbal
 
 ## eps=.5
+
+# BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_same_200clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,432,432,dtype=int) # 1)-3 bal & unbal
+
+# BCM SPLIT
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_split_200clients_1seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,436,436,dtype=int) # 1)-3 bal & unbal
+
+
 # DPSGD
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_1seeds_eps05_runs/'
 #runs_to_plot = np.linspace(1,18,18,dtype=int) # 1) bal
@@ -110,6 +139,15 @@ import numpy as np
 
 
 ## eps=.5
+# BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_same_200clients_5seeds_eps05_runs/'
+#runs_to_plot = np.linspace(1,34,34,dtype=int) # 1)+2) bal+unbal
+
+# BCM SPLIT
+main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_split_200clients_5seeds_eps05_runs/'
+runs_to_plot = np.linspace(1,21,21,dtype=int) # 1)-4) bal+unbal
+
+
 # DPSGD
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_dpsgd_200clients_5seeds_eps05_runs/'
 #runs_to_plot = np.linspace(1,8,8,dtype=int) # 1)+2) bal
@@ -146,6 +184,17 @@ import numpy as np
 
 
 ### EPS=2 runs
+## COMMS BASELINE
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_comms_baseline_5seeds_eps2_runs/'
+#runs_to_plot = [1]
+
+## BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_bcm_same_10clients_5seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,5,5,dtype=int) # 1)-5) bal & unbal
+
+## BCM SPLIT
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_bcm_split_10clients_5seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,10,10,dtype=int) # 1)-4) bal & unbal
 
 ## DPSGD
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_5seeds_eps2_runs/'
@@ -155,6 +204,11 @@ import numpy as np
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_5seeds_eps2_runs/'
 #runs_to_plot = [1] # 1) bal
 #runs_to_plot = [2] # 2) bal nat grad
+# KALE runs
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/kale_adult_1bnn_lfa_10clients_5seeds_eps2_runs/'
+#runs_to_plot =  np.linspace(1,6,6,dtype=int) # 4) unbal
+#runs_to_plot =  np.linspace(7,10,4,dtype=int) # 5) bal 30 globals
+
 
 ## LFA fixes
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_lfa_10clients_5seeds_eps2_fix_runs/'
@@ -173,12 +227,17 @@ import numpy as np
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps2_runs/'
 #runs_to_plot = np.linspace(1,12,12,dtype=int) # 1)-2)  bal&unbal
 #runs_to_plot = np.linspace(13,36,16,dtype=int) # 3)-4)  bal&unbal
+#runs_to_plot = np.linspace(37,40,4,dtype=int) # 5) bal
+#runs_to_plot = np.linspace(41,48,8,dtype=int) # 6) bal
+#runs_to_plot = np.linspace(49,60,12,dtype=int) # 7) bal
+#runs_to_plot = np.linspace(61,72,12,dtype=int) # 8) bal
+
 
 ## LOCAL PVI fixes
-main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps2_fix_runs/'
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps2_fix_runs/'
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_5seeds_eps2_fix2_runs/'
-runs_to_plot = [2,3]
-#runs_to_plot = np.linspace(1,3,3,dtype=int) # 
+#runs_to_plot = [2,3]
+#runs_to_plot = np.linspace(1,7,7,dtype=int) # 
 
 
 ### EPS=1 runs
@@ -234,6 +293,22 @@ runs_to_plot = [2,3]
 #runs_to_plot = np.linspace(1,108,108,dtype=int) # 1) bal
 
 ### EPS=2 runs
+## COMMS BASELINE
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_comms_baseline_1seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,354,354,dtype=int) # 1)-3) bal 1k,2k,4k runs
+#runs_to_plot = [320]
+
+## BCM SAME
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_bcm_same_10clients_1seeds_eps2_runs/'
+#runs_to_plot = np.concatenate([np.linspace(1,128,128,dtype=int),np.linspace(407,442,36,dtype=int)]) # 1)-3) bal 1k,2k,4k runs
+#runs_to_plot = np.concatenate([np.linspace(191,406,216,dtype=int),[443,444]]) # 4)-6) unbal
+
+
+## BCM SPLIT
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_bcm_split_10clients_1seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,324,324,dtype=int) # 1)-3) bal&unbal 1k,2k,4k runs
+
+
 ## DPSGD
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_dpsgd_10clients_1seeds_eps2_runs/'
 #runs_to_plot = np.linspace(1,72,72,dtype=int) # 1) bal
@@ -245,10 +320,33 @@ runs_to_plot = [2,3]
 #runs_to_plot = np.linspace(49,120,72,dtype=int) # 2) bal
 #runs_to_plot = np.linspace(121,257,137,dtype=int) # 3) unbal
 
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/kale_adult_1bnn_lfa_10clients_1seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,54,54,dtype=int) # 4) bal, 15 globals
+#runs_to_plot = np.linspace(55,198,144,dtype=int) # 5) unbal, 15 globals
+#runs_to_plot = np.linspace(199,360,162,dtype=int) # 6) bal&unbal, 10 globals
+#runs_to_plot = np.linspace(361,464,104,dtype=int) # 7) bal&unbal, 20 globals
+
+
 ## LOCAL PVI
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_1seeds_eps2_runs/'
 #runs_to_plot = np.linspace(1,108,108,dtype=int) # 1) bal
 #runs_to_plot = np.linspace(109,252,144,dtype=int) # 2) unbal
+#runs_to_plot = np.linspace(253,468,216,dtype=int) # 4) bal&unbal
+#runs_to_plot = np.linspace(469,522,54,dtype=int) # 5) bal
+
+
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/kale_adult_1bnn_local_pvi_10clients_1seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,72,72,dtype=int) # 3) bal
+
+# 3 seed quick test
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_1bnn_local_pvi_10clients_3seeds_eps2_runs/'
+#runs_to_plot = np.linspace(1,360,360,dtype=int) # 1) bal&unbal
+
+
+### NATGRAD runs, eps=2
+#main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/kale_adult_1bnn_lfa_10clients_1seeds_eps2_natgrad_runs/'
+#runs_to_plot = np.linspace(1,118,118,dtype=int) # 1)-2) bal+unbal
+
 
 ### EPS=1 runs
 ## DPSGD
@@ -313,7 +411,7 @@ runs_to_plot = [2,3]
 ## BCM SPLIT BASELINE
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_split_10clients_5seeds_eps1_runs/'
 #runs_to_plot = np.linspace(1,2,2,dtype=int) # 1)-2) bal
-#runs_to_plot = np.linspace(3,7,5,dtype=int) # 3)-4) unbal
+#runs_to_plot = np.linspace(3,9,7,dtype=int) # 3)-5) unbal
 
 
 ## DPSGD
@@ -389,13 +487,14 @@ runs_to_plot = [2,3]
 
 ## baseline BCM SAME
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_same_10clients_1seeds_eps1_runs/'
-#runs_to_plot = np.linspace(1,216,216,dtype=int) # 1)-3) bal
-#runs_to_plot = np.linspace(217,657,441,dtype=int) # 4)-6) unbal
+#runs_to_plot = np.concatenate([np.linspace(1,216,216,dtype=int),np.linspace(658,765,108,dtype=int)]) # 1)-3)+7)-9) bal
+#runs_to_plot = np.concatenate([np.linspace(217,657,441,dtype=int), np.linspace(658,765,108,dtype=int)]) # 4)-6)+7)-9) unbal
+
 
 ## baseline BCM SPLIT
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/adult_bcm_split_10clients_1seeds_eps1_runs/'
-#runs_to_plot = np.linspace(1,216,216,dtype=int) # 1)-3) bal
-#runs_to_plot = np.linspace(217,648,432,dtype=int) # 4)-6) unbal
+#runs_to_plot = np.concatenate([np.linspace(1,216,216,dtype=int), np.linspace(649,756,108,dtype=int)]) # 1)-3)+7)-9) bal
+#runs_to_plot = np.concatenate([np.linspace(217,648,432,dtype=int),np.linspace(649,756,108,dtype=int)]) # 4)-7)-9) unbal
 
 
 ## DPSGD
@@ -575,13 +674,13 @@ runs_to_plot = [2,3]
 
 # BCM SAME
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_same_10clients_1seeds_eps1_runs/'
-#runs_to_plot = np.linspace(1,144,144,dtype=int) # 1)-4) bal
-#runs_to_plot = np.linspace(145,432,288,dtype=int) # 5)-8) unbal
+#runs_to_plot = np.concatenate([np.linspace(1,144,144,dtype=int),np.linspace(433,540,108,dtype=int)]) # 1)-4)+9)-11) bal
+#runs_to_plot = np.concatenate([np.linspace(145,432,288,dtype=int),np.linspace(433,540,108,dtype=int)]) # 5)-11) unbal
 
 # BCM SPLIT
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_split_10clients_1seeds_eps1_runs/'
-#runs_to_plot = np.linspace(1,72,72,dtype=int) # 1)-2) bal
-#runs_to_plot = np.linspace(73,216,144,dtype=int) # 3)-4) unbal
+#runs_to_plot = np.concatenate([np.linspace(1,72,72,dtype=int),np.linspace(217,540,324,dtype=int)]) # 1)-2)+5)-7) bal
+#runs_to_plot = np.linspace(73,540,468,dtype=int) # 3)-7) unbal
 
 
 # COMMS BASELINE
@@ -602,12 +701,12 @@ runs_to_plot = [2,3]
 # BCM SAME
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_same_10clients_5seeds_eps1_runs/'
 #runs_to_plot = np.linspace(1,2,2,dtype=int) # 1)-2) bal
-#runs_to_plot = np.linspace(3,6,4,dtype=int) # 3)-6) unbal
+#runs_to_plot = np.linspace(3,7,5,dtype=int) # 3)-7) unbal
 
 # BCM SPLIT
 #main_folder = '/Users/mixheikk/Documents/git/DP-PVI/pytorch-code-results/mimic_bal_bcm_split_10clients_5seeds_eps1_runs/'
-#runs_to_plot = np.linspace(1,2,2,dtype=int) # 1)-2) bal
-#runs_to_plot = np.linspace(3,6,4,dtype=int) # 3)-4) unbal
+#runs_to_plot = np.concatenate([np.linspace(1,2,2,dtype=int),[7]]) # 1)-2)+5) bal
+#runs_to_plot = np.linspace(3,8,6,dtype=int) # 3)-6) unbal
 
 ### 10 clients, 1 seed
 ## EPS=1 runs
@@ -787,20 +886,17 @@ restrictions['dp_sigma'] = None#[23.15]
 restrictions['dp_C'] = None#[20]
 restrictions['sampling_frac_q'] = None#[1e-2]
 restrictions['learning_rate'] = None#[5e-3]
-restrictions['damping_factor'] = None#[.4]
+restrictions['damping_factor'] = None#[5e-3]
 restrictions['init_var'] = None#[1e-3]
 restrictions['freeze_var_updates'] = None#[5]
 
-plot_legends = 1
+plot_legends = 0
 
 # possible balance settings: (0,0), (.7,-3), (.75,.95)
-restrictions['data_bal_rho'] = [.0]
-restrictions['data_bal_kappa'] = [0.]
+restrictions['data_bal_rho'] = [.7]
+restrictions['data_bal_kappa'] = [-3.]
 
-# (.0,.0): 2, 2seediä ajonnut
-# (.75,.95): 10, 1seed ajonnut
-# (.7,-3): 9, 2 seediä hajonnut
-#runs_to_plot = [9]
+#runs_to_plot = [52,324]
 #runs_to_plot = np.delete(runs_to_plot, np.where(runs_to_plot == 281))
 
 # save to disk (or just show)

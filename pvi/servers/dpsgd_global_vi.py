@@ -141,10 +141,12 @@ class GlobalVIServer(Server):
             tmp = iter(loader)
             for i_step in range(n_samples):
                 try:
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next()
+                    (x_batch, y_batch) = next(tmp)
                 except StopIteration as err:
                     tmp = iter(loader)
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next()
+                    (x_batch, y_batch) = next(tmp)
 
                 self.communications += 1
 

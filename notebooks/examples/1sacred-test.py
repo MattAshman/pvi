@@ -15,27 +15,28 @@ from sacred import Ingredient
 from sacred import SETTINGS
 from sacred.utils import apply_backspaces_and_linefeeds
 
-SETTINGS['CAPTURE_MODE'] = 'fd' #sys, note sys might omit some stuff
+SETTINGS['CAPTURE_MODE'] = 'sys' #fd, sys; note sys might omit some stuff, fd might cause problems with heartbeat events resulting in losing results? using sys didn't fix heatbeat failures
 
-from dp_logistic_regression import main
+from dp_logistic_regression import main as main_log_regr
+from run_bnn import main as main_bnn
 
 # save some time by omitting gpu info
 #SETTINGS['HOST_INFO']['INCLUDE_GPU_INFO'] = False
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
+#logger.setLevel(logging.INFO)
+handler = logging.StreamHandler(sys.stdout)
+handler.setLevel(logging.DEBUG)
+#handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+logger.addHandler(handler)
 
 ex = Experiment('DP-PVI testing', save_git_info=False)
 
 # uncomment chosen experiment here, choose check configs below
-#ex.observers.append(FileStorageObserver('lfa_adult_dp_200clients_eps02_5seeds_10global_runs'))
-ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_eps02_5seeds_runs'))
-#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_100clients_runs'))
-#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_runs'))
-#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_200clients_eps02_runs'))
-#ex.observers.append(FileStorageObserver('dpsgd_adult_dp_10clients_runs'))
-#ex.observers.append(FileStorageObserver('dp_pvi_adult_optim'))
-#ex.observers.append(FileStorageObserver('dp_pvi_tests_adult_param_dp'))
+ex.observers.append(FileStorageObserver('mimic_bal_trade_off_plotting_10clients_5seeds_runs'))
 
 # try handliong progress bars nicely
 ex.captured_out_filter = apply_backspaces_and_linefeeds
@@ -48,46 +49,61 @@ def short_test(_log):
 
     # static parameters
     model = 'pvi' # which model to use: 'pvi', 'bcm_same', or 'bcm_split'
+    mixed_dp_mode_change = None
     track_params = False # track all params, should usually be False
     track_client_norms = False # track all (grad) norms, should usually be False
     plot_tracked = False # plot all tracked stuff after learning, should usually be False
     pbar =  True # disable progress bars
-    folder = '../../data/data/adult/' # data folder, uncomment one
+    #folder = '../../data/data/adult/' # data folder, uncomment one
+    folder = '../../data/data/mimic3_1/' #
     #folder = '../../data/data/abalone/' # NOTE: abalone not working at the moment
     #folder = '../../data/data/mushroom/' # note: data bal (.7,-3) with 10 clients not working, can't populate small classes
     #folder = '../../data/data/credit/' # note: data bal (.7,-3) with 10 clients not working, can't populate small classes
     #folder = '../../data/data/bank/'
     #folder = '../../data/data/superconductor/'
-    clients = 200
+    #folder = '../../data/data/MNIST/' # note: only for BNN models
+    clients = 10
     n_rng_seeds = 5 # number of repeats to do for a given experiment; initial seed from sacred
-    #parallel_updates = True # parallel or sequential updates; for distr_vi can only use True
     #prior_sharing = 'same' # 'same' or 'split': for distr_vi, whether to use same or split prior in BCM
     batch_proc_size =  1 # batch proc size; currently needs to be 1 for DP-SGD
     job_id = 0 # id that defines arg combination to use, in [0,nbo of combinations-1]; replace this by command line arg
     privacy_calculated = None # how many global steps assumed to run with the given privacy budget; doesn't stop run if global steps is more!
+    server = 'sequential' # server type: 'synchronous' or 'sequential'
+    # BNN specific options:
+    use_bnn = False # if True use main from run_bnn.py, else from dp_logistic_regression.py
+    n_classes = 2 # number of predicted classes, 2 for adult, mimic3, 10 for MNIST
+    latent_dim = 50 # latent layer size
+    n_layers = 1 # number of latent layers in the network
+    use_lr_scheduler = False # use learning rate scheduler
+    use_nat_grad = False # use natural gradient (only with mean-field Gaussians!)
 
     # dynamic parameters; choose which combination to run by job_id
+    init_var = [1e-3] # Initial BNN variance
+    freeze_var_updates = [0]
     batch_size =  [None] # batch size; used for dp_mode: 'dpsgd', 'param', 'param_fixed'; for 'lfa' use always batch_size=1
-    n_global_updates = [20] # number of global updates
-    n_steps = [10] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
-    damping_factor = [.1,.2] # damping factor in (0,1], 1=no damping
+    n_global_updates = [5] # number of global updates
+    n_steps = [50] # when sampling_type 'poisson' or 'swor': number of local training steps on each client update iteration; when sampling_type = 'seq': number of local epochs, i.e., full passes through local data on each client update iteration
+    n_step_dict = None #dict of local step numbers. Key=str(global update) when to apply value for n_steps, will overwrite regular 'n_steps'. Set to None for normal behaviour with single 'n_steps' value.
+    damping_factor = [.4] # damping factor in (0,1], 1=no damping
     learning_rate = [1e-2]
-    sampling_frac_q = [.05] # sampling fraction; only used if sampling_type is 'poisson'
-    data_bal = [(0.,0.),(.75,.95),(.7,-3.)] # list of (rho,kappa) values NOTE: nämä täytyy muuttaa oikeisiin muuttujiin koodissa
-    dp_mode = 'dpsgd' # 'dpsgd', 'param' for param pert. by each client, 'param_fixed' for param. pert. by each client using a fixed minibatch per each global update, 'fha' for hier. fedavg, or 'server' (don't use!)
-    dp_sigma = [23.15] # dp noise std factor; noise magnitude will be C*sigma
-    dp_C = [1.5,1.] # max grad norm
-    enforce_pos_var = False # enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!
-    #server_add_dp = False # when not using dp_sgd, clip  & noisify change in parameters on the (synchronous) server, otherwise on each client. NOTE: this currently means that will clip & noisify after damping!
-    #param_dp_use_fixed_sample = False # use fixed random sample of given batch size for optimisation with parameter DP (only on clients)")
-    
+    sampling_frac_q = [5e-3] # sampling fraction; only used if sampling_type is 'poisson'
+    pseudo_client_q = [1.] # sampling frac ONLY for pseudo-clients when using local_pvi
+
+    data_bal = [(0.,0.)] # list of (rho,kappa) values; for MNIST use (0,None) for homogenic split, (anything else,None) for unbalanced, no effect on Mimic3
+    dp_mode = 'lfa' # 'dpsgd', 'param' for param pert. by each client, 'param_fixed' for param. pert. by each client using a fixed minibatch per each global update, 'lfa' for local fedavg, 'nondp_epochs' for nondp with n_steps batches per global update, or 'nondp_batches' for nondp with n_steps local epochs per global update
+    pre_clip_sigma = [0.] # pre clipping noise to mitigate clipping bias
+    dp_sigma = [0.] # dp noise std factor; full noise std will be C*sigma
+    dp_C = [1.,1000.] # max grad norm
+    enforce_pos_var = False # enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment! better not to use
+    mixed_dp_mode_params = {}
+
     # get dynamic configuration, this will raise TypeError if params have already been set by some named config
     try:
-        if job_id >= (len(batch_size)*len(n_global_updates)*len(n_steps)*len(damping_factor)*len(learning_rate)*len(sampling_frac_q)*len(data_bal)*len(dp_sigma)*len(dp_C)):
+        if job_id >= (len(batch_size)*len(n_global_updates)*len(n_steps)*len(damping_factor)*len(learning_rate)*len(sampling_frac_q)*len(data_bal)*len(pre_clip_sigma)*len(dp_sigma)*len(dp_C)*len(init_var)*len(freeze_var_updates)*len(pseudo_client_q)):
             raise ValueError('job_id > number of possible parameter combinations!')
-        for i_comb, comb in enumerate(itertools.product(batch_size, n_global_updates, n_steps, damping_factor, learning_rate, sampling_frac_q, data_bal,dp_sigma, dp_C)):
+        for i_comb, comb in enumerate(itertools.product(batch_size, n_global_updates, n_steps, damping_factor, learning_rate, sampling_frac_q, pseudo_client_q, data_bal, pre_clip_sigma, dp_sigma, dp_C, init_var, freeze_var_updates)):
             if i_comb == job_id:
-                batch_size, n_global_updates, n_steps, damping_factor, learning_rate, sampling_frac_q, data_bal, dp_sigma, dp_C = comb
+                batch_size, n_global_updates, n_steps, damping_factor, learning_rate, sampling_frac_q, pseudo_client_q, data_bal, pre_clip_sigma, dp_sigma, dp_C, init_var, freeze_var_updates = comb
                 data_bal_rho, data_bal_kappa = data_bal
                 break
         del i_comb, comb
@@ -98,47 +114,6 @@ def short_test(_log):
     del data_bal
 
 
-'''
-@ex.named_config
-def unbalanced_test_config(_log):
-    """NOTE: NOT UPDATED
-    Config for running basic params testing with (un)balanced data, with or without privacy
-    """
-    logger.info('Using unbalanced_test_config')
-    # static parameters
-    batch_size = None # list, only used for calculating test acc/loss, no effect on training. None to use full test set size
-    folder = 'data/adult/' # data folder
-    clients = 10
-    model_type = 'pvi' # method: pvi, distr_vi, shared_vi
-    n_rng_seeds = 5 # number of repeats to do for a given experiment; initial seed from sacred
-    max_batch_factor = 2.5 # for simulating Poisson sampling with sampling without replacement; will crash if too low/high
-    parallel_updates = True # parallel or sequential updates; note: can use seq only with pvi or shared_vi
-    job_id = 0 # id that defines arg combination to use, in [0,nbo of combinations-1]; replace this by command line arg
-
-    # dynamic parameters; choose which combination to run by job_id
-    n_steps = [10,25,50] # number of local steps per iteration
-    learning_rate = [5e-2,1e-2,5e-3]
-    q = [[5e-3]] # list of Poisson sampling fraction for training
-    data_bal = [(0,0),(.75,.95),(.7,-3)] # list of (rho,kappa) values
-    # non-dp tests
-    #dp_sigma = [0.0] # dp noise std factor; noise magnitude will be C*sigma
-    #dp_C = [2000.] # max grad norm
-    # DP testing: 
-    dp_sigma = [1.] # dp noise std factor; noise magnitude will be C*sigma
-    dp_C = [1.,2.,5.] # max grad norm
-
-    # get dynamic configuration
-    if job_id >= (len(n_steps)*len(learning_rate)*len(q)*len(data_bal)*len(dp_sigma)*len(dp_C)):
-        raise ValueError('job_id > number of possible parameter combinations!')
-    for i_comb, comb in enumerate(itertools.product(n_steps, learning_rate, q, data_bal, dp_sigma, dp_C)):
-        if i_comb == job_id:
-            n_steps, learning_rate, q, data_bal, dp_sigma, dp_C = comb
-            data_bal_rho, data_bal_kappa = data_bal
-            break
-    
-    num_iterations = 2000//n_steps
-    del i_comb, comb, data_bal
-'''
 
 # NOTE: automain needs to be at the end of file, currently handling explicitly with regular main
 @ex.main
@@ -150,17 +125,10 @@ def dp_pvi_config_handler(_config, _seed):
     parser.set_defaults(**_config)
     args, _ = parser.parse_known_args() # need to avoid conflict with sacred args
 
-
-    '''
-    if args.model_type == 'pvi':
-        from pvi_master import main
-    elif args.model_type == 'shared_vi':
-        from shared_vi_master import main
-    elif args.model_type == 'distr_vi':
-        from distr_vi_master import main
+    if args.use_bnn:
+        main = main_bnn
     else:
-        raise ValueError(f"Model type needs to be 'pvi', 'shared_vi', or 'distr_vi'. Got {args.model_type}.")
-    '''
+        main = main_log_regr
 
     ss = SeedSequence(_seed)
     rng_seed_list = ss.spawn(1)[0].generate_state(_config['n_rng_seeds'])
@@ -175,6 +143,16 @@ def dp_pvi_config_handler(_config, _seed):
         ex.info[f'client_train_res_seed{i_seed}'] = res[2]
         ex.info[f'prop_positive_seed{i_seed}'] = res[3]
         ex.info[f'tracked_seed{i_seed}'] = res[4]
+
+    # manually save bck to avoid issues due to sacred heartbeat failures
+    import json
+    import jsonpickle
+    import jsonpickle.ext.numpy as jsonpickle_np
+    jsonpickle_np.register_handlers()
+
+    code = jsonpickle.encode(ex.info)
+    with open(ex.current_run.observers[0].dir+'/info_bck.json', 'w') as f:
+        json.dump(code, f)
 
     logger.info('Sacred test finished.')
 

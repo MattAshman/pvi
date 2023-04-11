@@ -123,6 +123,16 @@ class Param_DP_Client(Client):
 
         tensor_dataset = TensorDataset(x, y)
 
+        # check if soulhd update number of local steps
+        if self.config['n_step_dict'] is not None:
+            for k in self.config['n_step_dict']:
+                if self.update_counter >= int(k):
+                    self.config['n_epochs'] = self.config['n_step_dict'][k]
+                    del self.config['n_step_dict'][k]
+                    #print(self.config['n_step_dict'])
+                    break
+            #print(f"client set n_epochs to {self.config['n_epochs']} at local update {self.update_counter}")
+
         # set up data loader with chosen sampling type
         # sequential data pass modes
         if self.config['dp_mode'] == 'param':
@@ -139,7 +149,6 @@ class Param_DP_Client(Client):
             loader = DataLoader( torch.utils.data.Subset(tensor_dataset, indices=inds) )
         else:
             raise ValueError(f"Unexpected dp_mode in base client: {self.config['dp_mode']}")
-
 
         # Dict for logging optimisation progress
         training_curve = {
@@ -165,10 +174,12 @@ class Param_DP_Client(Client):
 
             for i_step in range(n_samples):
                 try:
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next()
+                    (x_batch, y_batch) = next(tmp)
                 except StopIteration as err:
                     tmp = iter(loader)
-                    (x_batch, y_batch) = tmp.next()
+                    #(x_batch, y_batch) = tmp.next()
+                    (x_batch, y_batch) = next(tmp)
 
                 #logger.debug(f'optimiser starting step {i_step} with total batch_size {len(y_batch)}')
 

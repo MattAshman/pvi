@@ -1,18 +1,18 @@
 #!/bin/bash
-#SBATCH --job-name dp-pvi1
+#SBATCH --job-name dppvi1
 #SBATCH --account=project_2003275
-#SBATCH --array=0-11
-#SBATCH -J dp-pvi
-#SBATCH -o log/array_job_%N_%t.out
-#SBATCH -e log/array_job_%N_%t.err
-#SBATCH --time 04:00:00
+#SBATCH --array=0-1
+#SBATCH -J dppvi
+#SBATCH -o log/array_job_%A_%a.out
+#SBATCH -e log/array_job_%A_%a.err
+#SBATCH --time 0-02:00:00
 ##SBATCH -p gputest
 ##SBATCH -p test
 #SBATCH --cpus-per-task=1
 #SBATCH -p small
 ##SBATCH --gres=gpu:v100:1
-#SBATCH --mem-per-cpu=3000MB
-#SBATCH --mail-type=END,FAIL
+#SBATCH --mem-per-cpu=2GB
+#SBATCH --mail-type=BEGIN,END,FAIL
 #SBATCH --mail-user=mixheikk@gmail.com
 
 
@@ -47,14 +47,21 @@ module purge
 #module load cuda/10.1.168
 #module load cudnn/7.6.1.34-10.1
 
-module load pytorch/1.6
+module load python-data/3.9-22.04
 
-source /projappl/project_2003275/dp-pvi/py376/bin/activate
+#module load pytorch/1.6 # removed from CSC in 2023
+#module load pytorch/1.11 # note: can't load both modules python-data and pytorch; pip installed pytorch --user for now
+
+
+#source /projappl/project_2003275/dp-pvi/py376/bin/activate
 
 
 #export XLA_FLAGS="--xla_gpu_cuda_data_dir=/appl/spack/install-tree/gcc-8.3.0/cuda-10.1.168-mrdepn"
 
 cd /scratch/project_2003275/dp-pvi/pvi/notebooks/examples
+
+sleep "${SLURM_ARRAY_TASK_ID}"
+
 ##################
 # test that jax is working
 #srun python jax-test.py
