@@ -179,7 +179,7 @@ def main(args, rng_seed, dataset_folder):
         'dp_mode' : args.dp_mode, 
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
-        'use_nat_grad' : args.use_nat_grad, # natural gradient for mean-field Gaussian
+        #'use_nat_grad' : args.use_nat_grad, # natural gradient for mean-field Gaussian
         'pre_clip_sigma' : args.pre_clip_sigma,
         'enforce_pos_var' : args.enforce_pos_var,
         'track_client_norms' : args.track_client_norms,
@@ -229,19 +229,14 @@ def main(args, rng_seed, dataset_folder):
 
     server_config = {
             'max_iterations' : args.n_global_updates,
-            'train_model' : False, # need False here?
+            'train_model' : False, 
             'model_update_freq': 1,
-            #'hyper_optimiser': 'SGD',
-            #'hyper_optimiser_params': {'lr': 1},
-            #'hyper_updates': 1,
-            #'server_add_dp' : args.server_add_dp,
             'dp_C' : args.dp_C,
             'dp_sigma' : args.dp_sigma,
             'pre_clip_sigma' : args.pre_clip_sigma,
             'enforce_pos_var' : args.enforce_pos_var,
             'dp_mode' : args.dp_mode,
             "pbar" : pbar,
-            #"freeze_var_updates" : args.freeze_var_updates,
             }
 
     # try using initial q also as prior here
@@ -253,19 +248,11 @@ def main(args, rng_seed, dataset_folder):
             ChosenServer = BayesianCommitteeMachineSplit
 
     elif args.model == 'global_vi':
-        #server_config["train_model"] = False
-        #server_config["model_optimiser_params"] = {"lr": 1e-2}
-        #server_config["max_iterations"] = 20 # NOTE: need to fix n_global_steps vs epochs vs max_iterations
-        #server_config['max_iterations'] = args.n_global_updates
         server_config["epochs"] = args.n_steps # number of local steps for dpsgd, should match n_steps
         server_config["batch_size"] = None
         server_config["sampling_frac_q"] = args.sampling_frac_q
         server_config["optimiser"] = "Adam"
         server_config["optimiser_params"] = {'lr' : args.learning_rate} #{"lr": 0.05}
-        #server_config["lr_scheduler"] = "MultiplicativeLR"
-        #server_config["lr_scheduler_params"] = {
-        #    "lr_lambda": lambda epoch: 1.
-        #}
         server_config["num_elbo_samples"] = 100
         server_config["print_epochs"] = 1
         server_config["homogenous_split"] = True
@@ -283,6 +270,7 @@ def main(args, rng_seed, dataset_folder):
 
     
     if args.dp_mode in ['mixed_dpsgd']:
+        # not used
         tmp_config = deepcopy(server_config)
         for k in args.mixed_dp_mode_params:
             tmp_config[k] = args.mixed_dp_mode_params[k]
@@ -299,25 +287,6 @@ def main(args, rng_seed, dataset_folder):
                             clients=clients,
                             config=server_config)
 
-
-    '''
-    print(model)
-    print('model dict: {}'.format(model.__dict__))
-    
-    #print(server.__dict__)
-    print(server.model.__dict__)
-    sys.exit()
-
-    dataset = torch.utils.data.TensorDataset(x, y)
-    loader = torch.utils.data.DataLoader(dataset, batch_size=500, shuffle=False)
-    pp = server.model_predict(x_batch)
-    preds.append(pp.component_distribution.probs.mean(1).cpu())
-    mlls.append(pp.log_prob(y_batch).cpu())
-
-    mll = torch.cat(mlls).mean()
-    preds = torch.cat(preds)
-    sys.exit()
-    '''
 
     train_res = {}
     train_res['acc'] = np.zeros((args.n_global_updates))
@@ -358,22 +327,13 @@ def main(args, rng_seed, dataset_folder):
             init_clients_from_existing(clients, server, client_config, new_dp_mode='dpsgd')
 
 
-        #print('server log len pre update: {}'.format( len(server.get_compiled_log()[f'client_0']['training_curves']) ))
-        #print(server.iterations)
-
         # run training loop
         server.tick()
-
-        #print('server log len post update: {}'.format( len(server.get_compiled_log()[f'client_0']['training_curves']) ))
-        #print(server.iterations)
 
         if args.model != 'global_vi':
 
             # get client training curves
             for i_client in range(args.clients):
-                #print( len(server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo']) )
-                #print( server.get_compiled_log()[f'client_{i_client}']['training_curves'][server.iterations-1]['elbo'] )
-                #print(client_train_res['elbo'][i_client,i_global,:].shape)
 
                 if args.dp_mode not in ['mixed_dpsgd'] and args.n_step_dict is None:
                     # client log shapes may change during run with mixed_dpsgd, so skip these for now
@@ -395,25 +355,14 @@ def main(args, rng_seed, dataset_folder):
 
         # param tracking
         if args.track_params:
-            #print(server.__dict__,'\n')
-            #print(server.q.__dict__,'\n')
-            #print(server.p.__dict__,'\n') this is just priors?
-
             tmp = server.q._std_from_nat(server.q._nat_params)
             param_trace1[i_global+1, :] = tmp['loc'].detach().numpy()
             param_trace2[i_global+1, :] = tmp['scale'].detach().numpy()
-            #print(server.q._nat_params)
-            #print(server.q._std_from_nat())
-            #sys.exit()
-
         
         print(f'Train: accuracy {train_acc:.3f}, mean-loglik {train_logl:.3f}\n'
               f'Valid: accuracy {valid_acc:.3f}, mean-loglik {valid_logl:.3f}\n')
 
         i_global += 1
-
-    #print(server.__dict__)
-    #sys.exit()
 
     if args.track_client_norms and args.plot_tracked:
         # separate script for lfa/dpsgd etc?
@@ -451,7 +400,6 @@ def main(args, rng_seed, dataset_folder):
             axs[i].set_xlabel('Local step')
         axs[0].set_ylabel('Pre DP client norm')
         axs[1].set_ylabel('Post DP client norm')
-
 
         figname = 'res_plots/client_norm_traces/client_norms_{}_global{}_local{}_C{}_sigma{}.pdf'.format(args.dp_mode,args.n_global_updates, args.n_steps, args.dp_C, args.dp_sigma)
         #plt.savefig(figname)
@@ -585,14 +533,8 @@ if __name__ == '__main__':
     parser.add_argument('--pre_clip_sigma', default=0., type=float, help='noise magnitude for noise added before clipping (biass mitigation)')
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=1000., type=float, help='gradient norm bound')
-    parser.add_argument('--use_nat_grad', default=False, action='store_true', help="Use natural gradients (assuming mean-field Gaussian)")
     #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
     parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
     parser.add_argument('--n_classes', default=2, type=int, help="Number of classes to predict")
     parser.add_argument('--latent_dim', default=50, type=int, help="BNN latent dim")
@@ -605,8 +547,6 @@ if __name__ == '__main__':
     parser.add_argument('--n_step_dict', default={'0':10, '2': 20, '3':1}, type=dict, help="dict of local step numbers. Key=str(global update) when to apply value for n_steps. Set to None for normal behaviour.")
     parser.add_argument('-data_bal_rho', default=.0, type=float, help='data balance factor, in (0,1); 0=equal sizes, 1=small clients have no data')
     parser.add_argument('-data_bal_kappa', default=.0, type=float, help='minority class balance factor, 0=no effect')
-    # NOTE: rho & kappa only make sense for UCI data
-    # maybe add balanced vs unbalanced for FedMNIST?
 
     parser.add_argument('--damping_factor', default=.4, type=float, help='damping factor in (0,1], 1=no damping')
     parser.add_argument('--enforce_pos_var', default=False, action='store_true', help="enforce pos.var by taking abs values when convertingfrom natural parameters; NOTE: bit unclear if works at the moment!")

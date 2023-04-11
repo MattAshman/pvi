@@ -23,7 +23,6 @@ from pvi.clients import Client
 from pvi.clients import Param_DP_Client
 
 from pvi.clients import DPSGD_Client # regular dpsgd client
-from pvi.clients import Userlevel_DPSGD_Client # adding sampling on users
 
 from pvi.clients import LFA_Client
 from pvi.clients import Local_PVI_Client
@@ -70,9 +69,10 @@ def set_up_clients(model, client_data, init_nat_params, config, dp_mode, batch_s
                 logger.debug('Init param DP clients')
         elif dp_mode in ['dpsgd']:
             if batch_size is not None and sampling_frac_q is not None:
-                client = Userlevel_DPSGD_Client(data=data, model=model, t=t, config=config)
-                if i == 0:
-                    logger.debug('Init user-level DPSGD clients')
+                raise NotImplementedError('user level DP not implemented!')
+                #client = Userlevel_DPSGD_Client(data=data, model=model, t=t, config=config)
+                #if i == 0:
+                #    logger.debug('Init user-level DPSGD clients')
             else:
                 client = DPSGD_Client(data=data, model=model, t=t, config=config)
                 if i == 0:
@@ -110,11 +110,6 @@ def init_clients_from_existing(clients, server, client_config, new_dp_mode='dpsg
     server_config['dp_mode'] = new_dp_mode
     server_config['dp_C'] = client_config['dp_C']
     server_config['dp_sigma'] = client_config['dp_sigma']
-    #server.config = server_config
-    #print(server.config)
-    #print(server.__dict__, '\n')
-    #print(server.get_compiled_log()['client_0'])
-    #sys.exit()
 
 
 
@@ -124,7 +119,6 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         dataset_seed : seed for client data splitting, None to avoid fixing separate dataset seed
         total_split : k for k-fold train-validation split
         k_split : which data split to use
-        # NOTE: need to check which ones are now actually useful
     """
 
     # Get data split
@@ -135,40 +129,6 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
 
         logger.info('Generating data')
         client_data = []
-
-        """
-        # try 1 param with two modes, half clients' data from each mode, means=(-1,1), scale just from prior
-        data_args = {}
-        data_args['mean'], data_args['cov'],data_args['sample_size'],data_args['coef'] = {},{},{},{}
-        data_args['mean']['train'], data_args['cov']['train'],data_args['sample_size']['train'],data_args['coef']['train'] = [],[],[],[]
-        data_args['mean']['test'] = torch.zeros(1)
-        data_args['cov']['test'] = torch.eye(1)
-        data_args['sample_size']['test'] = 100000
-        data_args['coef']['test'] = torch.tensor([-1.,1.]) # y mean included as 0th coef
-        for i_client in range(num_clients):
-            data_args['mean']['train'].append(torch.zeros(1))
-            data_args['cov']['train'].append(torch.eye(1))
-            data_args['sample_size']['train'].append(1000)
-            data_args['coef']['train'].append(torch.tensor([-1.,1.])) # y mean included as 0th coef
-
-        # generate training and test data for logistic regression
-        for i_client in range(num_clients):
-            client_data.append({})
-            client_data[-1]['x'] = torch.distributions.multivariate_normal.MultivariateNormal(
-                    loc=data_args['mean']['train'][i_client], covariance_matrix=data_args['cov']['train'][i_client]).sample( [data_args['sample_size']['train'][i_client],])
-            
-            # sample half of data points from one mode, half from the other
-            n_samples = data_args['sample_size']['train'][i_client]
-            tmp = torch.zeros(n_samples)
-            #print(client_data[-1]['x'].shape, data_args['coef']['train'][i_client][0].shape  )
-            tmp[:n_samples//2] = torch.nn.Sigmoid()( client_data[-1]['x'][:n_samples//2]*data_args['coef']['train'][i_client][0] ).view(-1)
-            tmp[n_samples//2:] = torch.nn.Sigmoid()( client_data[-1]['x'][n_samples//2:]*data_args['coef']['train'][i_client][1] ).view(-1)
-            #print(client_data[-1]['x'].shape,tmp.shape)
-            #print(tmp.shape)
-            client_data[-1]['y'] = torch.bernoulli(tmp)
-            #sys.exit()
-        """
-
 
         ####################
         # two params, means=(1,2), scale jsut from prior
@@ -196,28 +156,7 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             #print(client_data[-1]['x'].shape,tmp.shape)
             #print(tmp)
             client_data[-1]['y'] = torch.bernoulli(tmp)
-            #client_data[-1]['y'] = torch.matmul(client_data[-1]['x'],data_args['coef']['train'][i_client][1:]) + data_args['coef']['train'][i_client][0]
-
-            #plt.scatter(tmp, client_data[-1]['y'] )
-            #plt.show()
-
-            #from sklearn.linear_model import LogisticRegression as LR
-            #lr = LR().fit(client_data[-1]['x'].numpy(),client_data[-1]['y'].numpy())
-            #print(lr.intercept_, lr.coef_)
         # generate some training and test data for linear regression
-        '''
-        for i_client in range(num_clients):
-            client_data.append({})
-            client_data[-1]['x'] = torch.distributions.multivariate_normal.MultivariateNormal(
-                    loc=data_args['mean']['train'][i_client], covariance_matrix=data_args['cov']['train'][i_client]).sample( [data_args['sample_size']['train'][i_client],])
-            
-            client_data[-1]['y'] = torch.matmul(client_data[-1]['x'],data_args['coef']['train'][i_client][1:]) + data_args['coef']['train'][i_client][0]
-            # check that generation matches params
-            #print(f"client data x shape: {client_data[-1]['x'].shape}, y shape: {client_data[-1]['y'].shape}")
-            #from sklearn.linear_model import LinearRegression as LR
-            #lr = LR().fit(client_data[-1]['x'].numpy(),client_data[-1]['y'].numpy())
-            #print(lr.intercept_, lr.coef_)
-        '''
         tmp_x = torch.distributions.multivariate_normal.MultivariateNormal(
                     loc=data_args['mean']['test'], covariance_matrix=data_args['cov']['test']).sample([data_args['sample_size']['test'],])
         # logistic regression data:
@@ -227,17 +166,6 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         #"""
 
         n_samples = data_args['sample_size']['test']
-        """
-        tmp_x = torch.distributions.multivariate_normal.MultivariateNormal(
-                    loc=data_args['mean']['test'], covariance_matrix=data_args['cov']['test']).sample([n_samples,])
-        tmp_y = torch.zeros(n_samples)
-        #print(client_data[-1]['x'].shape, data_args['coef']['train'][i_client][0].shape  )
-        tmp_y[:n_samples//2] = torch.bernoulli(torch.nn.Sigmoid()( tmp_x[:n_samples//2]*data_args['coef']['test'][0] ).view(-1))
-        tmp_y[n_samples//2:] = torch.bernoulli(torch.nn.Sigmoid()( tmp_x[n_samples//2:]*data_args['coef']['test'][1] ).view(-1))
-        #tmp_y = torch.bernoulli(torch.nn.Sigmoid()(torch.matmul(tmp_x,data_args['coef']['test'][1:]) + data_args['coef']['test'][0] ))
-        #print(client_data[-1]['x'].shape,tmp.shape)
-        #print(tmp)
-        """
 
         # linear regression data:
         #tmp_y = torch.matmul(tmp_x,data_args['coef']['test'][1:]) + data_args['coef']['test'][0]
@@ -310,9 +238,6 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             valid_set = {'x' : torch.tensor(tmp['x_test'], dtype=torch.float),
                          'y' : torch.tensor(tmp['y_test'], dtype=torch.float)}
 
-            #print( (torch.sum(train_set['y']==0))/len(train_set['y']) )
-            #print( (torch.sum(valid_set['y']==0))/len(valid_set['y']) )
-            #sys.exit()
 
     elif 'MNIST' in dataset_folder:
         # note: use balanced split when class_balance_Factor == 0, unbalanced split otherwise
@@ -364,28 +289,6 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
             #print(len(client_data))
             #print(client_data[0]['x'].shape,client_data[0]['y'].shape)
 
-            '''
-            # check label sums: each label used exactly once
-            tmp = np.zeros((2,10))
-            for i_client in range(num_clients):
-                for i in range(10):
-                    if i_client == 0:
-                        tmp[0,i] += torch.sum(train_set['y']==i)
-                    tmp[1,i] += torch.sum( client_data[i_client]['y']==i )
-
-            print(tmp)
-            '''
-
-        # check client data distribution
-        '''
-        for i_client in range(num_clients):
-            print(f"uniques: {torch.unique(client_data[i_client]['y'])}")
-            tmp = []
-            for i in range(10):
-                tmp.append( torch.sum(client_data[i_client]['y'] == i)/len(client_data[i_client]['y']))
-            print(f"fractions: {tmp}")
-        sys.exit()
-        #'''
 
         prop_positive = np.zeros(num_clients)*np.nan
 
@@ -394,7 +297,6 @@ def standard_client_split(dataset_seed, num_clients, client_size_factor, class_b
         full_data_split = get_nth_split(total_splits, k_split, folder=dataset_folder)
         x_train, x_valid, y_train, y_valid = full_data_split
 
-        #logger.debug(f'shapes, x_train: {x_train.shape}, y_train: {y_train.shape}, x_valid: {x_valid.shape}, y_valid: {y_valid.shape}')
 
         # Prepare training data held by each client
         client_data, N, prop_positive, _ = generate_clients_data(x=x_train,
@@ -429,14 +331,6 @@ def acc_and_ll(server, x, y, n_points=101):
     """
     #try:
     pred_probs = server.model_predict(x)
-    '''
-    except:
-        print('got error in predicting')
-        #print(server.__dict__)
-        #print(server.model)
-        print(server.q.__dict__)
-        sys.exit()
-    '''
     pred_probs = pred_probs.mean.detach().numpy()
     acc = np.mean((pred_probs > 0.5) == y.numpy())
     
@@ -674,11 +568,7 @@ def bin_search_sigma(target_eps, ncomp, target_delta, q, nx, L, lbound, ubound, 
             ubound = cur
         else:
             lbound = cur
-
-        #if np.abs(ubound - lbound) < 1e-3:
-        #    print('Upper and lower bounds too close, failing!')
-        #    return None
-        
+ 
     logger.info(f'Did not converge! final sigma={cur:.5f} wirh eps={eps:.5f}')
 
 
@@ -692,113 +582,6 @@ if __name__ == '__main__':
 
     target_delta = 1e-5
     #q = .2
-
-    #ncomp=40*10
-    #########################################
-    # adult data:
-    #########################################
-    #samples_per_client = 2442 # with 10 clients
-    #samples_per_client = 244 # with 100 clients
-    # [2.6, 1.1] eps pitäisi olla suunnilleen
-
-    # LFA: eps [2.6, 1.1, .8, .5, .2] corresponding noise:
-    # 20 global updates:
-    # sigmas in [14.11., 30.48, 40.81, 63.44, 152.5]
-    # 10 global updates:
-    # sigmas in [10.,    21.67, 28.95, 44.53, 102.83]
-
-    # DPSGD: eps [2.6, 1.1, .8, .5, .2] corresponding noise:
-    # 200 total local steps
-    # q=.05
-    #sigmas in [2.23, 4.86, 6.49, 9.80, 23.15]
-    # q=.1
-    #sigmas in [4.45, 9.61, 12.88, 20.14, 46.09]
-    # q=.2
-    #sigmas in [8.94, 19.41, 25.92, 39.28, 91.95]
-
-    # 100 total local steps:
-    # q=.05
-    #sigmas in [1.60, 3.45, 4.63, ?, 16.35]
-    # q=.1
-    #sigmas in [3.15, 6.79, 9.16, ?, 32.48]
-    # q=.2
-    #sigmas in [6.31, 13.77, 18.22, ?, 65.13]
-
-    # Global VI: DPSGD: eps [.2] corresponding noise:
-    # 200 total local steps
-    # q=.005
-    #sigmas in [2.34]
-    # q=.01
-    #sigmas in [4.83]
-    # q=.02
-    #sigmas in [9.42]
-
-    #########################################
-    #########################################
-
-
-    #########################################
-    # MIMIC3 data:
-    #########################################
-    # fixed 5 clients, use only sampling_fracs
-
-    # DPSGD:       eps in [1,     2]
-    # 100 comps:
-    #   q=.01 dp_sigma in [0.95,  0.75]
-    #   q=.05 dp_sigma in [3.73,  2.00]
-    #   q=.1 dp_sigma in  [7.46,  3.98]
-    #   q=.2 dp_sigma in  [14.91, 7.97]
-
-    # 200 comps:   eps in [1,     2         4]
-    #   q=.01 dp_sigma in [1.13,  0.81      ]
-    #   q=.05 dp_sigma in [5.27,  2.82      1.54 ]
-    #   q=.1 dp_sigma in  [10.54, 5.63      3.05]
-    #   q=.2 dp_sigma in  [21.11, 11.27     6.10]
-
-    # 300 comps: eps=1
-    #   q=.01 dp_sigma in [1.33]
-    #   q=.05 dp_sigma in [6.46]
-    #   q=.1 dp_sigma in  [12.92]
-    #   q=.2 dp_sigma in  [25.84]
-
-    # 400 comps: eps in   [.2   , 1,       2.]
-    #   q=.01 dp_sigma in [     , 1.52,        ]
-    #   q=.05 dp_sigma in [     , 7.45,    3.98]
-    #   q=.1 dp_sigma in  [65.00, 14.92,   7.97]
-    #   q=.2 dp_sigma in  [     , 29.87,   15.95]
-
-    # 600 comps: eps in   [1,       2       4]
-    #   q=.01 dp_sigma in [1.84,            ]
-    #   q=.05 dp_sigma in [9.14,    4.88    2.64]
-    #   q=.1 dp_sigma in  [18.28,   9.77    5.29]
-    #   q=.2 dp_sigma in  [36.58,   19.54   10.59]
-
-    # 800 comps: eps in   [1,       2       4]
-    #   q=.01 dp_sigma in [ ,                ]
-    #   q=.05 dp_sigma in [ ,                ]
-    #   q=.1 dp_sigma in  [ ,       11.27,   ]
-    #   q=.2 dp_sigma in  [ ,       22.55,   ]
-
-    # 1000 comps: eps in   [.02,    1,       2       4]
-    #   q=.01 dp_sigma in [         2.36,            ]
-    #   q=.05 dp_sigma in [         11.79,           ]
-    #   q=.1 dp_sigma in  [103.58   23.59,   12.60,  ]
-    #   q=.2 dp_sigma in  [         47.15,   25.21,  ]
-
-    # 2000 comps: eps in    [.2,     1,       2 ]
-    #   q=0.1, dp_sigma in: [145.67, ?,      17.83]
-    #   q=0.2, dp_sigma in: [?,      ?,      35.66]
-
-    # 4000 comps: eps in    [.2,     1.,    2.]
-    #   q=0.1, dp_sigma in: [206.47, 47.15, 25.21]
-    #   q=0.2, dp_sigma in: [?,      94.38, 50.45]
-
-    # 6000 comps: eps in    [1.,    2.   ]
-    #   q=0.1, dp_sigma in: [?,     30.88]
-
-    # 8000 comps: eps in    [1.,    2.   ]
-    #   q=0.1, dp_sigma in: [66.68, 35.66]
-
 
     #########################################
     #########################################

@@ -113,11 +113,9 @@ def main(args, rng_seed, dataset_folder):
         data_args = {'balance_data' : True}
         logger.debug('Using balanced MIMIC-III data')
 
-    #client_data, valid_set, N, prop_positive, full_data_split = standard_client_split(
     client_data, train_set, valid_set, N, prop_positive  = standard_client_split(
             None, args.clients, args.data_bal_rho, args.data_bal_kappa, dataset_folder=dataset_folder, data_args=data_args
             )
-    #x_train, x_valid, y_train, y_valid = full_data_split
     x_train, x_valid, y_train, y_valid = train_set['x'], valid_set['x'], train_set['y'], valid_set['y']
 
     #print(x_train.shape, x_valid.shape)
@@ -171,7 +169,6 @@ def main(args, rng_seed, dataset_folder):
         'dp_mode' : args.dp_mode, 
         'dp_C' : args.dp_C, # clipping constant
         'dp_sigma' : args.dp_sigma, # noise std
-        'use_nat_grad' : args.use_nat_grad, # natural gradient for mean-field Gaussian
         'pre_clip_sigma' : args.pre_clip_sigma,
         'enforce_pos_var' : args.enforce_pos_var,
         'track_client_norms' : args.track_client_norms,
@@ -181,11 +178,6 @@ def main(args, rng_seed, dataset_folder):
         "freeze_var_updates" : args.freeze_var_updates,
         "n_global_updates" : args.n_global_updates,
     }
-    # change batch_size for LFA
-    #if args.dp_mode == 'lfa':
-    #    client_config['batch_size'] = 1
-    #if args.dp_mode == 'dpsgd':
-    #    client_config['batch_size'] = None
 
     # prior params, use data dim+1 when assuming model adds extra bias dim
     prior_std_params = {
@@ -201,8 +193,6 @@ def main(args, rng_seed, dataset_folder):
     # Initialise clients, q and server
     clients = set_up_clients(model, client_data, init_nat_params, client_config, dp_mode=args.dp_mode, batch_size=args.batch_size, sampling_frac_q=args.sampling_frac_q)
 
-    #print(clients[0])
-    #sys.exit()
 
     q = MeanFieldGaussianDistribution(std_params=prior_std_params,
                                       is_trainable=False, enforce_pos_var=args.enforce_pos_var)
@@ -210,10 +200,6 @@ def main(args, rng_seed, dataset_folder):
             'max_iterations' : args.n_global_updates,
             'train_model' : False, # need False here?
             'model_update_freq': 1,
-            #'hyper_optimiser': 'SGD',
-            #'hyper_optimiser_params': {'lr': 1},
-            #'hyper_updates': 1,
-            #'server_add_dp' : args.server_add_dp,
             'dp_C' : args.dp_C,
             'dp_sigma' : args.dp_sigma,
             'pre_clip_sigma' : args.pre_clip_sigma,
@@ -231,10 +217,6 @@ def main(args, rng_seed, dataset_folder):
             ChosenServer = BayesianCommitteeMachineSplit
 
     elif args.model == 'global_vi':
-        #server_config["train_model"] = False
-        #server_config["model_optimiser_params"] = {"lr": 1e-2}
-        #server_config["max_iterations"] = 20 # NOTE: need to fix n_global_steps vs epochs vs max_iterations
-        #server_config['max_iterations'] = args.n_global_updates
         server_config["epochs"] = args.n_steps # number of local steps for dpsgd, should match n_steps
         server_config["batch_size"] = None
         server_config["sampling_frac_q"] = args.sampling_frac_q
@@ -290,27 +272,11 @@ def main(args, rng_seed, dataset_folder):
     if args.track_params:
         logger.warning('tracking all parameter histories, this might be costly!')
         
-        #print(server.q.__dict__)
-        #print(server.q._nat_params)
-        #print(server.q._std_from_nat())
-        #sys.exit()
-        #def _std_from_nat(cls, nat_params):
-        #np1 = nat_params["np1"]
-        #np2 = nat_params["np2"]
-
         # note: after training get natural params
         param_trace1 = np.zeros((args.n_global_updates+1, len(server.q._std_params['loc']))) 
         param_trace2 = np.zeros((args.n_global_updates+1, len(server.q._std_params['scale'])))
         param_trace1[0,:] = server.q._std_params['loc'].detach().numpy()
         param_trace2[0,:] = server.q._std_params['scale'].detach().numpy()
-
-    
-    #print(server.__dict__)
-    #print(server.q.__dict__)
-    # plot server parameters
-    #print(server.q._std_params['loc'])
-    #plt.plot
-    #sys.exit()
 
     
     i_global = 0
@@ -339,43 +305,17 @@ def main(args, rng_seed, dataset_folder):
         validation_res['logl'][i_global] = valid_logl
         validation_res['posneg'].append(valid_posneg)
 
-
-        ### mle testing:
-        '''
-        time_tic = {'global_steps': 1, 'local_steps': args.n_steps}
-        stats_tic = {'global_train_logl': train_logl, 'global_test_logl': valid_logl, 'local_train_loss': -1}
-
-        # Update the log with collected data & save it to .hdf5
-        log.update(time_tic, stats_tic)
-        '''
-        ###############
-
-
         # param tracking
         if args.track_params:
-            #print(server.__dict__,'\n')
-            #print(server.q.__dict__,'\n')
-            #print(server.p.__dict__,'\n') this is just priors?
 
             tmp = server.q._std_from_nat(server.q._nat_params)
             param_trace1[i_global+1, :] = tmp['loc'].detach().numpy()
             param_trace2[i_global+1, :] = tmp['scale'].detach().numpy()
-            #print(server.q._nat_params)
-            #print(server.q._std_from_nat())
-            #sys.exit()
-
         
         print(f'Train: accuracy {train_acc:.3f}, mean-loglik {train_logl:.3f}\n'
               f'Valid: accuracy {valid_acc:.3f}, mean-loglik {valid_logl:.3f}\n')
 
         i_global += 1
-
-    #print(server.__dict__)
-    #sys.exit()
-
-    ### mle testing
-    #log.save()
-    ###############
 
     if args.track_client_norms and args.plot_tracked:
         # separate script for lfa/dpsgd etc?
@@ -428,20 +368,13 @@ def main(args, rng_seed, dataset_folder):
         plt.tight_layout()
         #plt.savefig(figname)
         plt.show()
-        
-        #sys.exit()
-
-
 
     if args.track_params and args.plot_tracked:
         # save tracked params
         if False:
             filename = f"res_plots/param_traces/saved_params/saved_params_{args.dp_mode}_globals{args.n_global_updates}_steps{args.n_steps}_clients{args.clients}"
-            #print(param_trace1.shape, param_trace2.shape) # eli nämä on globals+1 x loc /scaleparam shape
             np.savez(filename, loc_params=param_trace1, scale_params=param_trace2)
             
-            #sys.exit()
-
 
         # plot distance from init
         if False:
@@ -461,7 +394,6 @@ def main(args, rng_seed, dataset_folder):
             #plt.savefig(figname)
             #plt.close()
             plt.show()
-            #sys.exit('break ok')
 
         # model acc + logl plot
         if False:
@@ -480,7 +412,6 @@ def main(args, rng_seed, dataset_folder):
             #plt.close()
             plt.show()
 
-        #sys.exit()
         # param trace plot over training
         if True:
             x = np.linspace(0,args.n_global_updates,args.n_global_updates+1)
@@ -562,9 +493,6 @@ def main(args, rng_seed, dataset_folder):
         #plt.plot(client.noise_norms)
         #plt.show()
 
-    #sys.exit()
-    
-
     return validation_res, train_res, client_train_res, prop_positive, tracked
 
 
@@ -621,15 +549,9 @@ if __name__ == '__main__':
     parser.add_argument('--pre_clip_sigma', default=0., type=float, help='noise magnitude for noise added before clipping (biass mitigation)')
     parser.add_argument('--dp_sigma', default=0., type=float, help='DP noise magnitude')
     parser.add_argument('--dp_C', default=1000., type=float, help='gradient norm bound')
-    parser.add_argument('--use_nat_grad', default=False, action='store_true', help="Use natural gradients (assuming mean-field Gaussian)")
     #parser.add_argument('--folder', default='../../data/data/MNIST/', type=str, help='path to combined train-test folder')
 
     #parser.add_argument('--folder', default='../../data/data/adult/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/abalone/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/mushroom/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/credit/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/bank/', type=str, help='path to combined train-test folder')
-    #parser.add_argument('--folder', default='../../data/data/superconductor/', type=str, help='path to combined train-test folder')
     parser.add_argument('--folder', default='../../data/data/mimic3/', type=str, help='path to combined train-test folder')
     #parser.add_argument('--folder', default=None, type=str, help='path to combined train-test folder')
     parser.add_argument('--freeze_var_updates', default=0, type=int, help='Freeze var params for first given number of global updates')

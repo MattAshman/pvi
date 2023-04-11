@@ -29,20 +29,6 @@ class Param_DP_Client(Client):
 
         super().__init__(data=data, model=model, t=t, config=config)
 
-        #self._config = self.get_default_config()
-        #self._config = config
-        
-        # Set data partition and likelihood
-        #self.data = data
-        #self.model = model
-        
-        # Set likelihood approximating term
-        #self.t = t
-        
-        #self.log = defaultdict(list)
-        #self._can_update = True
-
-        #self.optimiser = None
 
         if self._config['track_client_norms']:
             self.pre_dp_norms = []
@@ -58,9 +44,6 @@ class Param_DP_Client(Client):
             batch_size = int(np.floor(self.config['sampling_frac_q']*len(self.data["y"])))
         else:
             batch_size = self.config['batch_size']
-        #print(self.config['sampling_frac_q'])
-        #print(f"data size={len(self.data['y'])}, batch size {batch_size}, noise std:{self.config['dp_sigma']}, noise var: {self.config['dp_sigma']**2}")
-        #sys.exit()
         
         # Copy the approximate posterior, make old posterior non-trainable.
         q_old = p.non_trainable_copy()
@@ -131,7 +114,6 @@ class Param_DP_Client(Client):
                     del self.config['n_step_dict'][k]
                     #print(self.config['n_step_dict'])
                     break
-            #print(f"client set n_epochs to {self.config['n_epochs']} at local update {self.update_counter}")
 
         # set up data loader with chosen sampling type
         # sequential data pass modes
@@ -195,12 +177,6 @@ class Param_DP_Client(Client):
                 except ValueError as err:
                     # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
                     print('\nException in KL: probably caused by invalid cavity distribution')
-                    #print(q._unc_params['log_scale'])
-                    print(q_cav)
-                    print('nat params')
-                    print(q_cav.nat_params)
-                    print('std params')
-                    print(q_cav.std_params)
                     raise err
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
@@ -217,17 +193,6 @@ class Param_DP_Client(Client):
                 # Negative local free energy is KL minus log-probability.
                 loss = kl - ll
                 loss.backward()
-
-                # try natural gradient
-                if self.config['use_nat_grad']:
-                    for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
-                        #print(p_.grad)
-                        if i_weight == 0:
-                            p_.grad = (torch.exp(list(q.parameters())[1]*2) * p_.grad).detach().clone()
-                        elif i_weight == 1:
-                            p_.grad = (torch.exp(list(q.parameters())[1]*2)/2 * p_.grad).detach().clone()
-                        else:
-                            raise ValueError('Got more than 2 set of weights!')
 
                 # Keep track of quantities for current batch
                 # Will be very slow if training on GPUs.
@@ -297,7 +262,6 @@ class Param_DP_Client(Client):
 
             else:
                 # in unconstrained space
-                #for i_params, (p_, p_old) in enumerate(zip(q.parameters(),p.trainable_copy().parameters())):
                 for i_params, (p_, p_old) in enumerate(zip(q.parameters(),q_old.parameters())):
                     if i_params == 0:
                         # difference in params
@@ -313,14 +277,11 @@ class Param_DP_Client(Client):
                         sys.exit('Model has > 2 sets of params, DP not implemented for this!')
 
             param_norm = torch.sqrt(param_norm)
-            #logger.debug(f'diff in param, norm before clip: {param_norm}')
             if self.config['track_client_norms']:
                 self.pre_dp_norms.append(param_norm)
-                #self.noise_norms
 
             # clip and add noise to the difference in params
             if self.config['noisify_np']:
-                #print('\nbefore noising: {}\n'.format(q.nat_params))
                 tmp = {}
                 # pre clip noise to mitigate bias from clipping
                 if self.config['pre_clip_sigma'] > 0:
@@ -332,7 +293,6 @@ class Param_DP_Client(Client):
                     noise = self.config['dp_C']*self.config['dp_sigma']*torch.randn_like(q.nat_params[k])
                     if self.config['track_client_norms']:
                         tmp0 += torch.linalg.norm(noise, ord=2)
-                    #tmp[k] = (p.nat_params[k] + (q.nat_params[k]-p.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                     tmp[k] = (q_old.nat_params[k] + (q.nat_params[k]-q_old.nat_params[k])/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                                 + noise).detach().clone()
 
@@ -342,17 +302,6 @@ class Param_DP_Client(Client):
                 for p_new, k in zip(q.parameters(),tmp):
                     p_new.data =  tmp[k]
 
-                # check clipping:
-                '''
-                param_norm = 0
-                for k in q.nat_params:
-                    param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
-                param_norm = torch.sqrt(param_norm)
-                print(f'norm after clipping and noise: {param_norm}')
-
-                print('\nafter noising: {}\n'.format(q.nat_params))
-                sys.exit()
-                '''
             else:
                 raise NotImplementedError('Check implementation when not using np!!')
                 if self.config['pre_clip_sigma'] > 0:
@@ -361,17 +310,11 @@ class Param_DP_Client(Client):
                     if i_params == 0:
                         p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                                 + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
-                        # params directly
-                        #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                        #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
                     elif i_params == 1:
                         # clip change in params
                         p_.data = p_old + (p_ - p_old)/torch.clamp(param_norm/self.config['dp_C'], min=1) \
                                 + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)
                         
-                        # params directly
-                        #p_.data = (p_/torch.clamp(param_norm/self.config['dp_C'], min=1) \
-                        #        + self.config['dp_C'] * self.config['dp_sigma'] * torch.randn_like(p_)).detach().clone()
 
                     else:
                         sys.exit('Model has > 2 sets of params, param DP not implemented for this!')
@@ -379,7 +322,6 @@ class Param_DP_Client(Client):
             if self.config['track_client_norms']:
                 if self.config['noisify_np']:
                     for k in q.nat_params:
-                        #param_norm += torch.sum((q.nat_params[k] - p.nat_params[k])**2)
                         param_norm += torch.sum((q.nat_params[k] - q_old.nat_params[k])**2)
                 else:
                     raise NotImplementedError('norm tracking not implemented properly!')

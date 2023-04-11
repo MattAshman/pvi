@@ -51,15 +51,9 @@ class LFA_Client(Client):
             self.n_local_models = int(np.ceil(1/(config['sampling_frac_q']))  )
         else:
             self.n_local_models = int(np.floor((self.data['y'].shape[-1])/config['batch_size']))
-            #print(f"data len={len(self.data['y'])}, b={config['batch_size']}, n_models={self.n_local_models}, would need data len {config['batch_size']*self.n_local_models}")
-            #sys.exit()
         self.optimiser_states = None
         self.lr_scheduler_states = None
         
-        # actually tracks norm of change in params for LFA
-        #if self._config['track_client_norms']:
-        #    self.pre_dp_norms = []
-        #    self.post_dp_norms = []
 
     def gradient_based_update(self, p, init_q=None, global_prior=None):
         # Cannot update during optimisation.
@@ -76,11 +70,6 @@ class LFA_Client(Client):
         tmp2 = len(self.data['y']) - tmp1*self.n_local_models
         batch_sizes = np.zeros(self.n_local_models, dtype=int) + tmp1
         batch_sizes[:tmp2] += 1
-
-        #print(tmp1,tmp2)
-        #print(np.unique(batch_sizes))
-        #print(batch_sizes)
-        #print(np.sum(batch_sizes), len(self.data['y']))
 
         if self.t is None:
             # Standard VI: prior = old posterior.
@@ -127,7 +116,6 @@ class LFA_Client(Client):
 
         # create optimiser states on the first call
         if self.optimiser_states is None:
-            #print(f"Amount of local data:{len(self.data['y'])}, sampling frac:{self.config['sampling_frac_q']}, min,max batch_sizes:{np.amin(batch_sizes),np.amax(batch_sizes)}, sum of all batch sizes: {np.sum(batch_sizes)}, number of local models:{self.n_local_models}")
 
             optimiser = getattr(torch.optim, self.config["optimiser"])(
             parameters, **self.config["optimiser_params"])
@@ -211,12 +199,6 @@ class LFA_Client(Client):
                 except ValueError as err:
                     # NOTE: removed dirty fix: q_cav not guaranteed to give proper std, might give errors
                     print('\nException in KL: probably caused by invalid cavity distribution')
-                    #print(q._unc_params['log_scale'])
-                    print(q_cav)
-                    print('nat params')
-                    print(q_cav.nat_params)
-                    print('std params')
-                    print(q_cav.std_params)
                     raise err
 
                 # Sample θ from q and compute p(y | θ, x) for each θ
@@ -232,18 +214,6 @@ class LFA_Client(Client):
                 loss = kl - ll # NOTE: doesn't have LFA regularizer at the moment, should add?
 
                 loss.backward()
-
-                # try natural gradient
-                if self.config['use_nat_grad']:
-                    for i_weight, p_ in enumerate(filter(lambda p_: p_.requires_grad, q.parameters())):
-                        #print(p_.grad)
-                        if i_weight == 0:
-                            p_.grad = (torch.exp(list(q.parameters())[1]*2) * p_.grad).detach().clone()
-                        elif i_weight == 1:
-                            p_.grad = (torch.exp(list(q.parameters())[1]*2)/2 * p_.grad).detach().clone()
-                        else:
-                            raise ValueError('Got more than 2 set of weights!')
-
 
                 if self.config['track_client_norms']:
                     delta_param_norm = 0
@@ -308,8 +278,6 @@ class LFA_Client(Client):
                 # clip, accumulate clipped change in params, and return to the model checkpoint
                 if self.config['noisify_np']:
 
-                    #print('\nbefore noising: {}\n'.format(q.nat_params))
-                    #tmp = {}
                     for k in q.nat_params:
                         param_accumulator[k] += ((q.nat_params[k]-model_checkpoint.nat_params[k])/torch.clamp(delta_param_norm/self.config['dp_C'], min=1)).detach().clone()
 
@@ -319,9 +287,6 @@ class LFA_Client(Client):
 
                 else:
                     for i_param, (p0,p) in enumerate(zip(model_checkpoint.parameters(), q.parameters())):
-                        #if clip_params_directly:
-                        #    weight_acc[str(i_param)] += p.detach().clone()/torch.clamp(param_norm/dp_C, min=1)
-                        #else:
                         param_accumulator[str(i_param)] += ((p-p0)/torch.clamp(delta_param_norm/self.config['dp_C'], min=1)).detach().clone()
 
                         # return to model checkpoint for the next sample

@@ -12,7 +12,7 @@ from pvi.utils.dataset import ListDataset
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# Global VI class: sue DPSGD for private learning on full data
+# Global VI class: use DPSGD for private learning on full data
 # =============================================================================
 
 
@@ -169,8 +169,6 @@ class GlobalVIServer(Server):
                             "x" : torch.unsqueeze(x_single,0),
                             "y" : torch.unsqueeze(y_single,0),
                         }
-                        #print(batch['x'].shape, batch['y'].shape)
-                        #sys.exit()
 
                         # Compute KL divergence between q and p.
                         kl = q.kl_divergence(p).sum() / len(self.data["x"])
@@ -195,7 +193,6 @@ class GlobalVIServer(Server):
                             #if p_.grad is not None:
                             g_norm += torch.sum(p_.grad**2)
                         g_norm = torch.sqrt(g_norm)
-                        #print(f'grad_norm before clipping: {g_norm}')
                         
                         
                         if self._config['track_client_norms']:
